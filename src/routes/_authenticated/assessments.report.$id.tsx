@@ -1,0 +1,200 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useI18n, formatDate } from "@/lib/i18n";
+import { useMe } from "@/lib/session";
+import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
+import { AssessmentReportQuestions } from "@/components/assessment-report-questions";
+
+/**
+ * Per-assessment report — school-teacher only (legacy 'teacher' rows are
+ * converted to 'school_teacher' by the segmentation migration).
+ *
+ * Stats use only assessments / assessment_assignments / submissions.
+ * The per-question breakdown (<AssessmentReportQuestions />) reads the
+ * EXISTING `answers` table; deleting that import + JSX block removes
+ * only the breakdown, the stats above keep working.
+ *
+ * OWNER-ONLY BY RLS (merge decision): a school-teacher opening another
+ * teacher's report URL gets "not found", not the data — the assessments
+ * / submissions / answers RLS policies only allow a teacher's own rows.
+ * School-wide report visibility (a teacher seeing colleagues' reports)
+ * needs new school-member read policies and is deliberately NOT enabled
+ * in this pass; see the push summary.
+ */
+export const Route = createFileRoute("/_authenticated/assessments/report/$id")({
+  component: AssessmentReportPage,
+});
+
+type SubmissionRow = {
+  id: string;
+  student_id: string;
+  status: string;
+  final_score: number | null;
+  total_possible: number | null;
+};
+
+function pct(numerator: number, denominator: number): number | null {
+  if (denominator <= 0) return null;
+  return (numerator / denominator) * 100;
+}
+
+function formatPct(value: number | null, lang: "ar" | "en"): string {
+  if (value === null) return "—";
+  return new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-GB", {
+    maximumFractionDigits: 1,
+  }).format(value) + "%";
+}
+
+function AssessmentReportPage() {
+  const { id } = Route.useParams();
+  const { t, lang } = useI18n();
+  const { data: me, isLoading: meLoading } = useMe();
+
+  // `useMe` on main HEAD types role as "teacher" | "student" only.
+  // "school_teacher" arrives with the segmentation slice (which also
+  // extends the role type); the cast keeps this file compiling until then.
+  const role = me?.role as string | undefined;
+  const isTeacher = role === "teacher" || role === "school_teacher";
+
+  const assessmentQuery = useQuery({
+    queryKey: ["assessment-report", id],
+    enabled: !!me && isTeacher,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("assessments")
+        .select("id, title, status, due_at, teacher_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const assessment = assessmentQuery.data ?? null;
+  // Ownership: RLS already restricts the assessment read above to the
+  // teacher's own rows (a colleague's assessment loads as null -> the
+  // "not found" branch below), so this is a belt-and-braces UI check.
+  const isOwner = !assessment || assessment.teacher_id === me?.id;
+
+  const statsQuery = useQuery({
+    queryKey: ["assessment-report-stats", id],
+    enabled: !!assessment && isOwner,
+    queryFn: async () => {
+      const [{ data: assignments, error: assignmentsError }, { data: submissions, error: submissionsError }] =
+        await Promise.all([
+          supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id),
+          supabase
+            .from("submissions")
+            .select("id, student_id, status, final_score, total_possible")
+            .eq("assessment_id", id),
+        ]);
+      if (assignmentsError) throw assignmentsError;
+      if (submissionsError) throw submissionsError;
+      return {
+        assignments: assignments ?? [],
+        submissions: (submissions ?? []) as SubmissionRow[],
+      };
+    },
+  });
+
+  if (meLoading || assessmentQuery.isLoading) {
+    return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
+  }
+
+  if (!me || !isTeacher) {
+    return <Empty>{t("reportAccessDenied")}</Empty>;
+  }
+
+  if (assessmentQuery.isError) {
+    return <Empty>{t("errorGeneric")}</Empty>;
+  }
+
+  if (!assessment) {
+    return <Empty>{t("notFound")}</Empty>;
+  }
+
+  if (!isOwner) {
+    return <Empty>{t("reportAccessDenied")}</Empty>;
+  }
+
+  const assignments = statsQuery.data?.assignments ?? [];
+  const submissions = statsQuery.data?.submissions ?? [];
+  const assignedCount = assignments.length;
+  const submittedCount = submissions.length;
+  const participation = pct(submittedCount, assignedCount);
+  const ungradedCount = submissions.filter((s) => s.status === "awaiting_review").length;
+  const released = submissions.filter(
+    (s) => s.status === "released" && s.final_score !== null && Number(s.total_possible) > 0,
+  );
+  const averageReleasedPct =
+    released.length > 0
+      ? released.reduce((sum, s) => sum + (Number(s.final_score) / Number(s.total_possible)) * 100, 0) /
+        released.length
+      : null;
+
+  return (
+    <div>
+      <PageHeader
+        title={assessment.title}
+        subtitle={
+          <>
+            <Pill t={statusTone[assessment.status] ?? "neutral"}>{t(`st_${assessment.status}` as never)}</Pill>
+            {assessment.due_at ? <span className="ms-3">{t("dueAt")}: {formatDate(assessment.due_at, lang)}</span> : null}
+          </>
+        }
+        actions={
+          <Link to="/assessments" className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent">
+            {t("back")}
+          </Link>
+        }
+      />
+
+      {statsQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">{t("loading")}</p>
+      ) : statsQuery.isError ? (
+        <Empty>{t("errorGeneric")}</Empty>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Panel>
+              <p className="text-sm text-muted-foreground">{t("reportAssigned")}</p>
+              <p className="mt-1 text-3xl font-bold">{assignedCount}</p>
+            </Panel>
+            <Panel>
+              <p className="text-sm text-muted-foreground">{t("reportSubmitted")}</p>
+              <p className="mt-1 text-3xl font-bold">{submittedCount}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("reportParticipation")}: {formatPct(participation, lang)}
+              </p>
+            </Panel>
+            <Panel>
+              <p className="text-sm text-muted-foreground">{t("reportAverageReleased")}</p>
+              <p className="mt-1 text-3xl font-bold">{formatPct(averageReleasedPct, lang)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("reportReleased")}: {released.length}
+              </p>
+            </Panel>
+            <Panel>
+              <p className="text-sm text-muted-foreground">{t("reportUngraded")}</p>
+              <p className="mt-1 text-3xl font-bold">{ungradedCount}</p>
+            </Panel>
+          </div>
+
+          {submissions.length === 0 ? (
+            <div className="mt-6">
+              <Empty>{t("reportNoSubmissions")}</Empty>
+            </div>
+          ) : null}
+
+          {/* Per-question breakdown from the answers table. Removing
+              this block (plus the import at the top) drops only the
+              breakdown; the stats above keep working. */}
+          <div className="mt-8">
+            <AssessmentReportQuestions assessmentId={id} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
