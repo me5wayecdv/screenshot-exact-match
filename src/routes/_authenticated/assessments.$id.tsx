@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { WhatsAppAutoSendToggle } from "@/components/whatsapp-auto-send-toggle";
 
 type QType = Database["public"]["Enums"]["question_type"];
 type Status = Database["public"]["Enums"]["assessment_status"];
@@ -218,6 +219,10 @@ function MetaEditor({ a, subjects, onSaved }: { a: A; subjects: { id: string; na
         </div>
       </div>
       <Button onClick={save} disabled={busy}>{busy ? t("saving") : t("save")}</Button>
+      {/* Per-assessment WhatsApp auto-send (default OFF). The builder
+          query selects assessments.* so the new column arrives without
+          a query change, once the migration + types land. */}
+      <WhatsAppAutoSendToggle assessmentId={a.id} initialValue={a.auto_whatsapp_send ?? false} />
     </Panel>
   );
 }

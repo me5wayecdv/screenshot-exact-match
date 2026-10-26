@@ -7,10 +7,14 @@ import type { Database } from "@/integrations/supabase/types";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
+import { AiGradeSuggestion } from "@/components/AiGradeSuggestion";
+import { IntegritySummary } from "@/components/integrity-summary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { sendWhatsAppReport } from "@/lib/whatsapp.functions";
+import { WhatsAppSendButton } from "@/components/whatsapp-send-button";
 
 type Q = Database["public"]["Tables"]["questions"]["Row"] & {
   question_keys: Database["public"]["Tables"]["question_keys"]["Row"] | null;
@@ -63,7 +67,7 @@ function useGradingList(teacherId: string | undefined) {
       if (aRes.error) throw aRes.error;
       const assessments = aRes.data ?? [];
       const byId = new Map(assessments.map((a) => [a.id, a.title]));
-      if (assessments.length === 0) return { submissions: [] as Submission[], titles: byId, names: new Map<string, string>() };
+      if (assessments.length === 0) return { submissions: [] as Submission[], released: [] as Submission[], titles: byId, names: new Map<string, string>() };
       const sRes = await supabase
         .from("submissions")
         .select("*")
@@ -72,13 +76,21 @@ function useGradingList(teacherId: string | undefined) {
         .order("submitted_at", { ascending: false });
       if (sRes.error) throw sRes.error;
       const submissions = (sRes.data ?? []) as Submission[];
-      const studentIds = [...new Set(submissions.map((s) => s.student_id))];
+      const rRes = await supabase
+        .from("submissions")
+        .select("*")
+        .in("assessment_id", assessments.map((a) => a.id))
+        .eq("status", "released")
+        .order("submitted_at", { ascending: false });
+      if (rRes.error) throw rRes.error;
+      const released = (rRes.data ?? []) as Submission[];
+      const studentIds = [...new Set([...submissions, ...released].map((s) => s.student_id))];
       let names = new Map<string, string>();
       if (studentIds.length > 0) {
         const pRes = await supabase.from("profiles").select("id, full_name").in("id", studentIds);
         if (!pRes.error) names = new Map((pRes.data ?? []).map((p) => [p.id, p.full_name || "—"]));
       }
-      return { submissions, titles: byId, names };
+      return { submissions, released, titles: byId, names };
     },
   });
 }
@@ -168,6 +180,7 @@ function Grading() {
   if (!me || me.role !== "school_teacher") return <Empty>{t("gradingTeacherOnly")}</Empty>;
 
   const submissions = list?.submissions ?? [];
+  const released = list?.released ?? [];
   const answerByQuestion = new Map((detail?.answers ?? []).map((a) => [a.question_id, a]));
   const totalPossible = (detail?.questions ?? []).reduce((s, q) => s + Number(q.marks), 0);
 
@@ -243,6 +256,19 @@ function Grading() {
     setBusy(false);
     if (error) return void toast.error(translateError(error, lang));
     toast.success(t("released"));
+    // Auto-send is toggle-gated SERVER-side (default OFF). A skipped
+    // result (toggle off / no number / no consent / already sent) is
+    // deliberately silent — release must never nag. Only a real send or
+    // a real Meta failure gets a toast, and the failure stays visible
+    // in the audit row on the report page. The try/catch guarantees a
+    // send problem can never break the release itself.
+    try {
+      const sendResult = await sendWhatsAppReport({ data: { submissionId: selected.id, trigger: "auto" } });
+      if (sendResult.ok && sendResult.status === "sent") toast.success(t("whatsappSent"));
+      else if (!sendResult.ok) toast.error(sendResult.error ? translateError(new Error(sendResult.error), lang) : t("errorGeneric"));
+    } catch (e) {
+      toast.error(translateError(e, lang));
+    }
     setSelectedId(null);
     await qc.invalidateQueries({ queryKey: ["grading-list", me.id] });
     await qc.invalidateQueries({ queryKey: ["grading-detail", selected.id] });
@@ -274,6 +300,24 @@ function Grading() {
               ))}
             </ul>
           )}
+          {released.length > 0 && (
+            <div className="mt-6">
+              <h3 className="mb-3 font-semibold">{t("released")}</h3>
+              <ul className="space-y-3">
+                {released.map((s) => (
+                  <li key={s.id} className="rounded-md border p-3">
+                    <span className="block text-sm font-medium">{list?.titles.get(s.assessment_id) ?? "—"}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {list?.names.get(s.student_id) ?? "—"} · {formatDate(s.submitted_at, lang)}
+                    </span>
+                    <div className="mt-2">
+                      <WhatsAppSendButton submissionId={s.id} studentId={s.student_id} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Panel>
 
         <div>
@@ -290,6 +334,7 @@ function Grading() {
                   {t("totalMarks")}: {totalPossible}
                 </p>
               </Panel>
+              <IntegritySummary submissionId={selected.id} assessmentId={selected.assessment_id} />
               {detail.questions.map((q, i) => {
                 const a = answerByQuestion.get(q.id);
                 const key = q.question_keys;
@@ -354,6 +399,22 @@ function Grading() {
                           />
                         </div>
                       </div>
+                    )}
+                    {a && q.type === "written" && (
+                      <AiGradeSuggestion
+                        key={a.id}
+                        answerId={a.id}
+                        questionPrompt={q.prompt}
+                        rubric={key?.rubric ?? ""}
+                        acceptedAlternatives={(key?.accepted_alternatives as string[]) ?? []}
+                        studentAnswer={a.response ?? ""}
+                        maxMarks={Number(q.marks)}
+                        assessmentId={selected.assessment_id}
+                        onAccept={(v) => {
+                          setScores((p) => ({ ...p, [a.id]: String(v.score) }));
+                          setFeedbacks((p) => ({ ...p, [a.id]: v.feedback }));
+                        }}
+                      />
                     )}
                   </Panel>
                 );

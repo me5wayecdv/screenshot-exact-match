@@ -7,6 +7,7 @@ import { useMe } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
+import { ParentContactForm } from "@/components/parent-contact-form";
 import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -21,7 +22,7 @@ function Dashboard() {
   if (me.role === "school_teacher") return <SchoolTeacherHome name={me.fullName} />;
   if (me.role === "tutor") return <TutorHome name={me.fullName} />;
   if (me.role === "admin") return <AdminHome name={me.fullName} />;
-  return <StudentHome name={me.fullName} />;
+  return <StudentHome name={me.fullName} studentId={me.id} />;
 }
 
 function SchoolTeacherHome({ name }: { name: string }) {
@@ -171,7 +172,7 @@ function AdminHome({ name }: { name: string }) {
   );
 }
 
-function StudentHome({ name }: { name: string }) {
+function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
   const [code, setCode] = useState("");
@@ -179,10 +180,11 @@ function StudentHome({ name }: { name: string }) {
   const { data } = useQuery({
     queryKey: ["student-home"],
     queryFn: async () => {
-      const [a, s, le] = await Promise.all([
+      const [a, s, le, pc] = await Promise.all([
         supabase.from("assessments").select("id, title, instructions, due_at, status").order("created_at", { ascending: false }),
         supabase.from("submissions").select("id, assessment_id, status, final_score, total_possible"),
         supabase.from("lesson_enrollments").select("lesson_id, lessons(id, title, description, join_code)"),
+        supabase.from("profiles").select("parent_phone, whatsapp_consent").eq("id", studentId).maybeSingle(),
       ]);
       const lessons = (le.data ?? [])
         .map((r) => {
@@ -190,7 +192,7 @@ function StudentHome({ name }: { name: string }) {
           return Array.isArray(nested) ? nested[0] : nested;
         })
         .filter(Boolean) as { id: string; title: string; description: string; join_code: string | null }[];
-      return { assessments: a.data ?? [], submissions: s.data ?? [], lessons };
+      return { assessments: a.data ?? [], submissions: s.data ?? [], lessons, parentContact: pc.data ?? null };
     },
   });
   async function join(e: FormEvent) {
@@ -212,6 +214,15 @@ function StudentHome({ name }: { name: string }) {
   return (
     <>
       <PageHeader title={`${t("welcome")}، ${name}`} />
+      <Panel className="mb-8">
+        <h2 className="mb-3 font-semibold">{t("parentPhone")}</h2>
+        <ParentContactForm
+          studentId={studentId}
+          initialPhone={data?.parentContact?.parent_phone ?? null}
+          initialConsent={data?.parentContact?.whatsapp_consent ?? false}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["student-home"] })}
+        />
+      </Panel>
       {/* (1) School work — assessments assigned by school teachers. */}
       <h2 className="mb-3 text-lg font-semibold">{t("schoolWork")}</h2>
       <Panel className="mb-8">

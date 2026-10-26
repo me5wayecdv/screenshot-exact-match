@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
+import { useIntegrityRecorder } from "@/hooks/useIntegrityRecorder";
+import { loadQuestionOrder, saveQuestionOrder, resolveQuestionOrder, resolveOrderIds, shuffleIds } from "@/lib/shuffle";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -70,6 +72,39 @@ function Take() {
   const [busy, setBusy] = useState(false);
   const initKey = useRef("");
 
+  // --- Slice 3 (integrity): recorder mounts only while answering ---
+  // (data loaded + student + no submission yet + not past due). The locked
+  // review view records nothing.
+  const answering = !!data && !!me && me.role === "student" && !data.submission &&
+    !(data.assessment.due_at && Date.now() > new Date(data.assessment.due_at).getTime());
+  const recorder = useIntegrityRecorder({ enabled: answering, assessmentId: id, studentId: me?.id ?? "" });
+
+  // --- Slice 3 (integrity): per-student shuffled question order ---
+  // Submission column wins, then localStorage; a fresh shuffle is saved to
+  // localStorage immediately and to the submission row at submit time.
+  // Locked legacy submissions (no stored order anywhere) keep position order.
+  const [displayOrder, setDisplayOrder] = useState<string[] | null>(null);
+  const orderKeyRef = useRef("");
+  useEffect(() => {
+    if (!data || !me) return;
+    const key = `${id}:${me.id}:${data.submission?.id ?? "new"}`;
+    if (orderKeyRef.current === key) return;
+    orderKeyRef.current = key;
+    const submissionOrder = (data.submission as unknown as { question_order?: string[] | null } | null)?.question_order ?? null;
+    const stored = submissionOrder ?? loadQuestionOrder(id, me.id);
+    if (stored && stored.length > 0) {
+      setDisplayOrder(resolveOrderIds(data.questions.map((q) => q.id), stored));
+      return;
+    }
+    if (data.submission) {
+      setDisplayOrder(data.questions.map((q) => q.id));
+      return;
+    }
+    const fresh = shuffleIds(data.questions.map((q) => q.id));
+    saveQuestionOrder(id, me.id, fresh);
+    setDisplayOrder(fresh);
+  }, [data, me, id]);
+
   // Initialise the form from an existing submission's answers exactly once
   // per assessment/submission, so refetches never clobber in-progress edits.
   useEffect(() => {
@@ -90,7 +125,8 @@ function Take() {
   if (me && me.role !== "student") return <Empty>{t("takeStudentsOnly")}</Empty>;
   if (error || !data) return <Empty>{t("takeNotAssigned")}</Empty>;
 
-  const { assessment, questions, submission } = data;
+  const { assessment, submission } = data;
+  const questions = displayOrder ? resolveQuestionOrder(data.questions, displayOrder) : data.questions;
   if (!data.assigned || assessment.status !== "published") return <Empty>{t("takeNotAssigned")}</Empty>;
   if (questions.length === 0) return <Empty>{t("takeNoQuestions")}</Empty>;
 
@@ -105,7 +141,12 @@ function Take() {
     setBusy(true);
     const { data: sub, error: sErr } = await supabase
       .from("submissions")
-      .insert({ assessment_id: id, student_id: me.id, status: "awaiting_review", total_possible: total })
+      .insert({
+        assessment_id: id, student_id: me.id, status: "awaiting_review", total_possible: total,
+        ...(displayOrder || questions.length > 0
+          ? { question_order: displayOrder ?? questions.map((q) => q.id) }
+          : {}),
+      })
       .select("id")
       .single();
     if (sErr || !sub) {
@@ -119,7 +160,8 @@ function Take() {
       }
       return void toast.error(translateError(sErr, lang));
     }
-    const rows = questions.map((q) => ({ submission_id: sub.id, question_id: q.id, response: answers[q.id] ?? "", max_marks: Number(q.marks), review_status: "not_graded" }));
+    const times = recorder.getTimesSeconds();
+    const rows = questions.map((q) => ({ submission_id: sub.id, question_id: q.id, response: answers[q.id] ?? "", max_marks: Number(q.marks), review_status: "not_graded", time_spent_seconds: Math.max(0, Math.round(times[q.id] ?? 0)) }));
     const { error: aErr } = await supabase.from("answers").insert(rows);
     setBusy(false);
     if (aErr) {
@@ -129,6 +171,12 @@ function Take() {
       toast.error(translateError(aErr, lang));
       await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
       return;
+    }
+    try {
+      await recorder.flushEvents(sub.id);
+    } catch {
+      // Non-fatal: the submission + answers are already saved.
+      toast.error(t("integrityFlushWarning"));
     }
     toast.success(t("submitted"));
     await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
@@ -161,7 +209,12 @@ function Take() {
 
       <div className="space-y-6">
         {questions.map((q, i) => (
-          <Panel key={q.id} className="space-y-3">
+          <div
+            key={q.id}
+            ref={recorder.registerPanel(q.id)}
+            onFocusCapture={() => recorder.setCurrentQuestionId(q.id)}
+          >
+          <Panel className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-semibold text-primary">
                 {t("question")} {i + 1} · {t(`q_${q.type}` as never)}
@@ -230,6 +283,7 @@ function Take() {
               </p>
             )}
           </Panel>
+          </div>
         ))}
       </div>
 

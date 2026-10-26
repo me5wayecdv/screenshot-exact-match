@@ -5,6 +5,8 @@ import { useI18n, formatDate } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { AssessmentReportQuestions } from "@/components/assessment-report-questions";
+import { IntegritySummary } from "@/components/integrity-summary";
+import { WhatsAppReportSection } from "@/components/whatsapp-report-section";
 
 /**
  * Per-assessment report — school-teacher only (legacy 'teacher' rows are
@@ -91,9 +93,16 @@ function AssessmentReportPage() {
         ]);
       if (assignmentsError) throw assignmentsError;
       if (submissionsError) throw submissionsError;
+      const studentIds = [...new Set((submissions ?? []).map((s) => s.student_id))];
+      let names: Record<string, string> = {};
+      if (studentIds.length > 0) {
+        const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", studentIds);
+        names = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.full_name || "—"]));
+      }
       return {
         assignments: assignments ?? [],
         submissions: (submissions ?? []) as SubmissionRow[],
+        names,
       };
     },
   });
@@ -120,6 +129,7 @@ function AssessmentReportPage() {
 
   const assignments = statsQuery.data?.assignments ?? [];
   const submissions = statsQuery.data?.submissions ?? [];
+  const names = statsQuery.data?.names ?? {};
   const assignedCount = assignments.length;
   const submittedCount = submissions.length;
   const participation = pct(submittedCount, assignedCount);
@@ -187,12 +197,26 @@ function AssessmentReportPage() {
             </div>
           ) : null}
 
+          {submissions.length > 0 && (
+            <div className="mt-8 space-y-4">
+              <h2 className="text-lg font-semibold">{t("integrityReportHeading")}</h2>
+              {submissions.map((s) => (
+                <IntegritySummary key={s.id} submissionId={s.id} assessmentId={id} title={names[s.student_id] ?? t("student_")} />
+              ))}
+            </div>
+          )}
+
           {/* Per-question breakdown from the answers table. Removing
               this block (plus the import at the top) drops only the
               breakdown; the stats above keep working. */}
           <div className="mt-8">
             <AssessmentReportQuestions assessmentId={id} />
           </div>
+          {/* WhatsApp parent sends, one row per RELEASED submission.
+              `released` is already computed above (status === "released"
+              with a non-null score); the section renders nothing when
+              it is empty. */}
+          <WhatsAppReportSection submissions={released} />
         </>
       )}
     </div>

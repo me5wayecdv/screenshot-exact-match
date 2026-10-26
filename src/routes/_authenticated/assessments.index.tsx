@@ -33,7 +33,14 @@ function AssessmentsList() {
   }
   return (
     <>
-      <PageHeader title={t("assessments")} />
+      <PageHeader
+        title={t("assessments")}
+        actions={
+          <Link to="/assessments/generate">
+            <Button variant="outline">{t("genTitle")}</Button>
+          </Link>
+        }
+      />
       <Panel className="mb-8">
         <form onSubmit={create} className="flex flex-wrap items-end gap-3">
           <div className="min-w-60 flex-1 space-y-1.5">

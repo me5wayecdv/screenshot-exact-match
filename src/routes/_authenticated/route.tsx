@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Home, ClipboardList, CheckSquare, Users, LogOut, School, BookOpen, Shield } from "lucide-react";
+import { Home, ClipboardList, CheckSquare, Users, LogOut, School, BookOpen, Shield, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Brand, LangToggle } from "@/components/Brand";
 import { useI18n } from "@/lib/i18n";
@@ -25,6 +25,7 @@ function AppShell() {
       ? [
           { to: "/dashboard", label: t("dashboard"), icon: Home },
           { to: "/assessments", label: t("assessments"), icon: ClipboardList },
+          { to: "/assessments/generate", label: t("genTitle"), icon: Sparkles },
           { to: "/grading", label: t("grading"), icon: CheckSquare },
           { to: "/students", label: t("students"), icon: Users },
           { to: "/school", label: t("school"), icon: School },
@@ -33,6 +34,7 @@ function AppShell() {
         ? [
             { to: "/dashboard", label: t("dashboard"), icon: Home },
             { to: "/lessons", label: t("lessons"), icon: BookOpen },
+            { to: "/assessments/generate", label: t("genTitle"), icon: Sparkles },
             { to: "/students", label: t("students"), icon: Users },
           ]
         : me?.role === "admin"
