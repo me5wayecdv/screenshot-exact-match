@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -276,7 +276,15 @@ function Grading() {
 
   return (
     <>
-      <PageHeader title={t("grading")} subtitle={t("gradingAutoNote")} />
+      <PageHeader
+        title={t("grading")}
+        subtitle={t("gradingAutoNote")}
+        actions={
+          <Button asChild variant="outline">
+            <Link to="/handwritten">{t("hwPaperGrade")}</Link>
+          </Button>
+        }
+      />
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <Panel className="h-fit">
           <h2 className="mb-3 font-semibold">{t("submissions")}</h2>

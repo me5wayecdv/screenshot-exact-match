@@ -1,10 +1,11 @@
-# AI models for Qemmini (grading suggestions + assessment generation)
+# AI models for Qemmini (grading suggestions + assessment generation + handwritten OCR)
 
-Both AI features (grading suggestions on `/grading`, assessment generation on
-`/assessments/generate`) are **provider-agnostic**: the server calls a plain
+All AI features (grading suggestions on `/grading`, assessment generation on
+`/assessments/generate`, handwritten-paper OCR on `/handwritten`) are
+**provider-agnostic**: the server calls a plain
 OpenAI-compatible `POST /chat/completions` endpoint with `fetch`. There is no
 provider-specific SDK and no provider or model hardcoded in code. Everything
-is chosen with three server-side environment variables (never `VITE_`):
+is chosen with server-side environment variables (never `VITE_`):
 
 | Variable      | Required | Meaning |
 | ------------- | -------- | ------- |
@@ -56,6 +57,30 @@ self-hosted model needs a machine with enough RAM/VRAM for the model size.
   Arabic feedback or invalid JSON; both features validate the model's
   output defensively and fail with a clear error rather than saving bad
   data.
+
+## Handwritten paper grading (OCR) — needs a vision-capable model
+
+The `/handwritten` page sends the paper photo to the same OpenAI-compatible
+endpoint as a multimodal chat completion (text + image). One extra
+server-side variable controls which model reads the photos:
+
+| Variable          | Required | Meaning |
+| ----------------- | -------- | ------- |
+| `AI_VISION_MODEL` | When `AI_MODEL` can't read images | Vision-capable model for OCR. When unset, `AI_MODEL` is used — and if that model rejects image input, the page shows a clear "model does not support images" error instead of failing silently. |
+
+Honest limits, stated in the UI too: Arabic handwriting OCR is
+approximate, so the page forces a human review step on the INPUT side —
+the extracted text is editable and the teacher reviews it before
+grading. The grade itself, however, is set by the AI: the suggestion
+score is adopted as the final score on save. That is a user-directed
+exception to the teacher-final-word rule that applies on `/grading`
+(where the teacher approves or edits every suggestion); a wrong
+handwritten record can be deleted from the page's history and re-graded.
+The photo itself is NOT stored in v1; only the extracted text,
+the teacher-corrected text, the AI suggestion, and the final grade are
+saved (see `supabase/migrations/20261027010000_handwritten_grades.sql`).
+Free-tier vision availability changes often — verify in your provider
+account that the chosen model accepts image input before relying on it.
 
 ## Future fine-tuning dataset (not built yet)
 

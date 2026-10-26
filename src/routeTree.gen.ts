@@ -12,11 +12,18 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as TermsRouteImport } from './routes/terms'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedGradingRouteImport } from './routes/_authenticated/grading'
+import { Route as AuthenticatedHandwrittenRouteImport } from './routes/_authenticated/handwritten'
+import { Route as AuthenticatedSchoolRouteImport } from './routes/_authenticated/school'
 import { Route as AuthenticatedStudentsRouteImport } from './routes/_authenticated/students'
 import { Route as AuthenticatedAssessmentsIndexRouteImport } from './routes/_authenticated/assessments.index'
 import { Route as AuthenticatedAssessmentsIdRouteImport } from './routes/_authenticated/assessments.$id'
+import { Route as AuthenticatedAssessmentsGenerateRouteImport } from './routes/_authenticated/assessments.generate'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -32,14 +39,45 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedGradingRoute = AuthenticatedGradingRouteImport.update({
+  id: '/grading',
+  path: '/grading',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedHandwrittenRoute =
+  AuthenticatedHandwrittenRouteImport.update({
+    id: '/handwritten',
+    path: '/handwritten',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedSchoolRoute = AuthenticatedSchoolRouteImport.update({
+  id: '/school',
+  path: '/school',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedStudentsRoute = AuthenticatedStudentsRouteImport.update({
@@ -59,23 +97,43 @@ const AuthenticatedAssessmentsIdRoute =
     path: '/assessments/$id',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAssessmentsGenerateRoute =
+  AuthenticatedAssessmentsGenerateRouteImport.update({
+    id: '/assessments/generate',
+    path: '/assessments/generate',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/terms': typeof TermsRoute
+  '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/grading': typeof AuthenticatedGradingRoute
+  '/handwritten': typeof AuthenticatedHandwrittenRoute
+  '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
+  '/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/assessments/': typeof AuthenticatedAssessmentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/terms': typeof TermsRoute
+  '/admin': typeof AuthenticatedAdminRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/grading': typeof AuthenticatedGradingRoute
+  '/handwritten': typeof AuthenticatedHandwrittenRoute
+  '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
+  '/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/assessments': typeof AuthenticatedAssessmentsIndexRoute
 }
 export interface FileRoutesById {
@@ -83,10 +141,17 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/terms': typeof TermsRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/grading': typeof AuthenticatedGradingRoute
+  '/_authenticated/handwritten': typeof AuthenticatedHandwrittenRoute
+  '/_authenticated/school': typeof AuthenticatedSchoolRoute
   '/_authenticated/students': typeof AuthenticatedStudentsRoute
   '/_authenticated/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
+  '/_authenticated/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/_authenticated/assessments/': typeof AuthenticatedAssessmentsIndexRoute
 }
 export interface FileRouteTypes {
@@ -94,29 +159,50 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/privacy'
     | '/reset-password'
+    | '/terms'
+    | '/admin'
     | '/dashboard'
+    | '/grading'
+    | '/handwritten'
+    | '/school'
     | '/students'
     | '/assessments/$id'
+    | '/assessments/generate'
     | '/assessments/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
+    | '/privacy'
     | '/reset-password'
+    | '/terms'
+    | '/admin'
     | '/dashboard'
+    | '/grading'
+    | '/handwritten'
+    | '/school'
     | '/students'
     | '/assessments/$id'
+    | '/assessments/generate'
     | '/assessments'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/privacy'
     | '/reset-password'
+    | '/terms'
+    | '/_authenticated/admin'
     | '/_authenticated/dashboard'
+    | '/_authenticated/grading'
+    | '/_authenticated/handwritten'
+    | '/_authenticated/school'
     | '/_authenticated/students'
     | '/_authenticated/assessments/$id'
+    | '/_authenticated/assessments/generate'
     | '/_authenticated/assessments/'
   fileRoutesById: FileRoutesById
 }
@@ -124,7 +210,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  PrivacyRoute: typeof PrivacyRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  TermsRoute: typeof TermsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -150,6 +238,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reset-password': {
       id: '/reset-password'
       path: '/reset-password'
@@ -157,11 +252,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/grading': {
+      id: '/_authenticated/grading'
+      path: '/grading'
+      fullPath: '/grading'
+      preLoaderRoute: typeof AuthenticatedGradingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/handwritten': {
+      id: '/_authenticated/handwritten'
+      path: '/handwritten'
+      fullPath: '/handwritten'
+      preLoaderRoute: typeof AuthenticatedHandwrittenRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/school': {
+      id: '/_authenticated/school'
+      path: '/school'
+      fullPath: '/school'
+      preLoaderRoute: typeof AuthenticatedSchoolRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/students': {
@@ -185,20 +315,37 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssessmentsIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/assessments/generate': {
+      id: '/_authenticated/assessments/generate'
+      path: '/assessments/generate'
+      fullPath: '/assessments/generate'
+      preLoaderRoute: typeof AuthenticatedAssessmentsGenerateRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedGradingRoute: typeof AuthenticatedGradingRoute
+  AuthenticatedHandwrittenRoute: typeof AuthenticatedHandwrittenRoute
+  AuthenticatedSchoolRoute: typeof AuthenticatedSchoolRoute
   AuthenticatedStudentsRoute: typeof AuthenticatedStudentsRoute
   AuthenticatedAssessmentsIdRoute: typeof AuthenticatedAssessmentsIdRoute
+  AuthenticatedAssessmentsGenerateRoute: typeof AuthenticatedAssessmentsGenerateRoute
   AuthenticatedAssessmentsIndexRoute: typeof AuthenticatedAssessmentsIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedGradingRoute: AuthenticatedGradingRoute,
+  AuthenticatedHandwrittenRoute: AuthenticatedHandwrittenRoute,
+  AuthenticatedSchoolRoute: AuthenticatedSchoolRoute,
   AuthenticatedStudentsRoute: AuthenticatedStudentsRoute,
   AuthenticatedAssessmentsIdRoute: AuthenticatedAssessmentsIdRoute,
+  AuthenticatedAssessmentsGenerateRoute: AuthenticatedAssessmentsGenerateRoute,
   AuthenticatedAssessmentsIndexRoute: AuthenticatedAssessmentsIndexRoute,
 }
 
@@ -209,7 +356,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  PrivacyRoute: PrivacyRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  TermsRoute: TermsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
