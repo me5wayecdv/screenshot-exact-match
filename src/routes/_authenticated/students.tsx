@@ -19,7 +19,7 @@ function Students() {
   const { data } = useQuery({ queryKey: ["my-students"], queryFn: async () => (await supabase.rpc("my_students")).data ?? [] });
   async function remove(id: string) {
     const { error } = await supabase.from("teacher_students").delete().eq("teacher_id", me!.id).eq("student_id", id);
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     qc.invalidateQueries({ queryKey: ["my-students"] });
   }
   return (

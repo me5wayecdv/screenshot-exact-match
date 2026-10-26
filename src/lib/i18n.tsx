@@ -336,7 +336,7 @@ const errorMap: Record<string, { ar: string; en: string }> = {
 
 export function translateError(err: unknown, lang: Lang): string {
   const msg = err instanceof Error ? err.message : typeof err === "object" && err && "message" in err ? String((err as { message: unknown }).message) : String(err);
-  for (const k of Object.keys(errorMap)) if (msg.includes(k)) return errorMap[k][lang];
+  for (const k of Object.keys(errorMap)) if (msg.includes(k)) return errorMap[k]![lang];
   return msg && msg.length < 200 ? msg : dict[lang].errorGeneric;
 }
 

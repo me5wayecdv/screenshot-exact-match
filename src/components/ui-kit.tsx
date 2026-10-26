@@ -10,7 +10,7 @@ const tone = {
 } as const;
 export type Tone = keyof typeof tone;
 
-export function Pill({ children, t = "neutral" }: { children: ReactNode; t?: Tone }) {
+export function Pill({ children, t = "neutral" }: { children: ReactNode; t?: Tone | undefined }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tone[t]}`}>{children}</span>;
 }
 

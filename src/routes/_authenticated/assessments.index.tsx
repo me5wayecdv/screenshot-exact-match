@@ -28,7 +28,7 @@ function AssessmentsList() {
     setBusy(true);
     const { data: row, error } = await supabase.from("assessments").insert({ title: title.trim() }).select("id").single();
     setBusy(false);
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     navigate({ to: "/assessments/$id", params: { id: row.id } });
   }
   return (

@@ -32,7 +32,7 @@ function ResetPassword() {
     setBusy(true);
     const { error } = await supabase.auth.updateUser({ password: pw });
     setBusy(false);
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("passwordUpdated"));
     navigate({ to: "/dashboard" });
   }
