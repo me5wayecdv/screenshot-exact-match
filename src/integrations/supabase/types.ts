@@ -165,6 +165,66 @@ export type Database = {
         }
         Relationships: []
       }
+      // Hand-added for the segmentation migration (supabase/migrations/20261026130000_segmentation.sql).
+      // Regenerate with `supabase gen types` to confirm.
+      class_members: {
+        Row: {
+          class_id: string
+          joined_at: string
+          student_id: string
+        }
+        Insert: {
+          class_id: string
+          joined_at?: string
+          student_id: string
+        }
+        Update: {
+          class_id?: string
+          joined_at?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_members_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      classes: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          school_id: string
+          teacher_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          school_id: string
+          teacher_id?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          school_id?: string
+          teacher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "classes_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -262,6 +322,120 @@ export type Database = {
           },
         ]
       }
+      lesson_enrollments: {
+        Row: {
+          enrolled_at: string
+          lesson_id: string
+          student_id: string
+        }
+        Insert: {
+          enrolled_at?: string
+          lesson_id: string
+          student_id: string
+        }
+        Update: {
+          enrolled_at?: string
+          lesson_id?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lesson_enrollments_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "lessons"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      lessons: {
+        Row: {
+          created_at: string
+          description: string
+          id: string
+          join_code: string
+          subject_id: string | null
+          title: string
+          tutor_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          id?: string
+          join_code?: string
+          subject_id?: string | null
+          title: string
+          tutor_id?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          id?: string
+          join_code?: string
+          subject_id?: string | null
+          title?: string
+          tutor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lessons_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "subjects"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      school_teachers: {
+        Row: {
+          joined_at: string
+          school_id: string
+          teacher_id: string
+        }
+        Insert: {
+          joined_at?: string
+          school_id: string
+          teacher_id: string
+        }
+        Update: {
+          joined_at?: string
+          school_id?: string
+          teacher_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_teachers_school_id_fkey"
+            columns: ["school_id"]
+            isOneToOne: false
+            referencedRelation: "schools"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      schools: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          join_code: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          join_code?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          join_code?: string
+          name?: string
+        }
+        Relationships: []
+      }
       subjects: {
         Row: {
           created_at: string
@@ -327,6 +501,27 @@ export type Database = {
           },
         ]
       }
+      teacher_profiles: {
+        Row: {
+          bio: string
+          subjects_text: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          bio?: string
+          subjects_text?: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          bio?: string
+          subjects_text?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       teacher_students: {
         Row: {
           created_at: string
@@ -369,6 +564,7 @@ export type Database = {
     }
     Functions: {
       assigned_published: { Args: { _a: string }; Returns: boolean }
+      enroll_lesson: { Args: { _code: string }; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -380,6 +576,7 @@ export type Database = {
         Args: { _student: string; _teacher: string }
         Returns: boolean
       }
+      join_school: { Args: { _code: string }; Returns: string }
       join_teacher: { Args: { _code: string }; Returns: string }
       my_students: {
         Args: never
@@ -431,7 +628,7 @@ export type Database = {
       }
     }
     Enums: {
-      app_role: "teacher" | "student"
+      app_role: "teacher" | "student" | "school_teacher" | "tutor" | "admin"
       assessment_status: "draft" | "published" | "closed" | "archived"
       question_type: "mcq" | "true_false" | "short_answer" | "written"
       review_status:

@@ -53,7 +53,13 @@ function Landing() {
           </div>
         ))}
       </section>
-      <footer className="border-t py-8 text-center text-sm text-muted-foreground">© {new Date().getFullYear()} Qemmini</footer>
+      <footer className="border-t py-8 text-center text-sm text-muted-foreground">
+        <p>© {new Date().getFullYear()} Qemmini</p>
+        <nav className="mt-2 flex justify-center gap-4">
+          <Link to="/terms" className="hover:underline">{t("terms")}</Link>
+          <Link to="/privacy" className="hover:underline">{t("privacy")}</Link>
+        </nav>
+      </footer>
     </div>
   );
 }

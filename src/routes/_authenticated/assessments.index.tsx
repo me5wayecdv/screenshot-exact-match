@@ -48,16 +48,17 @@ function AssessmentsList() {
       ) : (
         <div className="divide-y rounded-lg border bg-card">
           {data?.map((a) => (
-            <Link key={a.id} to="/assessments/$id" params={{ id: a.id }} className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-muted">
-              <span>
+            <div key={a.id} className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-muted">
+              <Link to="/assessments/$id" params={{ id: a.id }} className="flex-1">
                 <span className="font-medium">{a.title}</span>
                 {a.subjects?.name && <span className="ms-2 text-sm text-muted-foreground">· {a.subjects.name}</span>}
-              </span>
+              </Link>
               <span className="flex items-center gap-3 text-sm text-muted-foreground">
                 {t("dueAt")}: {formatDate(a.due_at, lang)}
                 <Pill t={statusTone[a.status]}>{t(`st_${a.status}` as never)}</Pill>
+                <Link to="/assessments/report/$id" params={{ id: a.id }} className="font-medium text-primary hover:underline">{t("report")}</Link>
               </span>
-            </Link>
+            </div>
           ))}
         </div>
       )}

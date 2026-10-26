@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Home, ClipboardList, CheckSquare, Users, LogOut } from "lucide-react";
+import { Home, ClipboardList, CheckSquare, Users, LogOut, School, BookOpen, Shield } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Brand, LangToggle } from "@/components/Brand";
 import { useI18n } from "@/lib/i18n";
@@ -21,14 +21,27 @@ function AppShell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const nav =
-    me?.role === "teacher"
+    me?.role === "school_teacher"
       ? [
           { to: "/dashboard", label: t("dashboard"), icon: Home },
           { to: "/assessments", label: t("assessments"), icon: ClipboardList },
           { to: "/grading", label: t("grading"), icon: CheckSquare },
           { to: "/students", label: t("students"), icon: Users },
+          { to: "/school", label: t("school"), icon: School },
         ]
-      : [{ to: "/dashboard", label: t("myAssessments"), icon: Home }];
+      : me?.role === "tutor"
+        ? [
+            { to: "/dashboard", label: t("dashboard"), icon: Home },
+            { to: "/lessons", label: t("lessons"), icon: BookOpen },
+            { to: "/students", label: t("students"), icon: Users },
+          ]
+        : me?.role === "admin"
+          ? [
+              { to: "/dashboard", label: t("dashboard"), icon: Home },
+              { to: "/school", label: t("school"), icon: School },
+              { to: "/admin", label: t("admin"), icon: Shield },
+            ]
+          : [{ to: "/dashboard", label: t("myAssessments"), icon: Home }];
 
   async function signOut() {
     await qc.cancelQueries();
@@ -49,8 +62,7 @@ function AppShell() {
               className="flex items-center gap-3 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent"
               activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
             >
-              <n.icon className="h-4 w-4" aria-hidden />
-              {n.label}
+              <n.icon className="h-4 w-4" aria-hidden /> {n.label}
             </Link>
           ))}
         </nav>
