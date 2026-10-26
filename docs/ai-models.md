@@ -37,6 +37,29 @@ Any OpenAI-compatible provider works. Free/open options to point at:
   `AI_MODEL` set to a pulled model name. A local endpoint needs no auth:
   `AI_API_KEY` may be unset or any dummy value; no Authorization header is
   sent when it is empty.
+- **Cloudflare Workers AI (the Cloudflare deployment path)** — Cloudflare's
+  own models are reachable through an OpenAI-compatible endpoint, so no code
+  change is needed. Set:
+  - `AI_BASE_URL` to
+    `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`
+    (replace `<ACCOUNT_ID>` with the Cloudflare account id; the server
+    appends `/chat/completions`).
+  - `AI_MODEL` to `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (text: grading
+    suggestions + assessment generation).
+  - `AI_VISION_MODEL` to `@cf/meta/llama-3.2-11b-vision-instruct` (vision:
+    handwritten-paper OCR).
+  - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
+    permission, set as a Worker secret — never in code or in wrangler.jsonc.
+  These model ids come from Cloudflare's Workers AI catalog; confirm they
+  are still listed before deploying, and live-test both before relying on
+  them: Arabic grading quality, strict-JSON output, and Arabic handwriting
+  OCR are NOT proven for these models yet — the pilot smoke tests in
+  docs/cloudflare-deploy.md exist for exactly that. Workers AI free-tier
+  limits (reported as 10,000 neurons/day by third parties, not confirmed
+  against Cloudflare's own pricing page here) must be checked in the
+  Cloudflare dashboard before any real usage. Note: a local Ollama endpoint
+  does NOT work from a Cloudflare Worker (the edge cannot reach your
+  laptop's localhost) unless exposed through a Cloudflare Tunnel.
 
 Example values in this document are examples to verify, not guarantees:
 free tiers change models, limits, and availability without notice, and a

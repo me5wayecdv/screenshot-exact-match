@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { cloudflare } from "@cloudflare/vite-plugin";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -19,8 +20,14 @@ import { fileURLToPath, URL } from "node:url";
 // whether the deployment target must additionally be pointed at
 // src/server.ts (as with a Wrangler `main` field) is a deployment-config
 // question, NOT something this file asserts.
+// Cloudflare Workers target: @cloudflare/vite-plugin replaces any
+// Nitro-style adapter for this deployment. Install it (and wrangler) with
+// `bun add -d @cloudflare/vite-plugin wrangler` on a full checkout, then
+// `bun run build && wrangler deploy` (see docs/cloudflare-deploy.md).
+// The plugin must come before tanstackStart().
 export default defineConfig({
   plugins: [
+    cloudflare({ viteEnvironment: { name: "ssr" } }),
     tanstackStart(),
     viteReact(),
     tailwindcss(),
