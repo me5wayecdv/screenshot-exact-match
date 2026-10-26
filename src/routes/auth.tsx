@@ -2,7 +2,6 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Brand, LangToggle } from "@/components/Brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +12,7 @@ export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
       { title: "Sign in · Qemmini" },
-      { name: "description", content: "Sign in or create a Qemmini teacher or student account." },
+      { name: "description", content: "Sign in or create a Qemmini account." },
       { property: "og:title", content: "Sign in · Qemmini" },
       { property: "og:description", content: "Access your Qemmini account." },
       { property: "og:type", content: "website" },
@@ -32,7 +31,7 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<"teacher" | "student">("teacher");
+  const [role, setRole] = useState<"school_teacher" | "tutor" | "student">("school_teacher");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -71,8 +70,13 @@ function AuthPage() {
   }
 
   async function google() {
-    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin + "/auth" });
-    if (result.error) toast.error(translateError(result.error, lang));
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + "/auth" },
+    });
+    if (error) toast.error(translateError(error, lang));
+    // On success Supabase redirects to /auth, and the effect above sends
+    // signed-in users on to /dashboard.
   }
 
   return (
@@ -101,8 +105,8 @@ function AuthPage() {
                 </div>
                 <fieldset className="space-y-1.5">
                   <legend className="text-sm font-medium">{t("iAm")}</legend>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["teacher", "student"] as const).map((r) => (
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["school_teacher", "tutor", "student"] as const).map((r) => (
                       <button
                         type="button"
                         key={r}
@@ -149,6 +153,11 @@ function AuthPage() {
               <p>{t("haveAccount")} <button className="font-medium text-primary hover:underline" onClick={() => setMode("signin")}>{t("signIn")}</button></p>
             )}
           </div>
+          <footer className="mx-auto mt-8 w-full max-w-sm pb-2 text-center text-xs text-muted-foreground">
+            <Link to="/terms" className="hover:underline">{t("terms")}</Link>
+            {" · "}
+            <Link to="/privacy" className="hover:underline">{t("privacy")}</Link>
+          </footer>
         </div>
       </main>
     </div>

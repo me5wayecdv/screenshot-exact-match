@@ -1,24 +1,37 @@
-# Screenshot Exact Match
+# Qemmini · قِمّيني
 
-Implement exactly the screenshot and nothing else
+Arabic-first, RTL assessment and learning platform for teachers and students.
 
-This project was built with [Lovable](https://lovable.dev).
+## Stack
 
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/396773c8-bd31-4c50-9bbf-02d641c0e170).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+- React 19 + TanStack Start (file-based routing) + TanStack Router / Query
+- Supabase (Auth + Postgres) via `@supabase/supabase-js`
+- Tailwind CSS + shadcn UI
 
 ## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
 
 ```sh
 git clone <this-repository-url>
 cd <repository-name>
-npm i
-npm run dev
+bun install
+bun run dev
 ```
+
+## Environment variables
+
+| Variable | Where | Purpose |
+| --- | --- | --- |
+| `VITE_SUPABASE_URL` | client / SSR | Supabase project URL |
+| `VITE_SUPABASE_ANON_KEY` | client / SSR | Supabase publishable (anon) key |
+| `SUPABASE_URL` | server | Supabase project URL for server code |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only | Service-role key — never expose to the client |
+| `DATABASE_URL` | Drizzle CLI | Postgres connection string for migrations |
+| `CRON_SECRET` | server | Shared secret for cron endpoints (`CRON_SECRET_PREVIOUS` during rotation) |
+
+## Scripts
+
+- `bun run dev` — dev server
+- `bun run build` — production build
+- `bun run preview` — preview the production build
+- `bun run test` — test suite (Vitest)
+- `bun run lint` / `bun run format` — lint / format

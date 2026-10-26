@@ -1,15 +1,34 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
-//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
-//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { defineConfig } from "vite";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
+import viteReact from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import tsconfigPaths from "vite-tsconfig-paths";
+import { fileURLToPath, URL } from "node:url";
 
+// Vanilla TanStack Start (v1) + React + Tailwind + tsconfig paths.
+// This replaces the former vendor wrapper, which also bundled
+// devtools, React/TanStack dedupe, an error logger, and sandbox
+// port/host detection. None of those are re-added here: devtools is not
+// an installed dependency, and the rest was vendor scaffolding.
+//
+// NOTE (unverified — verify with a real `vite build` before shipping):
+// the old wrapper passed `server: { entry: "server" }` so the Nitro build
+// used src/server.ts as the server entry. src/server.ts already wraps
+// "@tanstack/react-start/server-entry" (the default entry) with an SSR
+// error page, so the default entry behaviour is preserved for rendering;
+// whether the deployment target must additionally be pointed at
+// src/server.ts (as with a Wrangler `main` field) is a deployment-config
+// question, NOT something this file asserts.
 export default defineConfig({
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
+  plugins: [
+    tanstackStart(),
+    viteReact(),
+    tailwindcss(),
+    tsconfigPaths(),
+  ],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
   },
 });
