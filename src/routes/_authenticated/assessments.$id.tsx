@@ -61,7 +61,7 @@ function Builder() {
 
   async function setStatus(s: Status) {
     const { error } = await supabase.rpc("set_assessment_status", { _a: id, _status: s });
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     refresh();
   }
   async function addQuestion(type: QType) {
@@ -70,14 +70,14 @@ function Builder() {
       .insert({ assessment_id: id, type, position: questions.length, options: type === "mcq" ? ["", ""] : [] })
       .select("id")
       .single();
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     await supabase.from("question_keys").insert({ question_id: q.id, correct_answer: type === "true_false" ? "true" : "" });
     refresh();
   }
   async function move(idx: number, dir: -1 | 1) {
     const other = questions[idx + dir];
     if (!other) return;
-    const cur = questions[idx];
+    const cur = questions[idx]!;
     await Promise.all([
       supabase.from("questions").update({ position: idx + dir }).eq("id", cur.id),
       supabase.from("questions").update({ position: idx }).eq("id", other.id),
@@ -88,7 +88,7 @@ function Builder() {
     const { error } = on
       ? await supabase.from("assessment_assignments").insert({ assessment_id: id, student_id: studentId })
       : await supabase.from("assessment_assignments").delete().eq("assessment_id", id).eq("student_id", studentId);
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     refresh();
   }
 
@@ -111,7 +111,6 @@ function Builder() {
         }
         actions={
           <>
-            <Button asChild variant="ghost"><Link to="/grading" search={{ assessment: id }}>{t("submissions")} ({data.submissionCount})</Link></Button>
             {transitions[a.status].map((tr) => (
               <Button key={tr.to} variant={tr.variant} onClick={() => setStatus(tr.to)}>{tr.label}</Button>
             ))}
@@ -179,7 +178,7 @@ function MetaEditor({ a, subjects, onSaved }: { a: A; subjects: { id: string; na
     let subject_id = f.subject_id || null;
     if (newSubject.trim()) {
       const { data, error } = await supabase.from("subjects").insert({ name: newSubject.trim() }).select("id").single();
-      if (error) { setBusy(false); return toast.error(translateError(error, lang)); }
+      if (error) { setBusy(false); return void toast.error(translateError(error, lang)); }
       subject_id = data.id;
       setNewSubject("");
     }
@@ -188,7 +187,7 @@ function MetaEditor({ a, subjects, onSaved }: { a: A; subjects: { id: string; na
       .update({ title: f.title.trim(), instructions: f.instructions, grade_level: f.grade_level, subject_id, due_at: f.due_at ? new Date(f.due_at).toISOString() : null, updated_at: new Date().toISOString() })
       .eq("id", a.id);
     setBusy(false);
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("save"));
     onSaved();
   }
@@ -242,12 +241,12 @@ function QuestionEditor({ q, index, count, locked, onMove, onChanged }: { q: Q; 
 
   async function save() {
     const m = Number(marks);
-    if (!(m > 0)) return toast.error(lang === "ar" ? "الدرجة يجب أن تكون أكبر من صفر." : "Marks must be greater than zero.");
+    if (!(m > 0)) return void toast.error(lang === "ar" ? "الدرجة يجب أن تكون أكبر من صفر." : "Marks must be greater than zero.");
     const cleanOpts = options.map((o) => o.trim());
     if (q.type === "mcq" && (cleanOpts.filter(Boolean).length < 2 || !cleanOpts.includes(correct.trim()) || !correct.trim()))
-      return toast.error(lang === "ar" ? "أضف خيارين على الأقل وحدد الإجابة الصحيحة." : "Add at least two options and mark the correct one.");
+      return void toast.error(lang === "ar" ? "أضف خيارين على الأقل وحدد الإجابة الصحيحة." : "Add at least two options and mark the correct one.");
     const r1 = await supabase.from("questions").update({ prompt: prompt.trim(), marks: m, objective: objective.trim(), options: cleanOpts.filter(Boolean) }).eq("id", q.id);
-    if (r1.error) return toast.error(translateError(r1.error, lang));
+    if (r1.error) return void toast.error(translateError(r1.error, lang));
     const r2 = await supabase.from("question_keys").upsert({
       question_id: q.id,
       correct_answer: correct.trim(),
@@ -255,14 +254,14 @@ function QuestionEditor({ q, index, count, locked, onMove, onChanged }: { q: Q; 
       rubric: rubric.trim(),
       explanation: explanation.trim(),
     });
-    if (r2.error) return toast.error(translateError(r2.error, lang));
+    if (r2.error) return void toast.error(translateError(r2.error, lang));
     setDirty(false);
     toast.success(t("save"));
     onChanged();
   }
   async function del() {
     const { error } = await supabase.from("questions").delete().eq("id", q.id);
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     onChanged();
   }
 

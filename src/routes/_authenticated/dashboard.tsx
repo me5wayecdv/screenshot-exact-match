@@ -87,7 +87,7 @@ function StudentHome({ name }: { name: string }) {
   async function join(e: FormEvent) {
     e.preventDefault();
     const { error } = await supabase.rpc("join_teacher", { _code: code });
-    if (error) return toast.error(translateError(error, lang));
+    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("joined"));
     setCode("");
     qc.invalidateQueries();
@@ -122,12 +122,12 @@ function StudentHome({ name }: { name: string }) {
                 <div className="mt-4">
                   {sub ? (
                     sub.status === "released" ? (
-                      <Button asChild size="sm" variant="outline"><Link to="/results/$submissionId" params={{ submissionId: sub.id }}>{t("viewResult")} · {sub.final_score}/{sub.total_possible}</Link></Button>
+                      <Pill t="success">{t("finalScore")}: {sub.final_score}/{sub.total_possible}</Pill>
                     ) : null
                   ) : a.status !== "published" || late ? (
                     <Pill t="danger">{t("deadlinePassed")}</Pill>
                   ) : (
-                    <Button asChild size="sm"><Link to="/take/$assessmentId" params={{ assessmentId: a.id }}>{t("start")}</Link></Button>
+                    <Pill t="info">{t("st_published")}</Pill>
                   )}
                 </div>
               </Panel>
