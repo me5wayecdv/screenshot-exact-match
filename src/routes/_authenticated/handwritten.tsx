@@ -28,9 +28,12 @@ import {
 // HANDWRITTEN GRADING — what this page is and is not:
 //  - One photo = ONE question. A full multi-page exam sheet is NOT split
 //    automatically; the teacher photographs one answer at a time.
-//  - The photo itself is NOT stored (v1). Only the extracted text, the
-//    teacher-corrected text, the AI suggestion, and the teacher's final
-//    score/feedback are saved to public.handwritten_grades.
+//  - PLATFORM RULE: every uploaded photo is persisted server-side.
+//    The paper is uploaded on select to the private Supabase Storage
+//    bucket 'handwritten-papers' (path {teacher_id}/{uuid}.jpg), and the
+//    saved grade row stores that image_path. History re-opens papers
+//    via time-limited signed URLs — never public links, never
+//    browser-only memory.
 //  - OCR is approximate, especially for Arabic handwriting. The extracted
 //    text is ALWAYS editable, and nothing is graded until the teacher
 //    confirms the final score. The AI suggestion is advisory only.
@@ -50,6 +53,7 @@ type Q = Database["public"]["Tables"]["questions"]["Row"] & {
 type HwRow = {
   id: string;
   student_name: string;
+  image_path: string | null;
   extracted_text: string;
   corrected_text: string;
   ai_suggested_score: number | null;
@@ -66,8 +70,8 @@ export const Route = createFileRoute("/_authenticated/handwritten")({
   component: Handwritten,
 });
 
-/** Downscale to a JPEG data URL (max 1600px) so OCR uploads stay small. */
-async function compressImage(file: File): Promise<string> {
+/** Downscale to a JPEG blob + data URL (max 1600px) so uploads and OCR stay small. */
+async function compressImage(file: File): Promise<{ dataUrl: string; blob: Blob }> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -92,12 +96,13 @@ async function compressImage(file: File): Promise<string> {
       canvas.toBlob(resolve, "image/jpeg", 0.85),
     );
     if (!blob) throw new Error("canvas toBlob failed");
-    return await new Promise<string>((resolve, reject) => {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
       reader.onerror = () => reject(new Error("read failed"));
       reader.readAsDataURL(blob);
     });
+    return { dataUrl, blob };
   } finally {
     URL.revokeObjectURL(url);
   }
@@ -123,6 +128,12 @@ function Handwritten() {
   const [studentName, setStudentName] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
+  /** Compressed paper blob (for upload / retry) and its server path. */
+  const [paperBlob, setPaperBlob] = useState<Blob | null>(null);
+  const [imagePath, setImagePath] = useState("");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  /** Signed URLs for history papers, keyed by grade row id. */
+  const [paperUrls, setPaperUrls] = useState<Record<string, string>>({});
   /** Raw OCR output (kept so the saved row shows what the model read). */
   const [extractedText, setExtractedText] = useState("");
   /** Teacher-reviewed text — this is what gets graded and saved. */
@@ -199,10 +210,26 @@ function Handwritten() {
   const maxValid = Number.isFinite(maxMarks) && maxMarks > 0 && maxMarks <= 1000;
   /** Saving requires an AI suggestion: the AI sets the final grade. */
   const finalValid = suggestion !== null && maxValid;
+  /** A selected photo whose server upload failed blocks saving. */
+  const imageBlocked = !!imageDataUrl && !imagePath;
 
   async function getAccessToken(): Promise<string> {
     const { data } = await supabase.auth.getSession();
     return data.session?.access_token ?? "";
+  }
+
+  /** Upload the compressed paper to server storage. Returns the path or "". */
+  async function uploadPaper(blob: Blob): Promise<string> {
+    const uuid =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    const path = `${me!.id}/${uuid}.jpg`;
+    const { error } = await supabase
+      .storage.from("handwritten-papers")
+      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+    if (error) return "";
+    return path;
   }
 
   async function onFileChange(file: File | undefined) {
@@ -216,17 +243,42 @@ function Handwritten() {
       return;
     }
     try {
-      const dataUrl = await compressImage(file);
+      const { dataUrl, blob } = await compressImage(file);
       setImageDataUrl(dataUrl);
       setImageName(file.name);
+      setPaperBlob(blob);
+      setImagePath("");
       // A new photo means a new paper: drop the previous paper's texts.
       setExtractedText("");
       setCorrectedText("");
       setOcrModel("");
       setSuggestion(null);
+      // PLATFORM RULE: every uploaded photo is persisted server-side.
+      // The paper is uploaded immediately on select, not only on save.
+      setUploadingImage(true);
+      const path = await uploadPaper(blob);
+      setUploadingImage(false);
+      if (!path) {
+        toast.error(t("hwImageUploadFailed"));
+        return;
+      }
+      setImagePath(path);
     } catch {
+      setUploadingImage(false);
       toast.error(t("hwOcrFailed"));
     }
+  }
+
+  async function retryUpload() {
+    if (!paperBlob) return;
+    setUploadingImage(true);
+    const path = await uploadPaper(paperBlob);
+    setUploadingImage(false);
+    if (!path) {
+      toast.error(t("hwImageUploadFailed"));
+      return;
+    }
+    setImagePath(path);
   }
 
   async function runOcr() {
@@ -306,6 +358,10 @@ function Handwritten() {
       toast.error(t("hwNeedSuggestion"));
       return;
     }
+    if (imageBlocked) {
+      toast.error(t("hwImageNotSaved"));
+      return;
+    }
     setBusySave(true);
     try {
       const accessToken = await getAccessToken();
@@ -314,6 +370,7 @@ function Handwritten() {
         assessment_id: assessmentId || null,
         question_id: questionId || null,
         student_name: studentName.trim(),
+        image_path: imagePath || null,
         extracted_text: extractedText,
         corrected_text: correctedText.trim(),
         ai_suggested_score: suggestion.suggestedScore,
@@ -352,6 +409,8 @@ function Handwritten() {
       toast.success(t("hwSaved"));
       setImageDataUrl("");
       setImageName("");
+      setPaperBlob(null);
+      setImagePath("");
       setExtractedText("");
       setCorrectedText("");
       setOcrModel("");
@@ -366,14 +425,44 @@ function Handwritten() {
     }
   }
 
-  async function removeRow(id: string) {
-    const { error } = await supabase.from("handwritten_grades").delete().eq("id", id);
+  async function removeRow(row: HwRow) {
+    const { error } = await supabase.from("handwritten_grades").delete().eq("id", row.id);
     if (error) {
       toast.error(translateError(error, lang));
       return;
     }
+    // Best-effort: remove the stored paper too, so a deleted grade
+    // leaves no orphaned file behind.
+    if (row.image_path) {
+      try {
+        await supabase.storage.from("handwritten-papers").remove([row.image_path]);
+      } catch {
+        // Ignored: the grade row itself is already deleted.
+      }
+    }
     toast.success(t("hwDeleted"));
     await qc.invalidateQueries({ queryKey: ["hw-history", me.id] });
+  }
+
+  /** Toggle a history paper's signed-URL preview (private bucket). */
+  async function viewPaper(row: HwRow) {
+    if (!row.image_path) return;
+    if (paperUrls[row.id]) {
+      setPaperUrls((p) => {
+        const next = { ...p };
+        delete next[row.id];
+        return next;
+      });
+      return;
+    }
+    const { data, error } = await supabase
+      .storage.from("handwritten-papers")
+      .createSignedUrl(row.image_path, 3600);
+    if (error || !data) {
+      toast.error(translateError(error ?? new Error("signed url failed"), lang));
+      return;
+    }
+    setPaperUrls((p) => ({ ...p, [row.id]: data.signedUrl }));
   }
 
   return (
@@ -499,6 +588,17 @@ function Handwritten() {
               <p className="text-xs text-muted-foreground">{imageName}</p>
             </div>
           )}
+          {imageDataUrl && uploadingImage && (
+            <p className="text-xs text-muted-foreground">{t("hwUploading")}</p>
+          )}
+          {imageDataUrl && !uploadingImage && !imagePath && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs text-destructive">{t("hwImageNotSaved")}</p>
+              <Button size="sm" variant="outline" onClick={retryUpload} disabled={!paperBlob}>
+                {t("hwRetryUpload")}
+              </Button>
+            </div>
+          )}
           <p className="rounded-md bg-warning/20 p-3 text-sm">{t("hwOcrNote")}</p>
           <div className="flex flex-wrap gap-2">
             <Button onClick={runOcr} disabled={!imageDataUrl || busyOcr || visionConfigured === false}>
@@ -559,7 +659,7 @@ function Handwritten() {
               onChange={(e) => setTeacherFeedback(e.target.value)}
             />
           </div>
-          <Button onClick={save} disabled={busySave || !finalValid || !correctedText.trim() || !questionPrompt.trim()}>
+          <Button onClick={save} disabled={busySave || !finalValid || imageBlocked || !correctedText.trim() || !questionPrompt.trim()}>
             {busySave ? t("hwSaving") : t("hwSaveGrade")}
           </Button>
         </Panel>
@@ -582,9 +682,19 @@ function Handwritten() {
                     {(row.corrected_text || "").slice(0, 200)}
                     {(row.corrected_text || "").length > 200 ? "…" : ""}
                   </p>
+                  {row.image_path && (
+                    <div className="mt-2 space-y-2">
+                      <Button size="sm" variant="outline" onClick={() => void viewPaper(row)}>
+                        {paperUrls[row.id] ? t("hwHidePaper") : t("hwViewPaper")}
+                      </Button>
+                      {paperUrls[row.id] && (
+                        <img src={paperUrls[row.id]} alt="" className="max-h-80 rounded-md border object-contain" />
+                      )}
+                    </div>
+                  )}
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="text-xs text-muted-foreground">{formatDate(row.created_at, lang)}</span>
-                    <Button size="sm" variant="outline" onClick={() => void removeRow(row.id)}>
+                    <Button size="sm" variant="outline" onClick={() => void removeRow(row)}>
                       {t("hwDelete")}
                     </Button>
                   </div>

@@ -75,10 +75,19 @@ grading. The grade itself, however, is set by the AI: the suggestion
 score is adopted as the final score on save. That is a user-directed
 exception to the teacher-final-word rule that applies on `/grading`
 (where the teacher approves or edits every suggestion); a wrong
-handwritten record can be deleted from the page's history and re-graded.
-The photo itself is NOT stored in v1; only the extracted text,
-the teacher-corrected text, the AI suggestion, and the final grade are
-saved (see `supabase/migrations/20261027010000_handwritten_grades.sql`).
+handwritten record can be deleted from the page's history and re-graded
+(deleting also removes its stored paper, best-effort).
+
+PLATFORM RULE: every uploaded photo is persisted server-side. Papers
+are stored in the private Supabase Storage bucket `handwritten-papers`
+under `{teacher_id}/{uuid}.jpg` (see
+`supabase/migrations/20261027020000_handwritten_storage.sql` for the
+bucket and the folder-based RLS policies), and the saved grade row
+links to its paper through `image_path`. History re-opens papers via
+time-limited signed URLs — never public links, never browser-only
+memory. The extracted text, the teacher-corrected text, the AI
+suggestion, and the final grade are saved alongside the path (see
+`supabase/migrations/20261027010000_handwritten_grades.sql`).
 Free-tier vision availability changes often — verify in your provider
 account that the chosen model accepts image input before relying on it.
 
