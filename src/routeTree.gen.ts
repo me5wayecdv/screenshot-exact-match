@@ -24,6 +24,7 @@ import { Route as AuthenticatedHandwrittenRouteImport } from './routes/_authenti
 import { Route as AuthenticatedLessonsRouteImport } from './routes/_authenticated/lessons'
 import { Route as AuthenticatedSchoolRouteImport } from './routes/_authenticated/school'
 import { Route as AuthenticatedStudentsRouteImport } from './routes/_authenticated/students'
+import { Route as AuthenticatedTutorRouteImport } from './routes/_authenticated/tutor'
 import { Route as AuthenticatedAssessmentsIndexRouteImport } from './routes/_authenticated/assessments.index'
 import { Route as AuthenticatedAssessmentsIdRouteImport } from './routes/_authenticated/assessments.$id'
 import { Route as AuthenticatedAssessmentsGenerateRouteImport } from './routes/_authenticated/assessments.generate'
@@ -105,6 +106,11 @@ const AuthenticatedStudentsRoute = AuthenticatedStudentsRouteImport.update({
   path: '/students',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTutorRoute = AuthenticatedTutorRouteImport.update({
+  id: '/tutor',
+  path: '/tutor',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedAssessmentsIndexRoute =
   AuthenticatedAssessmentsIndexRouteImport.update({
     id: '/assessments/',
@@ -151,6 +157,7 @@ export interface FileRoutesByFullPath {
   '/lessons': typeof AuthenticatedLessonsRoute
   '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
+  '/tutor': typeof AuthenticatedTutorRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
   '/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/assessments/': typeof AuthenticatedAssessmentsIndexRoute
@@ -172,6 +179,7 @@ export interface FileRoutesByTo {
   '/lessons': typeof AuthenticatedLessonsRoute
   '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
+  '/tutor': typeof AuthenticatedTutorRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
   '/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/assessments': typeof AuthenticatedAssessmentsIndexRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/_authenticated/lessons': typeof AuthenticatedLessonsRoute
   '/_authenticated/school': typeof AuthenticatedSchoolRoute
   '/_authenticated/students': typeof AuthenticatedStudentsRoute
+  '/_authenticated/tutor': typeof AuthenticatedTutorRoute
   '/_authenticated/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
   '/_authenticated/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/_authenticated/assessments/': typeof AuthenticatedAssessmentsIndexRoute
@@ -218,6 +227,7 @@ export interface FileRouteTypes {
     | '/lessons'
     | '/school'
     | '/students'
+    | '/tutor'
     | '/assessments/$id'
     | '/assessments/generate'
     | '/assessments/'
@@ -239,6 +249,7 @@ export interface FileRouteTypes {
     | '/lessons'
     | '/school'
     | '/students'
+    | '/tutor'
     | '/assessments/$id'
     | '/assessments/generate'
     | '/assessments'
@@ -261,6 +272,7 @@ export interface FileRouteTypes {
     | '/_authenticated/lessons'
     | '/_authenticated/school'
     | '/_authenticated/students'
+    | '/_authenticated/tutor'
     | '/_authenticated/assessments/$id'
     | '/_authenticated/assessments/generate'
     | '/_authenticated/assessments/'
@@ -384,6 +396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedStudentsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/tutor': {
+      id: '/_authenticated/tutor'
+      path: '/tutor'
+      fullPath: '/tutor'
+      preLoaderRoute: typeof AuthenticatedTutorRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/assessments/': {
       id: '/_authenticated/assessments/'
       path: '/assessments'
@@ -432,6 +451,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedLessonsRoute: typeof AuthenticatedLessonsRoute
   AuthenticatedSchoolRoute: typeof AuthenticatedSchoolRoute
   AuthenticatedStudentsRoute: typeof AuthenticatedStudentsRoute
+  AuthenticatedTutorRoute: typeof AuthenticatedTutorRoute
   AuthenticatedAssessmentsIdRoute: typeof AuthenticatedAssessmentsIdRoute
   AuthenticatedAssessmentsGenerateRoute: typeof AuthenticatedAssessmentsGenerateRoute
   AuthenticatedAssessmentsIndexRoute: typeof AuthenticatedAssessmentsIndexRoute
@@ -449,6 +469,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedLessonsRoute: AuthenticatedLessonsRoute,
   AuthenticatedSchoolRoute: AuthenticatedSchoolRoute,
   AuthenticatedStudentsRoute: AuthenticatedStudentsRoute,
+  AuthenticatedTutorRoute: AuthenticatedTutorRoute,
   AuthenticatedAssessmentsIdRoute: AuthenticatedAssessmentsIdRoute,
   AuthenticatedAssessmentsGenerateRoute: AuthenticatedAssessmentsGenerateRoute,
   AuthenticatedAssessmentsIndexRoute: AuthenticatedAssessmentsIndexRoute,

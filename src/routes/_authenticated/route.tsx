@@ -11,6 +11,7 @@ import {
   Shield,
   History,
   TrendingUp,
+  GraduationCap,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Brand, LangToggle } from "@/components/Brand";
@@ -57,7 +58,10 @@ function AppShell() {
               { to: "/admin", label: t("admin"), icon: Shield },
               { to: "/audit", label: t("auditHistory"), icon: History },
             ]
-          : [{ to: "/dashboard", label: t("myAssessments"), icon: Home }];
+          : [
+              { to: "/dashboard", label: t("myAssessments"), icon: Home },
+              { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
+            ];
 
   async function signOut() {
     await qc.cancelQueries();
