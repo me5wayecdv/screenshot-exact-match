@@ -160,3 +160,61 @@ Question bank: the builder lists the teacher's own earlier questions
 (RLS-scoped) and copies a selected question + its key into the
 current assessment. Copies are new rows — editing a copy never
 affects the original assessment.
+
+## Phase 2 follow-up — English OCR (Phase 3)
+
+Both vision prompts (handwritten OCR and source OCR) now carry an
+explicit language-preservation line: "If the page is in English,
+transcribe it in English; if in Arabic, in Arabic — never translate."
+The same vision model and endpoint serve both languages; nothing
+language-specific is configured server-side. Pilot checklist (not yet
+run): upload one English handwritten page and one English printed
+page, and verify the transcription keeps the original language and
+the matching step (Phase 3) assigns them to the right questions.
+
+## Phase 3 — Arabic AI correction depth
+
+### Smart question-matching (`src/server/paper-matching.ts`)
+
+With an assessment selected, the teacher uploads up to 10 page
+photos (each saved to the private `handwritten-papers` bucket on
+select, same platform rule as single photos). Matching runs
+cheapest-signal-first per page:
+
+1. NUMBER: the vision call transcribes the page and reports the
+   question number visible on it (digits, Western or Arabic-Indic).
+   A number inside the assessment's range matches directly
+   (confidence high). Ordinal words (الثالث) are not parsed and fall
+   through.
+2. AI: a text-model call compares the transcribed answer against the
+   assessment's numbered question list and returns an index plus
+   high/medium/low confidence, or null.
+3. NONE: the teacher picks the question manually in the UI.
+
+Matched pages prefill the EXISTING single-grade form (question,
+photo, text) — there is no second grading path, and the AI-final
+rule for handwritten grades is unchanged. Vision failures stop the
+batch with a page index (retry that page alone); text-match failures
+degrade to "none" per page, never failing the batch.
+
+### Unclear-part flagging (`src/lib/uncertain-text.ts`)
+
+The handwritten OCR prompt asks the model to wrap text it reads with
+difficulty in ⟦ ⟧ markers (fully unreadable parts stay [غير واضح]).
+The review UI highlights those spans and counts them, labeled
+honestly as the model's own estimates — NOT a measured confidence
+score (the OpenAI-compatible API returns no per-token confidence).
+Parsing is conservative: unclosed markers render as plain text and
+empty pairs are dropped. Source OCR does NOT use these markers (they
+would flow into generation input); it keeps the language line only.
+
+### Similar-answer grouping (`src/lib/similar-answers.ts`)
+
+Pure client-side clustering over already-saved corrected answers,
+per question: Arabic-aware normalization (diacritics/tatweel stripped,
+alef forms unified, ى→ي, ة→ه), stopword removal, Jaccard similarity
+on token sets, greedy clustering at a 0.55 threshold, groups of 2+
+shown in history with scores side by side. The UI labels this
+neutrally — similarity is a review aid for inconsistent grading, never
+evidence of copying. No migration was needed for Phase 3: matching,
+markers, and grouping all work on existing tables and buckets.

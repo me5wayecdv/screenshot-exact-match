@@ -192,7 +192,11 @@ function extractTranscription(rawText: string): string {
 const OCR_SYSTEM_PROMPT =
   "أنت أداة استخراج نصوص من صور أوراق امتحانات مكتوبة بخط اليد. " +
   "أعد النص المكتوب بخط اليد حرفياً كما هو، دون تصحيح إملائي أو نحوي ودون إضافة أي كلام من عندك. " +
-  "حافظ على فواصل الأسطر. الأجزاء غير المقروءة اكتب مكانها [غير واضح]. " +
+  "حافظ على فواصل الأسطر. الأجزاء غير المقروءة تماماً اكتب مكانها [غير واضح]. " +
+  "النص الذي تقرأه بصعوبة أو غير متأكد منه ضعه بين علامتي ⟦ ⟧ (Phase 3: " +
+  "the review UI highlights these spans as the model's own uncertain parts — " +
+  "they are NOT a measured confidence score). " +
+  "If the page is in English, transcribe it in English; if in Arabic, in Arabic — never translate. " +
   'أجب بصيغة JSON فقط: {"text": "..."}.';
 
 async function callVisionOcr(

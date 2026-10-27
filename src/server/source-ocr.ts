@@ -116,6 +116,7 @@ const SOURCE_SYSTEM_PROMPT =
   "أعد النص الظاهر في الصورة كاملاً وحرفياً، مع الحفاظ على العناوين وفقرات النص وترتيبها. " +
   "لا تلخّص ولا تصحّح ولا تضف شيئاً من عندك. " +
   "الأجزاء غير المقروءة اكتب مكانها [غير واضح]. " +
+  "If the page is in English, transcribe it in English; if in Arabic, in Arabic — never translate. " +
   'أجب بصيغة JSON فقط: {"text": "..."}.';
 
 async function callVisionOcr(
