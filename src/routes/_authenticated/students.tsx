@@ -9,7 +9,12 @@ import { Button } from "@/components/ui/button";
 import { ParentContactForm } from "@/components/parent-contact-form";
 
 export const Route = createFileRoute("/_authenticated/students")({
-  head: () => ({ meta: [{ title: "Students · Qemmini" }, { name: "description", content: "Manage your students." }] }),
+  head: () => ({
+    meta: [
+      { title: "Students · Qemmini" },
+      { name: "description", content: "Manage your students." },
+    ],
+  }),
   component: Students,
 });
 
@@ -24,9 +29,15 @@ function Students() {
       const ids = students.map((s) => s.student_id as string);
       // Teacher read of linked students' profiles is allowed by the
       // existing "read own profile" policy (is_teacher_of).
-      const { data: profiles } = ids.length > 0
-        ? await supabase.from("profiles").select("id, parent_phone, whatsapp_consent").in("id", ids)
-        : { data: [] as { id: string; parent_phone: string | null; whatsapp_consent: boolean }[] };
+      const { data: profiles } =
+        ids.length > 0
+          ? await supabase
+              .from("profiles")
+              .select("id, parent_phone, whatsapp_consent")
+              .in("id", ids)
+          : {
+              data: [] as { id: string; parent_phone: string | null; whatsapp_consent: boolean }[],
+            };
       const byId = new Map((profiles ?? []).map((p) => [p.id, p]));
       return students.map((s) => ({
         ...s,
@@ -36,7 +47,11 @@ function Students() {
     },
   });
   async function remove(id: string) {
-    const { error } = await supabase.from("teacher_students").delete().eq("teacher_id", me!.id).eq("student_id", id);
+    const { error } = await supabase
+      .from("teacher_students")
+      .delete()
+      .eq("teacher_id", me!.id)
+      .eq("student_id", id);
     if (error) return void toast.error(translateError(error, lang));
     qc.invalidateQueries({ queryKey: ["my-students"] });
   }
@@ -45,7 +60,9 @@ function Students() {
       <PageHeader title={t("students")} />
       <Panel className="mb-8">
         <p className="text-sm text-muted-foreground">{t("joinCode")}</p>
-        <p dir="ltr" className="mt-1 font-display text-4xl font-bold tracking-[0.3em] text-primary">{me?.joinCode ?? "—"}</p>
+        <p dir="ltr" className="mt-1 font-display text-4xl font-bold tracking-[0.3em] text-primary">
+          {me?.joinCode ?? "—"}
+        </p>
         <p className="mt-2 text-sm text-muted-foreground">{t("joinCodeHint")}</p>
       </Panel>
       {data && data.length === 0 ? (
@@ -58,7 +75,9 @@ function Students() {
                 <span className="font-medium">{s.full_name || "—"}</span>
                 <span className="flex items-center gap-3 text-sm text-muted-foreground">
                   {formatDate(s.joined_at, lang)}
-                  <Button size="sm" variant="ghost" onClick={() => remove(s.student_id)}>{t("remove")}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => remove(s.student_id)}>
+                    {t("remove")}
+                  </Button>
                 </span>
               </div>
               <ParentContactForm

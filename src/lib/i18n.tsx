@@ -7,7 +7,8 @@ const dict = {
     brand: "قِمّيني",
     tagline: "منصة تقييم وتعلم ذكية للمعلم والطالب",
     heroTitle: "تقييم أدق، وقت أقل، وتعلّم يفهم كل طالب",
-    heroBody: "أنشئ الاختبارات، صحّح الإجابات الموضوعية تلقائياً، واحصل على اقتراحات ذكية لتصحيح الإجابات المقالية — والقرار النهائي دائماً للمعلم.",
+    heroBody:
+      "أنشئ الاختبارات، صحّح الإجابات الموضوعية تلقائياً، واحصل على اقتراحات ذكية لتصحيح الإجابات المقالية — والقرار النهائي دائماً للمعلم.",
     getStarted: "ابدأ الآن",
     signIn: "تسجيل الدخول",
     signUp: "إنشاء حساب",
@@ -38,7 +39,8 @@ const dict = {
     feature1: "منشئ اختبارات متكامل",
     feature1b: "اختيار من متعدد، صح وخطأ، إجابات قصيرة ومقالية مع مفاتيح إجابة ومعايير تصحيح.",
     feature2: "تصحيح ذكي تحت إشراف المعلم",
-    feature2b: "اقتراحات درجات مفصّلة حسب المعايير مع أدلة من إجابة الطالب، تبقى مؤقتة حتى يعتمدها المعلم.",
+    feature2b:
+      "اقتراحات درجات مفصّلة حسب المعايير مع أدلة من إجابة الطالب، تبقى مؤقتة حتى يعتمدها المعلم.",
     feature3: "نتائج واضحة للطالب",
     feature3b: "درجات وملاحظات تُنشر فقط بعد اعتماد المعلم.",
     loading: "جارٍ التحميل…",
@@ -169,7 +171,8 @@ const dict = {
     gradingTeacherOnly: "هذه الصفحة للمعلمين فقط.",
     // Handwritten paper grading
     hwTitle: "تصحيح ورقي بخط اليد",
-    hwSubtitle: "ارفع صورة ورقة إجابة، استخرج النص وراجعه، والذكاء الاصطناعي يحدد الدرجة النهائية تلقائياً.",
+    hwSubtitle:
+      "ارفع صورة ورقة إجابة، استخرج النص وراجعه، والذكاء الاصطناعي يحدد الدرجة النهائية تلقائياً.",
     hwTeacherOnly: "هذه الصفحة للمعلمين فقط.",
     hwQuestionContext: "سياق السؤال (اختياري)",
     hwAdHoc: "سؤال حر (بدون اختبار)",
@@ -180,13 +183,37 @@ const dict = {
     hwMaxMarks: "درجة السؤال",
     hwStudentName: "اسم الطالب (كما هو مكتوب على الورقة)",
     hwUpload: "صورة ورقة الإجابة",
-    hwUploadHint: "ورقة واحدة = سؤال واحد. الصورة تُحفظ على الخادم في مساحة خاصة بك، وتظهر مع التصحيح لاحقاً.",
+    hwUploadHint:
+      "ورقة واحدة = سؤال واحد. الصورة تُحفظ على الخادم في مساحة خاصة بك، وتظهر مع التصحيح لاحقاً.",
     hwUploading: "جارٍ حفظ الصورة على الخادم…",
     hwImageUploadFailed: "تعذّر حفظ الصورة على الخادم — تحقق من الاتصال وحاول مجدداً.",
     hwImageNotSaved: "الصورة لم تُحفظ على الخادم بعد — لن يتم حفظ التصحيح قبل رفعها.",
     hwRetryUpload: "إعادة رفع الصورة",
     hwViewPaper: "عرض الورقة",
     hwHidePaper: "إخفاء الورقة",
+    auditHistory: "سجل المراجعة",
+    auditSubtitle: "كل تغييرات الدرجات والنشر اللي عملتها، بالدرجة القديمة والجديدة.",
+    auditEmpty: "لسه مفيش أحداث مسجلة.",
+    auditTeacherOnly: "سجل المراجعة متاح للمعلمين فقط.",
+    auditViewHistory: "سجل المراجعة",
+    auditActionReviewAnswer: "مراجعة إجابة",
+    auditActionRelease: "نشر نتيجة",
+    auditActionAssessmentStatus: "تغيير حالة امتحان",
+    auditActionAiSuggestion: "اقتراح ذكاء اصطناعي",
+    auditActionHandwrittenGrade: "تصحيح ورقي",
+    auditActionHandwrittenGradeDeleted: "حذف تصحيح ورقي",
+    auditDecision: "القرار",
+    auditScore: "الدرجة",
+    auditPrevious: "الدرجة السابقة",
+    auditAiScore: "درجة الـ AI",
+    auditFrom: "من",
+    auditTo: "إلى",
+    auditFinalScore: "الدرجة النهائية",
+    auditMaxMarks: "الدرجة الكاملة",
+    auditAssessment: "الامتحان",
+    auditQuestion: "السؤال",
+    contactTitle: "تواصل معنا",
+    contactBody: "لأي سؤال عن المنصة أو بياناتك الشخصية، راسلنا على adhamelhansye@gmail.com.",
     hwOcrNote: "استخراج النص تقريبي — خط اليد قد يُقرأ خطأ. راجع النص وصحّحه قبل التصحيح.",
     hwExtract: "استخراج النص",
     hwExtracting: "جارٍ استخراج النص…",
@@ -201,12 +228,14 @@ const dict = {
     hwHistory: "التصحيحات السابقة",
     hwNoHistory: "لا توجد تصحيحات ورقية بعد.",
     hwOcrNotConfigured: "الذكاء الاصطناعي غير مضبوط على الخادم — اضبط AI_BASE_URL وAI_MODEL.",
-    hwVisionUnsupported: "النموذج الحالي لا يدعم قراءة الصور — اضبط AI_VISION_MODEL على نموذج يدعم الصور (Vision).",
+    hwVisionUnsupported:
+      "النموذج الحالي لا يدعم قراءة الصور — اضبط AI_VISION_MODEL على نموذج يدعم الصور (Vision).",
     hwOcrFailed: "تعذّر استخراج النص — حاول مجدداً أو اكتب النص يدوياً.",
     hwNeedImage: "ارفع صورة ورقة الإجابة أولاً.",
     hwNeedText: "أدخل نص السؤال ونص الإجابة قبل اقتراح الدرجة أو الحفظ.",
     hwNeedSuggestion: "اطلب اقتراح الدرجة أولاً — الدرجة النهائية يحددها الذكاء الاصطناعي.",
-    hwAiFinalNote: "الدرجة النهائية من الذكاء الاصطناعي — تُعتمد تلقائياً عند الحفظ. دورك مراجعة النص قبل التصحيح.",
+    hwAiFinalNote:
+      "الدرجة النهائية من الذكاء الاصطناعي — تُعتمد تلقائياً عند الحفظ. دورك مراجعة النص قبل التصحيح.",
     hwScoreRange: "الدرجة يجب أن تكون بين صفر ودرجة السؤال.",
     hwDelete: "حذف",
     hwDeleted: "تم حذف التصحيح.",
@@ -278,42 +307,60 @@ const dict = {
     // Terms + privacy (slice 5)
     backHome: "الرئيسية",
     privacy: "الخصوصية",
-    privacyChangesBody: "قد نحدّث هذه السياسة من وقت لآخر، ويعني استمرارك في استخدام المنصة بعد أي تحديث موافقتك على السياسة المحدّثة.",
+    privacyChangesBody:
+      "قد نحدّث هذه السياسة من وقت لآخر، ويعني استمرارك في استخدام المنصة بعد أي تحديث موافقتك على السياسة المحدّثة.",
     privacyChangesTitle: "تغيير هذه السياسة",
-    privacyCollectBody: "نجمع المعلومات التي تقدمها عند إنشاء حسابك، مثل الاسم والبريد الإلكتروني ودورك كمعلم أو طالب، إضافة إلى البيانات الناتجة عن استخدامك للمنصة مثل الاختبارات والإجابات والدرجات والملاحظات.",
+    privacyCollectBody:
+      "نجمع المعلومات التي تقدمها عند إنشاء حسابك، مثل الاسم والبريد الإلكتروني ودورك كمعلم أو طالب، إضافة إلى البيانات الناتجة عن استخدامك للمنصة مثل الاختبارات والإجابات والدرجات والملاحظات.",
     privacyCollectTitle: "البيانات التي نجمعها",
-    privacyIntro: "توضح هذه السياسة البيانات التي تجمعها قِمّيني وكيف نستخدمها ونحميها. المنصة مصممة للتعامل مع بيانات الطلاب بحذر، ولا تُعرض النتائج للطالب إلا بعد اعتماد معلمه لها.",
-    privacyRetentionBody: "نحتفظ بالبيانات فقط طالما كانت لازمة لتقديم الخدمة أو للوفاء بالتزامات قانونية، ثم تُحذف أو تُجهَّل هويتها.",
+    privacyIntro:
+      "توضح هذه السياسة البيانات التي تجمعها قِمّيني وكيف نستخدمها ونحميها. المنصة مصممة للتعامل مع بيانات الطلاب بحذر، ولا تُعرض النتائج للطالب إلا بعد اعتماد معلمه لها.",
+    privacyRetentionBody:
+      "نحتفظ بالبيانات فقط طالما كانت لازمة لتقديم الخدمة أو للوفاء بالتزامات قانونية، ثم تُحذف أو تُجهَّل هويتها.",
     privacyRetentionTitle: "الاحتفاظ بالبيانات",
-    privacyRightsBody: "يمكنك طلب الاطلاع على بياناتك الشخصية أو تصحيحها أو حذفها، وسنستجيب للطلبات المشروعة في حدود ما تسمح به القوانين المعمول بها ومتطلبات تقديم الخدمة.",
+    privacyRightsBody:
+      "يمكنك طلب الاطلاع على بياناتك الشخصية أو تصحيحها أو حذفها، وسنستجيب للطلبات المشروعة في حدود ما تسمح به القوانين المعمول بها ومتطلبات تقديم الخدمة.",
     privacyRightsTitle: "حقوقك",
-    privacySecurityBody: "نطبّق إجراءات معقولة لحماية البيانات، لكن لا توجد منظومة آمنة تماماً؛ لذا حافظ على سرّية كلمة مرورك وأخبرنا فوراً إذا اشتبهت في وصول غير مصرح به إلى حسابك.",
+    privacySecurityBody:
+      "نطبّق إجراءات معقولة لحماية البيانات، لكن لا توجد منظومة آمنة تماماً؛ لذا حافظ على سرّية كلمة مرورك وأخبرنا فوراً إذا اشتبهت في وصول غير مصرح به إلى حسابك.",
     privacySecurityTitle: "أمان البيانات",
-    privacySharingBody: "لا نبيع بياناتك الشخصية. تُشارك البيانات فقط مع المعلم أو الطالب المعني بها، ومع مزودي البنية التحتية اللازمين لتشغيل المنصة.",
+    privacySharingBody:
+      "لا نبيع بياناتك الشخصية. تُشارك البيانات فقط مع المعلم أو الطالب المعني بها، ومع مزودي البنية التحتية اللازمين لتشغيل المنصة.",
     privacySharingTitle: "مشاركة البيانات",
-    privacyStudentBody: "إجابات الطالب ودرجاته مرئية لمعلمه فقط، ولا تُنشر النتيجة للطالب إلا بعد أن يعتمدها المعلم.",
+    privacyStudentBody:
+      "إجابات الطالب ودرجاته مرئية لمعلمه فقط، ولا تُنشر النتيجة للطالب إلا بعد أن يعتمدها المعلم.",
     privacyStudentTitle: "بيانات الطلاب",
     privacyTitle: "سياسة الخصوصية",
-    privacyUseBody: "نستخدم البيانات لتقديم الخدمة فقط: إنشاء الاختبارات وإدارتها، وتصحيح الإجابات، وعرض النتائج على المعلم والطالب المعنيين.",
+    privacyUseBody:
+      "نستخدم البيانات لتقديم الخدمة فقط: إنشاء الاختبارات وإدارتها، وتصحيح الإجابات، وعرض النتائج على المعلم والطالب المعنيين.",
     privacyUseTitle: "كيف نستخدم البيانات",
     terms: "الشروط",
-    termsAccountsBody: "أنت مسؤول عن دقّة المعلومات التي تسجّل بها وعن الحفاظ على سرّية بيانات دخولك وعن كل نشاط يتم من خلال حسابك.",
+    termsAccountsBody:
+      "أنت مسؤول عن دقّة المعلومات التي تسجّل بها وعن الحفاظ على سرّية بيانات دخولك وعن كل نشاط يتم من خلال حسابك.",
     termsAccountsTitle: "الحسابات",
-    termsAiBody: "اقتراحات الدرجات التي يقدّمها الذكاء الاصطناعي مؤقتة وإرشادية فقط، ولا تصبح نهائية إلا بعد مراجعة المعلم واعتماده لها.",
+    termsAiBody:
+      "اقتراحات الدرجات التي يقدّمها الذكاء الاصطناعي مؤقتة وإرشادية فقط، ولا تصبح نهائية إلا بعد مراجعة المعلم واعتماده لها.",
     termsAiTitle: "اقتراحات الذكاء الاصطناعي",
-    termsAvailabilityBody: "نبذل جهداً معقولاً لإبقاء المنصة متاحة، لكنها قد تتوقف مؤقتاً للصيانة أو لأسباب خارجة عن إرادتنا، وقد تتغير ميزاتها مع تطورها.",
+    termsAvailabilityBody:
+      "نبذل جهداً معقولاً لإبقاء المنصة متاحة، لكنها قد تتوقف مؤقتاً للصيانة أو لأسباب خارجة عن إرادتنا، وقد تتغير ميزاتها مع تطورها.",
     termsAvailabilityTitle: "توفر الخدمة",
-    termsChangesBody: "قد نحدّث هذه الشروط من وقت لآخر، ويعني استمرارك في استخدام المنصة بعد أي تحديث موافقتك على الشروط المحدّثة.",
+    termsChangesBody:
+      "قد نحدّث هذه الشروط من وقت لآخر، ويعني استمرارك في استخدام المنصة بعد أي تحديث موافقتك على الشروط المحدّثة.",
     termsChangesTitle: "تغيير الشروط",
-    termsContentBody: "يحتفظ المعلمون بملكية المحتوى الذي ينشئونه، ويمنحون قِمّيني ترخيصاً لاستضافته وعرضه على طلابهم لغرض تقديم الخدمة فقط. تظل إجابات الطلاب أعمالهم الخاصة، ويطّلع عليها معلموهم لغرض التقييم.",
+    termsContentBody:
+      "يحتفظ المعلمون بملكية المحتوى الذي ينشئونه، ويمنحون قِمّيني ترخيصاً لاستضافته وعرضه على طلابهم لغرض تقديم الخدمة فقط. تظل إجابات الطلاب أعمالهم الخاصة، ويطّلع عليها معلموهم لغرض التقييم.",
     termsContentTitle: "محتوى المعلمين وإجابات الطلاب",
-    termsFairUseBody: "لا يجوز إساءة استخدام المنصة أو محاولة الوصول إلى بيانات مستخدمين آخرين أو تعطيل الخدمة أو استخدامها لأي غرض غير قانوني.",
+    termsFairUseBody:
+      "لا يجوز إساءة استخدام المنصة أو محاولة الوصول إلى بيانات مستخدمين آخرين أو تعطيل الخدمة أو استخدامها لأي غرض غير قانوني.",
     termsFairUseTitle: "الاستخدام المقبول",
-    termsIntro: "تنظّم هذه الشروط استخدامك لمنصة قِمّيني، وهي منصة تقييم وتعلّم للمعلمين والطلاب. باستخدامك المنصة فأنت توافق على هذه الشروط.",
-    termsRolesBody: "ينشئ المعلمون الاختبارات ويديرونها ويعتمدون الدرجات، ويجيب الطلاب على الاختبارات المسندة إليهم فقط. القرار النهائي في أي درجة أو نتيجة هو دائماً للمعلم.",
+    termsIntro:
+      "تنظّم هذه الشروط استخدامك لمنصة قِمّيني، وهي منصة تقييم وتعلّم للمعلمين والطلاب. باستخدامك المنصة فأنت توافق على هذه الشروط.",
+    termsRolesBody:
+      "ينشئ المعلمون الاختبارات ويديرونها ويعتمدون الدرجات، ويجيب الطلاب على الاختبارات المسندة إليهم فقط. القرار النهائي في أي درجة أو نتيجة هو دائماً للمعلم.",
     termsRolesTitle: "الأدوار والمسؤوليات",
     // USP slice 1 — AI grading suggestions
-    aiGradeNeedsKey: "الذكاء الاصطناعي غير مهيأ بعد — اضبط AI_BASE_URL وAI_MODEL على الخادم (وAI_API_KEY لمزوّد مستضاف).",
+    aiGradeNeedsKey:
+      "الذكاء الاصطناعي غير مهيأ بعد — اضبط AI_BASE_URL وAI_MODEL على الخادم (وAI_API_KEY لمزوّد مستضاف).",
     aiGradeFailed: "تعذّر الحصول على اقتراح. حاول مرة أخرى.",
     aiGradeApplied: "تم تعبئة الدرجة والملاحظات المقترحة — احفظها قبل النشر.",
     aiGradeSuggestedScore: "الدرجة المقترحة",
@@ -327,31 +374,36 @@ const dict = {
     genSubtitle: "الصق نص الدرس وسيقترح الذكاء الاصطناعي مسودة اختبار تراجعها قبل النشر.",
     genTeacherOnly: "هذه الصفحة للمعلمين فقط.",
     genSourceText: "نص الدرس",
-    genSourceHint: "الصق نص الفصل أو الدرس كاملاً — كلما كان النص أوضح كانت الأسئلة أدق. الحد الأدنى 50 حرفاً.",
+    genSourceHint:
+      "الصق نص الفصل أو الدرس كاملاً — كلما كان النص أوضح كانت الأسئلة أدق. الحد الأدنى 50 حرفاً.",
     genSourcePlaceholder: "الصق هنا نص الدرس الذي تريد توليد أسئلة منه…",
     genTitleOptional: "عنوان الاختبار (اختياري)",
     genQuestionCount: "عدد الأسئلة",
     genQuestionTypes: "أنواع الأسئلة",
     genGenerate: "توليد المسودة",
     genGenerating: "جارٍ التوليد…",
-    genDraftNote: "هذه مسودة فقط: راجع كل سؤال وإجابته ومعايير التصحيح في صفحة التحرير قبل النشر. القرار النهائي لك دائماً.",
+    genDraftNote:
+      "هذه مسودة فقط: راجع كل سؤال وإجابته ومعايير التصحيح في صفحة التحرير قبل النشر. القرار النهائي لك دائماً.",
     genSuccess: "تم توليد المسودة بنجاح.",
     genOpenBuilder: "مراجعة المسودة وتحريرها",
     genGenerateAnother: "توليد مسودة أخرى",
     genDraftSaved: "تم حفظ {count} سؤالاً كمسودة غير منشورة.",
     genBackToAssessments: "العودة إلى الاختبارات",
     genPdfNote: "في الإصدار الحالي: الصق نص الدرس فقط — رفع ملفات PDF سيُضاف لاحقاً.",
-    genAiKeyMissing: "التوليد بالذكاء الاصطناعي غير مفعّل بعد: لم يتم ضبط مزوّد الذكاء الاصطناعي على الخادم (AI_BASE_URL وAI_MODEL، وAI_API_KEY للمزوّد المستضاف). تواصل مع مسؤول المنصة.",
+    genAiKeyMissing:
+      "التوليد بالذكاء الاصطناعي غير مفعّل بعد: لم يتم ضبط مزوّد الذكاء الاصطناعي على الخادم (AI_BASE_URL وAI_MODEL، وAI_API_KEY للمزوّد المستضاف). تواصل مع مسؤول المنصة.",
     genParseFailed: "تعذّر فهم رد الذكاء الاصطناعي. حاول مرة أخرى، أو جرّب نصاً أقصر وأوضح.",
     genUpstreamFailed: "تعذّرت خدمة الذكاء الاصطناعي الآن. حاول مرة أخرى بعد قليل.",
     genTimeout: "استغرق التوليد وقتاً أطول من المتوقع. حاول مرة أخرى.",
     genNotTeacher: "هذا الإجراء للمعلمين فقط.",
-    genInvalidInput: "تحقق من المدخلات: نص لا يقل عن 50 حرفاً، ونوع سؤال واحد على الأقل، وعدد أسئلة بين 1 و 20.",
+    genInvalidInput:
+      "تحقق من المدخلات: نص لا يقل عن 50 حرفاً، ونوع سؤال واحد على الأقل، وعدد أسئلة بين 1 و 20.",
     genNeedSource: "الصق نص الدرس أولاً (50 حرفاً على الأقل).",
     genNeedType: "اختر نوع سؤال واحد على الأقل.",
     // USP slice 3 — integrity signals
     integrityTitle: "إشارات النزاهة",
-    integrityNote: "إشارات للمراجعة فقط — ليست دليلاً على مخالفة، ولا تؤثر على الدرجة تلقائياً. القرار النهائي دائماً للمعلم.",
+    integrityNote:
+      "إشارات للمراجعة فقط — ليست دليلاً على مخالفة، ولا تؤثر على الدرجة تلقائياً. القرار النهائي دائماً للمعلم.",
     integrityTabSwitches: "مرات مغادرة الصفحة",
     integrityWindowBlurs: "مرات انتقال التركيز خارج النافذة",
     integrityTotalTime: "إجمالي الوقت داخل الصفحة",
@@ -377,16 +429,19 @@ const dict = {
     whatsapp_failed: "فشل الإرسال",
     whatsapp_skipped: "تم التخطي",
     whatsappAutoSend: "إرسال النتيجة لولي الأمر تلقائيًا عند النشر",
-    whatsappAutoSendHint: "عند التفعيل، تُرسل النتيجة عبر واتساب فور نشرها — فقط إذا كان رقم ولي الأمر مسجّلًا والإذن مفعّلًا. الإعداد الافتراضي: متوقف.",
+    whatsappAutoSendHint:
+      "عند التفعيل، تُرسل النتيجة عبر واتساب فور نشرها — فقط إذا كان رقم ولي الأمر مسجّلًا والإذن مفعّلًا. الإعداد الافتراضي: متوقف.",
     whatsappReportTitle: "إرسال النتائج لأولياء الأمور",
-    whatsappReportHint: "تُرسل النتائج المنشورة فقط. إذا لم يظهر زر الإرسال، أضف رقم ولي الأمر وفعّل الإذن من صفحة الطلاب.",
+    whatsappReportHint:
+      "تُرسل النتائج المنشورة فقط. إذا لم يظهر زر الإرسال، أضف رقم ولي الأمر وفعّل الإذن من صفحة الطلاب.",
     termsTitle: "شروط الاستخدام",
   },
   en: {
     brand: "Qemmini",
     tagline: "Intelligent assessment and learning for teachers and students",
     heroTitle: "Sharper assessment, less time, learning that understands every student",
-    heroBody: "Build tests, auto-grade objective answers, and get AI grading suggestions for written answers — the teacher always has the final word.",
+    heroBody:
+      "Build tests, auto-grade objective answers, and get AI grading suggestions for written answers — the teacher always has the final word.",
     getStarted: "Get started",
     signIn: "Sign in",
     signUp: "Create account",
@@ -415,9 +470,11 @@ const dict = {
     myAssessments: "My assessments",
     results: "Results",
     feature1: "Complete assessment builder",
-    feature1b: "Multiple choice, true/false, short and written answers with answer keys and rubrics.",
+    feature1b:
+      "Multiple choice, true/false, short and written answers with answer keys and rubrics.",
     feature2: "AI grading under teacher control",
-    feature2b: "Criterion-level score suggestions with evidence from the answer, provisional until the teacher approves.",
+    feature2b:
+      "Criterion-level score suggestions with evidence from the answer, provisional until the teacher approves.",
     feature3: "Clear results for students",
     feature3b: "Scores and feedback are shown only after teacher release.",
     loading: "Loading…",
@@ -539,7 +596,8 @@ const dict = {
     // Take + grading (slice 2)
     alreadySubmitted: "You already submitted this assessment.",
     autoScore: "Auto score",
-    gradingAutoNote: "Objective questions were auto-graded; review them and override the teacher score when needed.",
+    gradingAutoNote:
+      "Objective questions were auto-graded; review them and override the teacher score when needed.",
     gradingReleaseBlocked: "Every question needs a teacher score before release.",
     gradingSaveScores: "Save scores and feedback",
     gradingSaved: "Scores saved.",
@@ -548,7 +606,8 @@ const dict = {
     gradingTeacherOnly: "This page is for teachers only.",
     // Handwritten paper grading
     hwTitle: "Handwritten paper grading",
-    hwSubtitle: "Upload a photo of an answer paper, extract and review the text — the AI sets the final grade automatically.",
+    hwSubtitle:
+      "Upload a photo of an answer paper, extract and review the text — the AI sets the final grade automatically.",
     hwTeacherOnly: "This page is for teachers only.",
     hwQuestionContext: "Question context (optional)",
     hwAdHoc: "Free question (no assessment)",
@@ -559,14 +618,42 @@ const dict = {
     hwMaxMarks: "Question marks",
     hwStudentName: "Student name (as written on the paper)",
     hwUpload: "Answer paper photo",
-    hwUploadHint: "One photo = one question. The photo is saved on the server in your private space and shows with the grade later.",
+    hwUploadHint:
+      "One photo = one question. The photo is saved on the server in your private space and shows with the grade later.",
     hwUploading: "Saving the photo to the server…",
-    hwImageUploadFailed: "Could not save the photo to the server — check your connection and try again.",
-    hwImageNotSaved: "The photo is not saved on the server yet — the grade cannot be saved before it uploads.",
+    hwImageUploadFailed:
+      "Could not save the photo to the server — check your connection and try again.",
+    hwImageNotSaved:
+      "The photo is not saved on the server yet — the grade cannot be saved before it uploads.",
     hwRetryUpload: "Retry upload",
     hwViewPaper: "View paper",
     hwHidePaper: "Hide paper",
-    hwOcrNote: "Text extraction is approximate — handwriting can be misread. Review and correct the text before grading.",
+    auditHistory: "Review history",
+    auditSubtitle: "Every grade change and release you made, with old and new scores.",
+    auditEmpty: "No events recorded yet.",
+    auditTeacherOnly: "Review history is available to teachers only.",
+    auditViewHistory: "Review history",
+    auditActionReviewAnswer: "Answer reviewed",
+    auditActionRelease: "Result released",
+    auditActionAssessmentStatus: "Assessment status changed",
+    auditActionAiSuggestion: "AI suggestion",
+    auditActionHandwrittenGrade: "Handwritten grade",
+    auditActionHandwrittenGradeDeleted: "Handwritten grade deleted",
+    auditDecision: "Decision",
+    auditScore: "Score",
+    auditPrevious: "Previous score",
+    auditAiScore: "AI score",
+    auditFrom: "From",
+    auditTo: "To",
+    auditFinalScore: "Final score",
+    auditMaxMarks: "Max marks",
+    auditAssessment: "Assessment",
+    auditQuestion: "Question",
+    contactTitle: "Contact us",
+    contactBody:
+      "For any question about the platform or your personal data, email us at adhamelhansye@gmail.com.",
+    hwOcrNote:
+      "Text extraction is approximate — handwriting can be misread. Review and correct the text before grading.",
     hwExtract: "Extract text",
     hwExtracting: "Extracting text…",
     hwExtracted: "Extracted text (review and correct it)",
@@ -580,12 +667,14 @@ const dict = {
     hwHistory: "Previous paper grades",
     hwNoHistory: "No paper grades yet.",
     hwOcrNotConfigured: "AI is not configured on the server — set AI_BASE_URL and AI_MODEL.",
-    hwVisionUnsupported: "The current model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
+    hwVisionUnsupported:
+      "The current model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
     hwOcrFailed: "Could not extract the text — try again or type the text manually.",
     hwNeedImage: "Upload an answer paper photo first.",
     hwNeedText: "Enter the question text and the answer text before suggesting a grade or saving.",
     hwNeedSuggestion: "Request a grade suggestion first — the AI sets the final grade.",
-    hwAiFinalNote: "The final grade comes from the AI and is adopted automatically on save. Your role is reviewing the text before grading.",
+    hwAiFinalNote:
+      "The final grade comes from the AI and is adopted automatically on save. Your role is reviewing the text before grading.",
     hwScoreRange: "The score must be between zero and the question's marks.",
     hwDelete: "Delete",
     hwDeleted: "Grade deleted.",
@@ -657,42 +746,60 @@ const dict = {
     // Terms + privacy (slice 5)
     backHome: "Home",
     privacy: "Privacy",
-    privacyChangesBody: "We may update this policy from time to time; continuing to use the platform after an update means you accept the updated policy.",
+    privacyChangesBody:
+      "We may update this policy from time to time; continuing to use the platform after an update means you accept the updated policy.",
     privacyChangesTitle: "Changes to this policy",
-    privacyCollectBody: "We collect information you provide when creating an account, such as your name, email address, and role as teacher or student, plus data generated by your use of the platform, such as assessments, answers, grades, and feedback.",
+    privacyCollectBody:
+      "We collect information you provide when creating an account, such as your name, email address, and role as teacher or student, plus data generated by your use of the platform, such as assessments, answers, grades, and feedback.",
     privacyCollectTitle: "Data we collect",
-    privacyIntro: "This policy explains what data Qemmini collects, how we use it, and how we protect it. The platform is designed to handle student data carefully, and results are shown to a student only after their teacher approves them.",
-    privacyRetentionBody: "We keep data only as long as needed to provide the service or meet legal obligations, after which it is deleted or anonymised.",
+    privacyIntro:
+      "This policy explains what data Qemmini collects, how we use it, and how we protect it. The platform is designed to handle student data carefully, and results are shown to a student only after their teacher approves them.",
+    privacyRetentionBody:
+      "We keep data only as long as needed to provide the service or meet legal obligations, after which it is deleted or anonymised.",
     privacyRetentionTitle: "Data retention",
-    privacyRightsBody: "You may request access to, correction of, or deletion of your personal data, and we will respond to legitimate requests within what applicable law and service requirements allow.",
+    privacyRightsBody:
+      "You may request access to, correction of, or deletion of your personal data, and we will respond to legitimate requests within what applicable law and service requirements allow.",
     privacyRightsTitle: "Your rights",
-    privacySecurityBody: "We apply reasonable measures to protect data, but no system is fully secure; please keep your password confidential and tell us promptly if you suspect unauthorised access to your account.",
+    privacySecurityBody:
+      "We apply reasonable measures to protect data, but no system is fully secure; please keep your password confidential and tell us promptly if you suspect unauthorised access to your account.",
     privacySecurityTitle: "Data security",
-    privacySharingBody: "We do not sell your personal data. Data is shared only with the teacher or student it concerns, and with the infrastructure providers needed to run the platform.",
+    privacySharingBody:
+      "We do not sell your personal data. Data is shared only with the teacher or student it concerns, and with the infrastructure providers needed to run the platform.",
     privacySharingTitle: "Sharing data",
-    privacyStudentBody: "A student's answers and grades are visible only to their teacher, and a result is not released to the student until the teacher approves it.",
+    privacyStudentBody:
+      "A student's answers and grades are visible only to their teacher, and a result is not released to the student until the teacher approves it.",
     privacyStudentTitle: "Student data",
     privacyTitle: "Privacy Policy",
-    privacyUseBody: "We use data only to provide the service: creating and managing assessments, grading answers, and showing results to the relevant teacher and student.",
+    privacyUseBody:
+      "We use data only to provide the service: creating and managing assessments, grading answers, and showing results to the relevant teacher and student.",
     privacyUseTitle: "How we use data",
     terms: "Terms",
-    termsAccountsBody: "You are responsible for the accuracy of the information you register with, for keeping your login details confidential, and for all activity on your account.",
+    termsAccountsBody:
+      "You are responsible for the accuracy of the information you register with, for keeping your login details confidential, and for all activity on your account.",
     termsAccountsTitle: "Accounts",
-    termsAiBody: "AI grade suggestions are provisional and advisory only; they never become final until a teacher reviews and approves them.",
+    termsAiBody:
+      "AI grade suggestions are provisional and advisory only; they never become final until a teacher reviews and approves them.",
     termsAiTitle: "AI suggestions",
-    termsAvailabilityBody: "We make reasonable efforts to keep the platform available, but it may pause briefly for maintenance or reasons beyond our control, and its features may change as it evolves.",
+    termsAvailabilityBody:
+      "We make reasonable efforts to keep the platform available, but it may pause briefly for maintenance or reasons beyond our control, and its features may change as it evolves.",
     termsAvailabilityTitle: "Availability",
-    termsChangesBody: "We may update these terms from time to time; continuing to use the platform after an update means you accept the updated terms.",
+    termsChangesBody:
+      "We may update these terms from time to time; continuing to use the platform after an update means you accept the updated terms.",
     termsChangesTitle: "Changes to these terms",
-    termsContentBody: "Teachers keep ownership of the content they create and grant Qemmini a licence to host and show it to their students solely to provide the service. Student answers remain the students' own work, viewed by their teachers for assessment purposes.",
+    termsContentBody:
+      "Teachers keep ownership of the content they create and grant Qemmini a licence to host and show it to their students solely to provide the service. Student answers remain the students' own work, viewed by their teachers for assessment purposes.",
     termsContentTitle: "Teacher content and student answers",
-    termsFairUseBody: "You must not misuse the platform, attempt to access other users' data, disrupt the service, or use it for any unlawful purpose.",
+    termsFairUseBody:
+      "You must not misuse the platform, attempt to access other users' data, disrupt the service, or use it for any unlawful purpose.",
     termsFairUseTitle: "Acceptable use",
-    termsIntro: "These terms govern your use of Qemmini, an assessment and learning platform for teachers and students. By using the platform, you agree to these terms.",
-    termsRolesBody: "Teachers create and manage assessments and approve grades; students answer only the assessments assigned to them. The final decision on any grade or result always belongs to the teacher.",
+    termsIntro:
+      "These terms govern your use of Qemmini, an assessment and learning platform for teachers and students. By using the platform, you agree to these terms.",
+    termsRolesBody:
+      "Teachers create and manage assessments and approve grades; students answer only the assessments assigned to them. The final decision on any grade or result always belongs to the teacher.",
     termsRolesTitle: "Roles and responsibilities",
     // USP slice 1 — AI grading suggestions
-    aiGradeNeedsKey: "AI is not configured yet — set AI_BASE_URL and AI_MODEL on the server (plus AI_API_KEY for a hosted provider).",
+    aiGradeNeedsKey:
+      "AI is not configured yet — set AI_BASE_URL and AI_MODEL on the server (plus AI_API_KEY for a hosted provider).",
     aiGradeFailed: "Could not get a suggestion. Try again.",
     aiGradeApplied: "Suggested score and feedback filled in — save before releasing.",
     aiGradeSuggestedScore: "Suggested score",
@@ -703,34 +810,41 @@ const dict = {
     aiGradeUnauthorized: "You are not allowed to suggest grades for this assessment.",
     // USP slice 2 — generate assessment
     genTitle: "Generate assessment with AI",
-    genSubtitle: "Paste the lesson text and AI will draft an assessment for you to review before publishing.",
+    genSubtitle:
+      "Paste the lesson text and AI will draft an assessment for you to review before publishing.",
     genTeacherOnly: "This page is for teachers only.",
     genSourceText: "Lesson text",
-    genSourceHint: "Paste the full chapter or lesson text — clearer text means better questions. Minimum 50 characters.",
+    genSourceHint:
+      "Paste the full chapter or lesson text — clearer text means better questions. Minimum 50 characters.",
     genSourcePlaceholder: "Paste the lesson text you want questions generated from…",
     genTitleOptional: "Assessment title (optional)",
     genQuestionCount: "Number of questions",
     genQuestionTypes: "Question types",
     genGenerate: "Generate draft",
     genGenerating: "Generating…",
-    genDraftNote: "This is a draft only: review every question, answer and rubric in the editor before publishing. The final decision is always yours.",
+    genDraftNote:
+      "This is a draft only: review every question, answer and rubric in the editor before publishing. The final decision is always yours.",
     genSuccess: "Draft generated successfully.",
     genOpenBuilder: "Review and edit draft",
     genGenerateAnother: "Generate another draft",
     genDraftSaved: "{count} questions saved as an unpublished draft.",
     genBackToAssessments: "Back to assessments",
     genPdfNote: "In this version: paste lesson text only — PDF upload will be added later.",
-    genAiKeyMissing: "AI generation is not enabled yet: no AI provider is configured on the server (AI_BASE_URL and AI_MODEL, plus AI_API_KEY for a hosted provider). Contact the platform admin.",
-    genParseFailed: "The AI reply could not be understood. Try again, or try shorter, clearer text.",
+    genAiKeyMissing:
+      "AI generation is not enabled yet: no AI provider is configured on the server (AI_BASE_URL and AI_MODEL, plus AI_API_KEY for a hosted provider). Contact the platform admin.",
+    genParseFailed:
+      "The AI reply could not be understood. Try again, or try shorter, clearer text.",
     genUpstreamFailed: "The AI service is unavailable right now. Try again shortly.",
     genTimeout: "Generation took longer than expected. Try again.",
     genNotTeacher: "This action is for teachers only.",
-    genInvalidInput: "Check your inputs: text of at least 50 characters, at least one question type, and 1–20 questions.",
+    genInvalidInput:
+      "Check your inputs: text of at least 50 characters, at least one question type, and 1–20 questions.",
     genNeedSource: "Paste the lesson text first (at least 50 characters).",
     genNeedType: "Select at least one question type.",
     // USP slice 3 — integrity signals
     integrityTitle: "Integrity signals",
-    integrityNote: "Signals for review only — not proof of misconduct, and never an automatic penalty. The teacher always has the final word.",
+    integrityNote:
+      "Signals for review only — not proof of misconduct, and never an automatic penalty. The teacher always has the final word.",
     integrityTabSwitches: "Times away from the page",
     integrityWindowBlurs: "Times focus left the window",
     integrityTotalTime: "Total time on page",
@@ -742,23 +856,29 @@ const dict = {
     // USP slice 4 — WhatsApp parent reports
     parentPhone: "Parent phone number",
     parentPhoneHint: "International format: starts with + and the country code, e.g. +20…",
-    parentPhoneInvalid: "Invalid number. Use international format: + followed by the country code and number.",
+    parentPhoneInvalid:
+      "Invalid number. Use international format: + followed by the country code and number.",
     whatsappConsent: "I agree to send the student's result to the parent via WhatsApp",
     whatsappConsentHint: "No result is sent without this consent, even if a number is saved.",
     whatsappSendToParent: "Send result to parent",
     whatsappSent: "Result sent to the parent via WhatsApp.",
     whatsappSkipped: "Result not sent. Check the send status below.",
     whatsappNotReleased: "The result has not been released yet, so it cannot be sent.",
-    whatsappNotConnected: "WhatsApp is not connected yet. Add the WhatsApp settings on the server to enable sending.",
-    whatsappNoParentPhone: "No parent number on file. Add it from the Students page to enable sending.",
-    whatsappNoConsent: "WhatsApp consent is not enabled for this student. Enable it from the Students page to allow sending.",
+    whatsappNotConnected:
+      "WhatsApp is not connected yet. Add the WhatsApp settings on the server to enable sending.",
+    whatsappNoParentPhone:
+      "No parent number on file. Add it from the Students page to enable sending.",
+    whatsappNoConsent:
+      "WhatsApp consent is not enabled for this student. Enable it from the Students page to allow sending.",
     whatsapp_sent: "Sent",
     whatsapp_failed: "Send failed",
     whatsapp_skipped: "Skipped",
     whatsappAutoSend: "Auto-send result to parent on release",
-    whatsappAutoSendHint: "When on, the result is sent via WhatsApp as soon as it is released — only if a parent number is saved and consent is on. Default: off.",
+    whatsappAutoSendHint:
+      "When on, the result is sent via WhatsApp as soon as it is released — only if a parent number is saved and consent is on. Default: off.",
     whatsappReportTitle: "Send results to parents",
-    whatsappReportHint: "Only released results are sent. If no send button appears, add the parent number and enable consent from the Students page.",
+    whatsappReportHint:
+      "Only released results are sent. If no send button appears, add the parent number and enable consent from the Students page.",
     termsTitle: "Terms of Use",
   },
 } as const;
@@ -767,29 +887,63 @@ export type TKey = keyof (typeof dict)["ar"];
 
 const errorMap: Record<string, { ar: string; en: string }> = {
   invalid_code: { ar: "الرمز غير صحيح.", en: "Invalid code." },
-  only_school_teachers: { ar: "هذا الإجراء لمعلمي المدارس فقط.", en: "Only school teachers can do this." },
+  only_school_teachers: {
+    ar: "هذا الإجراء لمعلمي المدارس فقط.",
+    en: "Only school teachers can do this.",
+  },
   only_students: { ar: "هذا الإجراء للطلاب فقط.", en: "Only students can do this." },
-  no_questions: { ar: "أضف سؤالاً واحداً على الأقل قبل النشر.", en: "Add at least one question before publishing." },
-  incomplete_questions: { ar: "بعض الأسئلة ينقصها نص أو إجابة صحيحة أو معايير تصحيح.", en: "Some questions are missing text, a correct answer, or a rubric." },
-  invalid_transition: { ar: "لا يمكن تغيير الحالة بهذا الشكل.", en: "That status change isn't allowed." },
+  no_questions: {
+    ar: "أضف سؤالاً واحداً على الأقل قبل النشر.",
+    en: "Add at least one question before publishing.",
+  },
+  incomplete_questions: {
+    ar: "بعض الأسئلة ينقصها نص أو إجابة صحيحة أو معايير تصحيح.",
+    en: "Some questions are missing text, a correct answer, or a rubric.",
+  },
+  invalid_transition: {
+    ar: "لا يمكن تغيير الحالة بهذا الشكل.",
+    en: "That status change isn't allowed.",
+  },
   has_submissions: { ar: "يوجد تسليمات بالفعل.", en: "Submissions already exist." },
-  locked_has_submissions: { ar: "لا يمكن التعديل بعد بدء التسليمات.", en: "Can't edit after submissions have started." },
+  locked_has_submissions: {
+    ar: "لا يمكن التعديل بعد بدء التسليمات.",
+    en: "Can't edit after submissions have started.",
+  },
   not_assigned: { ar: "هذا الاختبار غير مسند إليك.", en: "This assessment isn't assigned to you." },
   not_available: { ar: "هذا الاختبار غير متاح حالياً.", en: "This assessment isn't available." },
   deadline_passed: { ar: "انتهى موعد التسليم.", en: "The deadline has passed." },
-  already_submitted: { ar: "لقد سلّمت هذا الاختبار من قبل.", en: "You already submitted this assessment." },
-  score_out_of_range: { ar: "الدرجة خارج النطاق المسموح.", en: "Score is outside the allowed range." },
-  not_fully_graded: { ar: "يجب اعتماد درجات كل الأسئلة قبل النشر.", en: "All questions must be graded before release." },
+  already_submitted: {
+    ar: "لقد سلّمت هذا الاختبار من قبل.",
+    en: "You already submitted this assessment.",
+  },
+  score_out_of_range: {
+    ar: "الدرجة خارج النطاق المسموح.",
+    en: "Score is outside the allowed range.",
+  },
+  not_fully_graded: {
+    ar: "يجب اعتماد درجات كل الأسئلة قبل النشر.",
+    en: "All questions must be graded before release.",
+  },
   already_released: { ar: "تم نشر النتيجة بالفعل.", en: "Result already released." },
 };
 
 export function translateError(err: unknown, lang: Lang): string {
-  const msg = err instanceof Error ? err.message : typeof err === "object" && err && "message" in err ? String((err as { message: unknown }).message) : String(err);
+  const msg =
+    err instanceof Error
+      ? err.message
+      : typeof err === "object" && err && "message" in err
+        ? String((err as { message: unknown }).message)
+        : String(err);
   for (const k of Object.keys(errorMap)) if (msg.includes(k)) return errorMap[k]![lang];
   return msg && msg.length < 200 ? msg : dict[lang].errorGeneric;
 }
 
-type Ctx = { lang: Lang; setLang: (l: Lang) => void; t: (k: TKey, vars?: Record<string, string>) => string; dir: "rtl" | "ltr" };
+type Ctx = {
+  lang: Lang;
+  setLang: (l: Lang) => void;
+  t: (k: TKey, vars?: Record<string, string>) => string;
+  dir: "rtl" | "ltr";
+};
 const I18nContext = createContext<Ctx | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
@@ -811,7 +965,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     if (vars) for (const [a, b] of Object.entries(vars)) s = s.replace(`{${a}}`, b);
     return s;
   };
-  return <I18nContext.Provider value={{ lang, setLang, t, dir: lang === "ar" ? "rtl" : "ltr" }}>{children}</I18nContext.Provider>;
+  return (
+    <I18nContext.Provider value={{ lang, setLang, t, dir: lang === "ar" ? "rtl" : "ltr" }}>
+      {children}
+    </I18nContext.Provider>
+  );
 }
 
 export function useI18n() {
@@ -822,5 +980,8 @@ export function useI18n() {
 
 export function formatDate(d: string | null | undefined, lang: Lang) {
   if (!d) return "—";
-  return new Intl.DateTimeFormat(lang === "ar" ? "ar-EG" : "en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(d));
+  return new Intl.DateTimeFormat(lang === "ar" ? "ar-EG" : "en-GB", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(d));
 }

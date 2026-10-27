@@ -33,7 +33,12 @@ import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
 // teacher reviews/edits every question before publishing.
 
 export const Route = createFileRoute("/_authenticated/assessments/generate")({
-  head: () => ({ meta: [{ title: "Generate assessment · Qemmini" }, { name: "description", content: "Generate a draft assessment from pasted curriculum text." }] }),
+  head: () => ({
+    meta: [
+      { title: "Generate assessment · Qemmini" },
+      { name: "description", content: "Generate a draft assessment from pasted curriculum text." },
+    ],
+  }),
   component: Generate,
 });
 
@@ -75,7 +80,11 @@ function Generate() {
   const sourceLen = sourceText.trim().length;
   const countNum = Number(count);
   const formValid =
-    sourceLen >= 50 && types.length > 0 && Number.isInteger(countNum) && countNum >= 1 && countNum <= 20;
+    sourceLen >= 50 &&
+    types.length > 0 &&
+    Number.isInteger(countNum) &&
+    countNum >= 1 &&
+    countNum <= 20;
 
   function toggleType(ty: GenerateQuestionType, on: boolean) {
     setTypes(on ? [...types, ty] : types.filter((x) => x !== ty));
@@ -145,20 +154,38 @@ function Generate() {
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="g-title">{t("genTitleOptional")}</Label>
-                <Input id="g-title" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} placeholder={t("title")} />
+                <Input
+                  id="g-title"
+                  value={title}
+                  maxLength={200}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={t("title")}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="g-subj">{t("subject")}</Label>
-                <select id="g-subj" className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                <select
+                  id="g-subj"
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={subjectId}
+                  onChange={(e) => setSubjectId(e.target.value)}
+                >
                   <option value="">—</option>
                   {(subjects ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="g-grade">{t("gradeLevel")}</Label>
-                <Input id="g-grade" value={gradeLevel} maxLength={60} onChange={(e) => setGradeLevel(e.target.value)} />
+                <Input
+                  id="g-grade"
+                  value={gradeLevel}
+                  maxLength={60}
+                  onChange={(e) => setGradeLevel(e.target.value)}
+                />
               </div>
             </div>
 
@@ -181,13 +208,25 @@ function Generate() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="g-count">{t("genQuestionCount")}</Label>
-                <Input id="g-count" type="number" min={1} max={20} step={1} dir="ltr" value={count} onChange={(e) => setCount(e.target.value)} />
+                <Input
+                  id="g-count"
+                  type="number"
+                  min={1}
+                  max={20}
+                  step={1}
+                  dir="ltr"
+                  value={count}
+                  onChange={(e) => setCount(e.target.value)}
+                />
               </div>
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">{t("genQuestionTypes")}</legend>
                 {GENERATE_QUESTION_TYPES.map((ty) => (
                   <label key={ty} className="flex items-center gap-2 text-sm">
-                    <Checkbox checked={types.includes(ty)} onCheckedChange={(v) => toggleType(ty, !!v)} />
+                    <Checkbox
+                      checked={types.includes(ty)}
+                      onCheckedChange={(v) => toggleType(ty, !!v)}
+                    />
                     {t(`q_${ty}` as never)}
                   </label>
                 ))}
@@ -196,11 +235,16 @@ function Generate() {
 
             {!formValid && sourceText && (
               <p className="text-sm text-destructive">
-                {sourceLen < 50 ? t("genNeedSource") : types.length === 0 ? t("genNeedType") : t("genInvalidInput")}
+                {sourceLen < 50
+                  ? t("genNeedSource")
+                  : types.length === 0
+                    ? t("genNeedType")
+                    : t("genInvalidInput")}
               </p>
             )}
             <Button disabled={!formValid || busy}>
-              <Sparkles className="h-4 w-4" aria-hidden /> {busy ? t("genGenerating") : t("genGenerate")}
+              <Sparkles className="h-4 w-4" aria-hidden />{" "}
+              {busy ? t("genGenerating") : t("genGenerate")}
             </Button>
           </Panel>
         </form>

@@ -47,8 +47,10 @@ type SendInput = { submissionId: string; trigger: "manual" | "auto" };
 
 function validateSendInput(data: unknown): SendInput {
   const d = data as Partial<SendInput> | null;
-  if (!d || typeof d.submissionId !== "string" || !d.submissionId) throw badInput("submissionId required");
-  if (d.trigger !== "manual" && d.trigger !== "auto") throw badInput("trigger must be manual or auto");
+  if (!d || typeof d.submissionId !== "string" || !d.submissionId)
+    throw badInput("submissionId required");
+  if (d.trigger !== "manual" && d.trigger !== "auto")
+    throw badInput("trigger must be manual or auto");
   return { submissionId: d.submissionId, trigger: d.trigger };
 }
 
@@ -102,16 +104,19 @@ export const sendWhatsAppReport = createServerFn({ method: "POST" })
       .eq("id", sub.assessment_id)
       .maybeSingle();
     if (!assessment) return { ok: false, status: "not_found", error: "assessment_not_found" };
-    if (assessment.teacher_id !== ctx.userId) return { ok: false, status: "forbidden", error: "not_assessment_owner" };
+    if (assessment.teacher_id !== ctx.userId)
+      return { ok: false, status: "forbidden", error: "not_assessment_owner" };
 
     // 3. Teacher-final-word: never send an unreleased submission.
-    if (sub.status !== "released") return { ok: false, status: "not_released", error: "submission_not_released" };
+    if (sub.status !== "released")
+      return { ok: false, status: "not_released", error: "submission_not_released" };
 
     // 4. Auto path: toggle must be ON (default OFF) and a previous
     // successful send must not already exist (release happens once,
     // but a retried release call must not double-send).
     if (trigger === "auto") {
-      if (!assessment.auto_whatsapp_send) return { ok: true, status: "skipped", reason: "auto_disabled" };
+      if (!assessment.auto_whatsapp_send)
+        return { ok: true, status: "skipped", reason: "auto_disabled" };
       const { data: prior } = await ctx.supabase
         .from("whatsapp_sends")
         .select("id")

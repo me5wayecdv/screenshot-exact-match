@@ -37,7 +37,10 @@ export function WhatsAppReportSection({
     queryKey: ["whatsapp-report-names", studentIds.join(",")],
     enabled: studentIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase.from("profiles").select("id, full_name").in("id", studentIds);
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", studentIds);
       if (error) throw error;
       return new Map((data ?? []).map((p) => [p.id, p.full_name || "—"]));
     },
@@ -55,7 +58,10 @@ export function WhatsAppReportSection({
           <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
             <span className="text-sm">
               <span className="font-medium">{names.get(s.student_id) ?? "—"}</span>
-              <span className="text-muted-foreground"> · {t("finalScore")}: {s.final_score ?? "—"}/{s.total_possible ?? "—"}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                · {t("finalScore")}: {s.final_score ?? "—"}/{s.total_possible ?? "—"}
+              </span>
             </span>
             <WhatsAppSendButton submissionId={s.id} studentId={s.student_id} />
           </li>

@@ -18,15 +18,29 @@ function Admin() {
     enabled: me?.role === "admin",
     queryFn: async () => {
       const [sc, tc, st] = await Promise.all([
-        supabase.from("schools").select("id, name, join_code, created_at").order("created_at", { ascending: false }),
-        supabase.from("user_roles").select("id", { count: "exact", head: true }).in("role", ["school_teacher", "tutor"]),
-        supabase.from("user_roles").select("id", { count: "exact", head: true }).eq("role", "student"),
+        supabase
+          .from("schools")
+          .select("id, name, join_code, created_at")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("user_roles")
+          .select("id", { count: "exact", head: true })
+          .in("role", ["school_teacher", "tutor"]),
+        supabase
+          .from("user_roles")
+          .select("id", { count: "exact", head: true })
+          .eq("role", "student"),
       ]);
       return { schools: sc.data ?? [], teachers: tc.count ?? 0, students: st.count ?? 0 };
     },
   });
   if (isLoading || !me) return <p className="text-muted-foreground">{t("loading")}</p>;
-  if (me.role !== "admin") return <Panel><Empty>{t("adminOnly")}</Empty></Panel>;
+  if (me.role !== "admin")
+    return (
+      <Panel>
+        <Empty>{t("adminOnly")}</Empty>
+      </Panel>
+    );
   return (
     <>
       <PageHeader title={t("admin")} />
@@ -50,7 +64,9 @@ function Admin() {
           {data?.schools.map((s) => (
             <Panel key={s.id}>
               <h3 className="font-semibold">{s.name}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{t("joinCodeLabel")}: <span dir="ltr">{s.join_code}</span></p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("joinCodeLabel")}: <span dir="ltr">{s.join_code}</span>
+              </p>
             </Panel>
           ))}
         </div>

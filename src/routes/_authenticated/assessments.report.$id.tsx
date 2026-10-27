@@ -43,9 +43,11 @@ function pct(numerator: number, denominator: number): number | null {
 
 function formatPct(value: number | null, lang: "ar" | "en"): string {
   if (value === null) return "—";
-  return new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-GB", {
-    maximumFractionDigits: 1,
-  }).format(value) + "%";
+  return (
+    new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-GB", {
+      maximumFractionDigits: 1,
+    }).format(value) + "%"
+  );
 }
 
 function AssessmentReportPage() {
@@ -83,20 +85,25 @@ function AssessmentReportPage() {
     queryKey: ["assessment-report-stats", id],
     enabled: !!assessment && isOwner,
     queryFn: async () => {
-      const [{ data: assignments, error: assignmentsError }, { data: submissions, error: submissionsError }] =
-        await Promise.all([
-          supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id),
-          supabase
-            .from("submissions")
-            .select("id, student_id, status, final_score, total_possible")
-            .eq("assessment_id", id),
-        ]);
+      const [
+        { data: assignments, error: assignmentsError },
+        { data: submissions, error: submissionsError },
+      ] = await Promise.all([
+        supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id),
+        supabase
+          .from("submissions")
+          .select("id, student_id, status, final_score, total_possible")
+          .eq("assessment_id", id),
+      ]);
       if (assignmentsError) throw assignmentsError;
       if (submissionsError) throw submissionsError;
       const studentIds = [...new Set((submissions ?? []).map((s) => s.student_id))];
       let names: Record<string, string> = {};
       if (studentIds.length > 0) {
-        const { data: profiles } = await supabase.from("profiles").select("id, full_name").in("id", studentIds);
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", studentIds);
         names = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.full_name || "—"]));
       }
       return {
@@ -139,8 +146,10 @@ function AssessmentReportPage() {
   );
   const averageReleasedPct =
     released.length > 0
-      ? released.reduce((sum, s) => sum + (Number(s.final_score) / Number(s.total_possible)) * 100, 0) /
-        released.length
+      ? released.reduce(
+          (sum, s) => sum + (Number(s.final_score) / Number(s.total_possible)) * 100,
+          0,
+        ) / released.length
       : null;
 
   return (
@@ -149,12 +158,21 @@ function AssessmentReportPage() {
         title={assessment.title}
         subtitle={
           <>
-            <Pill t={statusTone[assessment.status] ?? "neutral"}>{t(`st_${assessment.status}` as never)}</Pill>
-            {assessment.due_at ? <span className="ms-3">{t("dueAt")}: {formatDate(assessment.due_at, lang)}</span> : null}
+            <Pill t={statusTone[assessment.status] ?? "neutral"}>
+              {t(`st_${assessment.status}` as never)}
+            </Pill>
+            {assessment.due_at ? (
+              <span className="ms-3">
+                {t("dueAt")}: {formatDate(assessment.due_at, lang)}
+              </span>
+            ) : null}
           </>
         }
         actions={
-          <Link to="/assessments" className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent">
+          <Link
+            to="/assessments"
+            className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
+          >
             {t("back")}
           </Link>
         }
@@ -201,7 +219,12 @@ function AssessmentReportPage() {
             <div className="mt-8 space-y-4">
               <h2 className="text-lg font-semibold">{t("integrityReportHeading")}</h2>
               {submissions.map((s) => (
-                <IntegritySummary key={s.id} submissionId={s.id} assessmentId={id} title={names[s.student_id] ?? t("student_")} />
+                <IntegritySummary
+                  key={s.id}
+                  submissionId={s.id}
+                  assessmentId={id}
+                  title={names[s.student_id] ?? t("student_")}
+                />
               ))}
             </div>
           )}

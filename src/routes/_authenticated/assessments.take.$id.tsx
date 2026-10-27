@@ -6,7 +6,13 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
 import { useIntegrityRecorder } from "@/hooks/useIntegrityRecorder";
-import { loadQuestionOrder, saveQuestionOrder, resolveQuestionOrder, resolveOrderIds, shuffleIds } from "@/lib/shuffle";
+import {
+  loadQuestionOrder,
+  saveQuestionOrder,
+  resolveQuestionOrder,
+  resolveOrderIds,
+  shuffleIds,
+} from "@/lib/shuffle";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -21,7 +27,12 @@ type Submission = Database["public"]["Tables"]["submissions"]["Row"];
 type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
 
 export const Route = createFileRoute("/_authenticated/assessments/take/$id")({
-  head: () => ({ meta: [{ title: "Take assessment · Qemmini" }, { name: "description", content: "Answer a published assessment assigned to you." }] }),
+  head: () => ({
+    meta: [
+      { title: "Take assessment · Qemmini" },
+      { name: "description", content: "Answer a published assessment assigned to you." },
+    ],
+  }),
   component: Take,
 });
 
@@ -32,7 +43,12 @@ function useTakeData(id: string, studentId: string | undefined) {
     queryFn: async () => {
       const [a, asg, q] = await Promise.all([
         supabase.from("assessments").select("*").eq("id", id).single(),
-        supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id).eq("student_id", studentId!).maybeSingle(),
+        supabase
+          .from("assessment_assignments")
+          .select("student_id")
+          .eq("assessment_id", id)
+          .eq("student_id", studentId!)
+          .maybeSingle(),
         // Questions ONLY. Never select question_keys here: keys are
         // teacher-only via RLS and must never reach the student client.
         supabase.from("questions").select("*").eq("assessment_id", id).order("position"),
@@ -47,7 +63,10 @@ function useTakeData(id: string, studentId: string | undefined) {
       if (submissionRes.error) throw submissionRes.error;
       let existingAnswers: AnswerRow[] = [];
       if (submissionRes.data) {
-        const ans = await supabase.from("answers").select("*").eq("submission_id", submissionRes.data.id);
+        const ans = await supabase
+          .from("answers")
+          .select("*")
+          .eq("submission_id", submissionRes.data.id);
         if (ans.error) throw ans.error;
         existingAnswers = (ans.data ?? []) as unknown as AnswerRow[];
       }
@@ -75,9 +94,17 @@ function Take() {
   // --- Slice 3 (integrity): recorder mounts only while answering ---
   // (data loaded + student + no submission yet + not past due). The locked
   // review view records nothing.
-  const answering = !!data && !!me && me.role === "student" && !data.submission &&
+  const answering =
+    !!data &&
+    !!me &&
+    me.role === "student" &&
+    !data.submission &&
     !(data.assessment.due_at && Date.now() > new Date(data.assessment.due_at).getTime());
-  const recorder = useIntegrityRecorder({ enabled: answering, assessmentId: id, studentId: me?.id ?? "" });
+  const recorder = useIntegrityRecorder({
+    enabled: answering,
+    assessmentId: id,
+    studentId: me?.id ?? "",
+  });
 
   // --- Slice 3 (integrity): per-student shuffled question order ---
   // Submission column wins, then localStorage; a fresh shuffle is saved to
@@ -90,10 +117,17 @@ function Take() {
     const key = `${id}:${me.id}:${data.submission?.id ?? "new"}`;
     if (orderKeyRef.current === key) return;
     orderKeyRef.current = key;
-    const submissionOrder = (data.submission as unknown as { question_order?: string[] | null } | null)?.question_order ?? null;
+    const submissionOrder =
+      (data.submission as unknown as { question_order?: string[] | null } | null)?.question_order ??
+      null;
     const stored = submissionOrder ?? loadQuestionOrder(id, me.id);
     if (stored && stored.length > 0) {
-      setDisplayOrder(resolveOrderIds(data.questions.map((q) => q.id), stored));
+      setDisplayOrder(
+        resolveOrderIds(
+          data.questions.map((q) => q.id),
+          stored,
+        ),
+      );
       return;
     }
     if (data.submission) {
@@ -126,8 +160,11 @@ function Take() {
   if (error || !data) return <Empty>{t("takeNotAssigned")}</Empty>;
 
   const { assessment, submission } = data;
-  const questions = displayOrder ? resolveQuestionOrder(data.questions, displayOrder) : data.questions;
-  if (!data.assigned || assessment.status !== "published") return <Empty>{t("takeNotAssigned")}</Empty>;
+  const questions = displayOrder
+    ? resolveQuestionOrder(data.questions, displayOrder)
+    : data.questions;
+  if (!data.assigned || assessment.status !== "published")
+    return <Empty>{t("takeNotAssigned")}</Empty>;
   if (questions.length === 0) return <Empty>{t("takeNoQuestions")}</Empty>;
 
   const locked = !!submission;
@@ -142,7 +179,10 @@ function Take() {
     const { data: sub, error: sErr } = await supabase
       .from("submissions")
       .insert({
-        assessment_id: id, student_id: me.id, status: "awaiting_review", total_possible: total,
+        assessment_id: id,
+        student_id: me.id,
+        status: "awaiting_review",
+        total_possible: total,
         ...(displayOrder || questions.length > 0
           ? { question_order: displayOrder ?? questions.map((q) => q.id) }
           : {}),
@@ -161,7 +201,14 @@ function Take() {
       return void toast.error(translateError(sErr, lang));
     }
     const times = recorder.getTimesSeconds();
-    const rows = questions.map((q) => ({ submission_id: sub.id, question_id: q.id, response: answers[q.id] ?? "", max_marks: Number(q.marks), review_status: "not_graded", time_spent_seconds: Math.max(0, Math.round(times[q.id] ?? 0)) }));
+    const rows = questions.map((q) => ({
+      submission_id: sub.id,
+      question_id: q.id,
+      response: answers[q.id] ?? "",
+      max_marks: Number(q.marks),
+      review_status: "not_graded",
+      time_spent_seconds: Math.max(0, Math.round(times[q.id] ?? 0)),
+    }));
     const { error: aErr } = await supabase.from("answers").insert(rows);
     setBusy(false);
     if (aErr) {
@@ -189,23 +236,37 @@ function Take() {
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
             {locked && submission && (
-              <Pill t={statusTone[submission.status] ?? "neutral"}>{t(`sub_${submission.status}` as never)}</Pill>
+              <Pill t={statusTone[submission.status] ?? "neutral"}>
+                {t(`sub_${submission.status}` as never)}
+              </Pill>
             )}
             {t("totalMarks")}: {total} · {t("questions")}: {questions.length}
-            {assessment.due_at && <span>{t("dueAt")}: {formatDate(assessment.due_at, lang)}</span>}
+            {assessment.due_at && (
+              <span>
+                {t("dueAt")}: {formatDate(assessment.due_at, lang)}
+              </span>
+            )}
           </span>
         }
       />
-      {assessment.instructions && <Panel className="mb-6 whitespace-pre-wrap text-sm">{assessment.instructions}</Panel>}
+      {assessment.instructions && (
+        <Panel className="mb-6 whitespace-pre-wrap text-sm">{assessment.instructions}</Panel>
+      )}
       {locked && (
         <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">
           {t("takeLocked")}
           {submission?.status === "released" && submission.final_score !== null && (
-            <> {t("finalScore")}: {Number(submission.final_score)} / {Number(submission.total_possible)}</>
+            <>
+              {" "}
+              {t("finalScore")}: {Number(submission.final_score)} /{" "}
+              {Number(submission.total_possible)}
+            </>
           )}
         </p>
       )}
-      {late && <p className="mb-6 rounded-md bg-destructive/15 p-3 text-sm">{t("takeLateBlocked")}</p>}
+      {late && (
+        <p className="mb-6 rounded-md bg-destructive/15 p-3 text-sm">{t("takeLateBlocked")}</p>
+      )}
 
       <div className="space-y-6">
         {questions.map((q, i) => (
@@ -214,82 +275,86 @@ function Take() {
             ref={recorder.registerPanel(q.id)}
             onFocusCapture={() => recorder.setCurrentQuestionId(q.id)}
           >
-          <Panel className="space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-semibold text-primary">
-                {t("question")} {i + 1} · {t(`q_${q.type}` as never)}
-              </span>
-              <span className="text-xs text-muted-foreground">{t("marks")}: {Number(q.marks)}</span>
-            </div>
-            <p className="whitespace-pre-wrap text-sm">{q.prompt}</p>
-            {q.type === "mcq" && (
-              <fieldset disabled={locked || late} className="space-y-2">
-                {((q.options as string[]) ?? []).map((opt, oi) => (
-                  <label key={oi} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name={`q-${q.id}`}
-                      checked={(answers[q.id] ?? "") === opt}
-                      onChange={() => setAnswers({ ...answers, [q.id]: opt })}
-                    />
-                    {opt}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            {q.type === "true_false" && (
-              <fieldset disabled={locked || late} className="flex gap-4">
-                {(["true", "false"] as const).map((v) => (
-                  <label key={v} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name={`q-${q.id}`}
-                      checked={(answers[q.id] ?? "") === v}
-                      onChange={() => setAnswers({ ...answers, [q.id]: v })}
-                    />
-                    {v === "true" ? t("trueLabel") : t("falseLabel")}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            {q.type === "short_answer" && (
-              <div className="space-y-1.5">
-                <Label htmlFor={`a-${q.id}`}>{t("yourAnswer")}</Label>
-                <Input
-                  id={`a-${q.id}`}
-                  value={answers[q.id] ?? ""}
-                  maxLength={20000}
-                  disabled={locked || late}
-                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                />
+            <Panel className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-primary">
+                  {t("question")} {i + 1} · {t(`q_${q.type}` as never)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("marks")}: {Number(q.marks)}
+                </span>
               </div>
-            )}
-            {q.type === "written" && (
-              <div className="space-y-1.5">
-                <Label htmlFor={`a-${q.id}`}>{t("yourAnswer")}</Label>
-                <Textarea
-                  id={`a-${q.id}`}
-                  rows={5}
-                  value={answers[q.id] ?? ""}
-                  maxLength={20000}
-                  disabled={locked || late}
-                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                />
-              </div>
-            )}
-            {locked && (
-              <p className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
-                {t("yourAnswer")}: {answerByQuestion.get(q.id)?.response || t("unanswered")}
-              </p>
-            )}
-          </Panel>
+              <p className="whitespace-pre-wrap text-sm">{q.prompt}</p>
+              {q.type === "mcq" && (
+                <fieldset disabled={locked || late} className="space-y-2">
+                  {((q.options as string[]) ?? []).map((opt, oi) => (
+                    <label key={oi} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name={`q-${q.id}`}
+                        checked={(answers[q.id] ?? "") === opt}
+                        onChange={() => setAnswers({ ...answers, [q.id]: opt })}
+                      />
+                      {opt}
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              {q.type === "true_false" && (
+                <fieldset disabled={locked || late} className="flex gap-4">
+                  {(["true", "false"] as const).map((v) => (
+                    <label key={v} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="radio"
+                        name={`q-${q.id}`}
+                        checked={(answers[q.id] ?? "") === v}
+                        onChange={() => setAnswers({ ...answers, [q.id]: v })}
+                      />
+                      {v === "true" ? t("trueLabel") : t("falseLabel")}
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              {q.type === "short_answer" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`a-${q.id}`}>{t("yourAnswer")}</Label>
+                  <Input
+                    id={`a-${q.id}`}
+                    value={answers[q.id] ?? ""}
+                    maxLength={20000}
+                    disabled={locked || late}
+                    onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                  />
+                </div>
+              )}
+              {q.type === "written" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor={`a-${q.id}`}>{t("yourAnswer")}</Label>
+                  <Textarea
+                    id={`a-${q.id}`}
+                    rows={5}
+                    value={answers[q.id] ?? ""}
+                    maxLength={20000}
+                    disabled={locked || late}
+                    onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                  />
+                </div>
+              )}
+              {locked && (
+                <p className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
+                  {t("yourAnswer")}: {answerByQuestion.get(q.id)?.response || t("unanswered")}
+                </p>
+              )}
+            </Panel>
           </div>
         ))}
       </div>
 
       {!locked && !late && (
         <div className="mt-6">
-          <Button onClick={submit} disabled={busy}>{busy ? t("saving") : t("submit")}</Button>
+          <Button onClick={submit} disabled={busy}>
+            {busy ? t("saving") : t("submit")}
+          </Button>
         </div>
       )}
     </>

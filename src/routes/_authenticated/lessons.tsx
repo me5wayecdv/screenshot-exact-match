@@ -27,7 +27,10 @@ function Lessons() {
     enabled: !!me,
     queryFn: async () => {
       const [l, s, e] = await Promise.all([
-        supabase.from("lessons").select("id, title, description, subject_id, join_code, created_at").order("created_at", { ascending: false }),
+        supabase
+          .from("lessons")
+          .select("id, title, description, subject_id, join_code, created_at")
+          .order("created_at", { ascending: false }),
         supabase.from("subjects").select("id, name").order("name"),
         supabase.from("lesson_enrollments").select("lesson_id, student_id"),
       ]);
@@ -36,7 +39,12 @@ function Lessons() {
   });
 
   if (isLoading || !me) return <p className="text-muted-foreground">{t("loading")}</p>;
-  if (me.role !== "tutor") return <Panel><Empty>{t("tutorOnly")}</Empty></Panel>;
+  if (me.role !== "tutor")
+    return (
+      <Panel>
+        <Empty>{t("tutorOnly")}</Empty>
+      </Panel>
+    );
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -48,7 +56,9 @@ function Lessons() {
     });
     if (error) return void toast.error(translateError(error, lang));
     toast.success(t("created"));
-    setTitle(""); setDescription(""); setSubjectId("");
+    setTitle("");
+    setDescription("");
+    setSubjectId("");
     qc.invalidateQueries({ queryKey: ["tutor-lessons"] });
   }
 
@@ -58,21 +68,49 @@ function Lessons() {
       <Panel className="mb-8">
         <form onSubmit={create} className="grid gap-3 md:grid-cols-2">
           <div>
-            <label htmlFor="lesson-title" className="text-sm font-medium">{t("lessonTitle")}</label>
-            <Input id="lesson-title" value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1.5" required />
+            <label htmlFor="lesson-title" className="text-sm font-medium">
+              {t("lessonTitle")}
+            </label>
+            <Input
+              id="lesson-title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mt-1.5"
+              required
+            />
           </div>
           <div>
-            <label htmlFor="lesson-subject" className="text-sm font-medium">{t("subject")}</label>
-            <select id="lesson-subject" value={subjectId} onChange={(e) => setSubjectId(e.target.value)} className="mt-1.5 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+            <label htmlFor="lesson-subject" className="text-sm font-medium">
+              {t("subject")}
+            </label>
+            <select
+              id="lesson-subject"
+              value={subjectId}
+              onChange={(e) => setSubjectId(e.target.value)}
+              className="mt-1.5 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
               <option value="">{t("noSubject")}</option>
-              {data?.subjects.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+              {data?.subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
             </select>
           </div>
           <div className="md:col-span-2">
-            <label htmlFor="lesson-desc" className="text-sm font-medium">{t("lessonDescription")}</label>
-            <Input id="lesson-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="mt-1.5" />
+            <label htmlFor="lesson-desc" className="text-sm font-medium">
+              {t("lessonDescription")}
+            </label>
+            <Input
+              id="lesson-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="mt-1.5"
+            />
           </div>
-          <div><Button type="submit">{t("createLesson")}</Button></div>
+          <div>
+            <Button type="submit">{t("createLesson")}</Button>
+          </div>
         </form>
       </Panel>
       {data && data.lessons.length === 0 ? (
@@ -82,9 +120,12 @@ function Lessons() {
           {data?.lessons.map((l) => (
             <Panel key={l.id}>
               <h3 className="font-semibold">{l.title}</h3>
-              {l.description ? <p className="mt-1 text-sm text-muted-foreground">{l.description}</p> : null}
+              {l.description ? (
+                <p className="mt-1 text-sm text-muted-foreground">{l.description}</p>
+              ) : null}
               <p className="mt-2 text-sm text-muted-foreground">
-                {t("joinCodeLabel")}: <span dir="ltr">{l.join_code}</span> · {t("summaryStudents")}: {(data?.enrollments ?? []).filter((x) => x.lesson_id === l.id).length}
+                {t("joinCodeLabel")}: <span dir="ltr">{l.join_code}</span> · {t("summaryStudents")}:{" "}
+                {(data?.enrollments ?? []).filter((x) => x.lesson_id === l.id).length}
               </p>
             </Panel>
           ))}

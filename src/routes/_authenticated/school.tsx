@@ -30,24 +30,42 @@ function School() {
     queryFn: async () => {
       const [sc, st, cl, a] = await Promise.all([
         // RLS returns only schools this user belongs to (teacher / creator / admin).
-        supabase.from("schools").select("id, name, join_code, created_at").order("created_at", { ascending: false }),
+        supabase
+          .from("schools")
+          .select("id, name, join_code, created_at")
+          .order("created_at", { ascending: false }),
         supabase.from("school_teachers").select("school_id, teacher_id"),
         supabase.from("classes").select("id, school_id, name"),
         supabase.from("assessments").select("id, teacher_id"),
       ]);
-      return { schools: sc.data ?? [], schoolTeachers: st.data ?? [], classes: cl.data ?? [], assessments: a.data ?? [] };
+      return {
+        schools: sc.data ?? [],
+        schoolTeachers: st.data ?? [],
+        classes: cl.data ?? [],
+        assessments: a.data ?? [],
+      };
     },
   });
 
   if (isLoading || !me) return <p className="text-muted-foreground">{t("loading")}</p>;
-  if (me.role !== "school_teacher" && me.role !== "admin") return <Panel><Empty>{t("schoolOnly")}</Empty></Panel>;
+  if (me.role !== "school_teacher" && me.role !== "admin")
+    return (
+      <Panel>
+        <Empty>{t("schoolOnly")}</Empty>
+      </Panel>
+    );
 
   async function createSchool(e: FormEvent) {
     e.preventDefault();
-    const { data: school, error } = await supabase.from("schools").insert({ name: name.trim(), created_by: me!.id }).select("id").single();
+    const { data: school, error } = await supabase
+      .from("schools")
+      .insert({ name: name.trim(), created_by: me!.id })
+      .select("id")
+      .single();
     if (error) return void toast.error(translateError(error, lang));
     // Creator becomes a member of the school they created (RLS insert policy allows the creator).
-    if (school) await supabase.from("school_teachers").insert({ school_id: school.id, teacher_id: me!.id });
+    if (school)
+      await supabase.from("school_teachers").insert({ school_id: school.id, teacher_id: me!.id });
     toast.success(t("created"));
     setName("");
     qc.invalidateQueries({ queryKey: ["school-workspace"] });
@@ -64,7 +82,9 @@ function School() {
 
   async function createClass(e: FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("classes").insert({ school_id: classSchoolId, teacher_id: me!.id, name: className.trim() });
+    const { error } = await supabase
+      .from("classes")
+      .insert({ school_id: classSchoolId, teacher_id: me!.id, name: className.trim() });
     if (error) return void toast.error(translateError(error, lang));
     toast.success(t("created"));
     setClassName("");
@@ -78,8 +98,16 @@ function School() {
         <Panel>
           <form onSubmit={createSchool} className="flex flex-wrap items-end gap-3">
             <div className="flex-1">
-              <label htmlFor="school-name" className="text-sm font-medium">{t("schoolName")}</label>
-              <Input id="school-name" value={name} onChange={(e) => setName(e.target.value)} className="mt-1.5" required />
+              <label htmlFor="school-name" className="text-sm font-medium">
+                {t("schoolName")}
+              </label>
+              <Input
+                id="school-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mt-1.5"
+                required
+              />
             </div>
             <Button type="submit">{t("createSchool")}</Button>
           </form>
@@ -87,10 +115,23 @@ function School() {
         <Panel>
           <form onSubmit={joinSchool} className="flex flex-wrap items-end gap-3">
             <div className="flex-1">
-              <label htmlFor="school-code" className="text-sm font-medium">{t("joinSchool")}</label>
-              <Input id="school-code" dir="ltr" placeholder={t("enterCode")} value={joinCode} onChange={(e) => setJoinCode(e.target.value)} className="mt-1.5 uppercase" maxLength={12} required />
+              <label htmlFor="school-code" className="text-sm font-medium">
+                {t("joinSchool")}
+              </label>
+              <Input
+                id="school-code"
+                dir="ltr"
+                placeholder={t("enterCode")}
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value)}
+                className="mt-1.5 uppercase"
+                maxLength={12}
+                required
+              />
             </div>
-            <Button type="submit" variant="secondary">{t("join")}</Button>
+            <Button type="submit" variant="secondary">
+              {t("join")}
+            </Button>
           </form>
         </Panel>
       </div>
@@ -100,13 +141,22 @@ function School() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {data?.schools.map((s) => {
-            const teacherIds = new Set((data?.schoolTeachers ?? []).filter((x) => x.school_id === s.id).map((x) => x.teacher_id));
+            const teacherIds = new Set(
+              (data?.schoolTeachers ?? [])
+                .filter((x) => x.school_id === s.id)
+                .map((x) => x.teacher_id),
+            );
             return (
               <Panel key={s.id}>
                 <h3 className="font-semibold">{s.name}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{t("joinCodeLabel")}: <span dir="ltr">{s.join_code}</span></p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t("joinCodeLabel")}: <span dir="ltr">{s.join_code}</span>
+                </p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  {t("teachers")}: {teacherIds.size} · {t("classes")}: {(data?.classes ?? []).filter((c) => c.school_id === s.id).length} · {t("assessments")}: {(data?.assessments ?? []).filter((a) => teacherIds.has(a.teacher_id)).length}
+                  {t("teachers")}: {teacherIds.size} · {t("classes")}:{" "}
+                  {(data?.classes ?? []).filter((c) => c.school_id === s.id).length} ·{" "}
+                  {t("assessments")}:{" "}
+                  {(data?.assessments ?? []).filter((a) => teacherIds.has(a.teacher_id)).length}
                 </p>
               </Panel>
             );
@@ -117,15 +167,35 @@ function School() {
       <Panel>
         <form onSubmit={createClass} className="flex flex-wrap items-end gap-3">
           <div>
-            <label htmlFor="class-school" className="text-sm font-medium">{t("school")}</label>
-            <select id="class-school" value={classSchoolId} onChange={(e) => setClassSchoolId(e.target.value)} className="mt-1.5 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" required>
+            <label htmlFor="class-school" className="text-sm font-medium">
+              {t("school")}
+            </label>
+            <select
+              id="class-school"
+              value={classSchoolId}
+              onChange={(e) => setClassSchoolId(e.target.value)}
+              className="mt-1.5 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              required
+            >
               <option value="">{t("school")}</option>
-              {data?.schools.map((s) => (<option key={s.id} value={s.id}>{s.name}</option>))}
+              {data?.schools.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
             </select>
           </div>
           <div className="flex-1">
-            <label htmlFor="class-name" className="text-sm font-medium">{t("className")}</label>
-            <Input id="class-name" value={className} onChange={(e) => setClassName(e.target.value)} className="mt-1.5" required />
+            <label htmlFor="class-name" className="text-sm font-medium">
+              {t("className")}
+            </label>
+            <Input
+              id="class-name"
+              value={className}
+              onChange={(e) => setClassName(e.target.value)}
+              className="mt-1.5"
+              required
+            />
           </div>
           <Button type="submit">{t("createClass")}</Button>
         </form>

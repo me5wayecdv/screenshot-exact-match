@@ -72,14 +72,21 @@ export function useIntegritySummary(submissionId: string | undefined, assessment
           .select("question_id, time_spent_seconds")
           .eq("submission_id", submissionId!),
         assessmentId
-          ? supabase.from("questions").select("id").eq("assessment_id", assessmentId).order("position")
+          ? supabase
+              .from("questions")
+              .select("id")
+              .eq("assessment_id", assessmentId)
+              .order("position")
           : Promise.resolve({ data: null as { id: string }[] | null, error: null }),
       ]);
       if (eRes.error) throw eRes.error;
       if (aRes.error) throw aRes.error;
       if (qRes.error) throw qRes.error;
       const events = (eRes.data ?? []) as IntegrityEventRow[];
-      const answers = (aRes.data ?? []) as { question_id: string; time_spent_seconds: number | null }[];
+      const answers = (aRes.data ?? []) as {
+        question_id: string;
+        time_spent_seconds: number | null;
+      }[];
       const { tabSwitches, windowBlurs } = summarizeIntegrityEvents(events);
       const questionIds = (qRes.data ?? []).map((q) => q.id);
       const positionOf = new Map(questionIds.map((id, i) => [id, i]));
@@ -88,7 +95,10 @@ export function useIntegritySummary(submissionId: string | undefined, assessment
           question_id: a.question_id,
           seconds: Math.max(0, Number(a.time_spent_seconds ?? 0)),
         }))
-        .sort((x, y) => (positionOf.get(x.question_id) ?? 9999) - (positionOf.get(y.question_id) ?? 9999));
+        .sort(
+          (x, y) =>
+            (positionOf.get(x.question_id) ?? 9999) - (positionOf.get(y.question_id) ?? 9999),
+        );
       const totalTimeSeconds = perQuestion.reduce((s, p) => s + p.seconds, 0);
       return {
         tabSwitches,

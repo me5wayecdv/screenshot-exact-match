@@ -108,7 +108,6 @@ export function AiGradeSuggestion({
       cancelled = true;
     };
     // Probe once per answer card (keyed by answerId upstream).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSuggest() {
@@ -238,9 +237,7 @@ export function AiGradeSuggestion({
             max={maxMarks}
             step="any"
             value={phase.score}
-            onChange={(e) =>
-              setPhase({ ...phase, score: e.target.value })
-            }
+            onChange={(e) => setPhase({ ...phase, score: e.target.value })}
             aria-label={t("score")}
           />
           <Textarea
@@ -319,9 +316,7 @@ export function AiGradeSuggestion({
       >
         {phase.kind === "loading" ? t("aiWorking") : t("aiSuggest")}
       </Button>
-      {phase.kind === "error" && (
-        <p className="text-xs text-destructive">{phase.message}</p>
-      )}
+      {phase.kind === "error" && <p className="text-xs text-destructive">{phase.message}</p>}
     </div>
   );
 }

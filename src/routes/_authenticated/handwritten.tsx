@@ -11,10 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  getHandwritingStatus,
-  ocrHandwrittenImage,
-} from "@/server/handwritten";
+import { getHandwritingStatus, ocrHandwrittenImage } from "@/server/handwritten";
 import {
   logAiTrainingExample,
   suggestGrade,
@@ -66,7 +63,16 @@ type HwRow = {
 };
 
 export const Route = createFileRoute("/_authenticated/handwritten")({
-  head: () => ({ meta: [{ title: "Handwritten grading · Qemmini" }, { name: "description", content: "Grade handwritten exam papers: photo, OCR, teacher review, AI suggestion, final score." }] }),
+  head: () => ({
+    meta: [
+      { title: "Handwritten grading · Qemmini" },
+      {
+        name: "description",
+        content:
+          "Grade handwritten exam papers: photo, OCR, teacher review, AI suggestion, final score.",
+      },
+    ],
+  }),
   component: Handwritten,
 });
 
@@ -151,7 +157,13 @@ function Handwritten() {
     queryKey: ["hw-assessments", me?.id],
     enabled: !!me?.id,
     queryFn: async () =>
-      (await supabase.from("assessments").select("id, title").eq("teacher_id", me!.id).order("created_at", { ascending: false })).data ?? [],
+      (
+        await supabase
+          .from("assessments")
+          .select("id, title")
+          .eq("teacher_id", me!.id)
+          .order("created_at", { ascending: false })
+      ).data ?? [],
   });
 
   const { data: questions } = useQuery({
@@ -205,7 +217,9 @@ function Handwritten() {
   const selectedQuestion = (questions ?? []).find((q) => q.id === questionId) ?? null;
   const questionPrompt = selectedQuestion ? selectedQuestion.prompt : adHocPrompt;
   const rubric = selectedQuestion ? (selectedQuestion.question_keys?.rubric ?? "") : adHocRubric;
-  const alternatives = selectedQuestion ? ((selectedQuestion.question_keys?.accepted_alternatives as string[]) ?? []) : [];
+  const alternatives = selectedQuestion
+    ? ((selectedQuestion.question_keys?.accepted_alternatives as string[]) ?? [])
+    : [];
   const maxMarks = selectedQuestion ? Number(selectedQuestion.marks) : Number(adHocMarks);
   const maxValid = Number.isFinite(maxMarks) && maxMarks > 0 && maxMarks <= 1000;
   /** Saving requires an AI suggestion: the AI sets the final grade. */
@@ -225,8 +239,8 @@ function Handwritten() {
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
     const path = `${me!.id}/${uuid}.jpg`;
-    const { error } = await supabase
-      .storage.from("handwritten-papers")
+    const { error } = await supabase.storage
+      .from("handwritten-papers")
       .upload(path, blob, { contentType: "image/jpeg", upsert: false });
     if (error) return "";
     return path;
@@ -336,7 +350,13 @@ function Handwritten() {
         },
       });
       if (!result.ok) {
-        toast.error(result.code === "AI_NOT_CONFIGURED" ? t("hwOcrNotConfigured") : result.code === "UNAUTHORIZED" ? t("aiGradeUnauthorized") : t("aiGradeFailed"));
+        toast.error(
+          result.code === "AI_NOT_CONFIGURED"
+            ? t("hwOcrNotConfigured")
+            : result.code === "UNAUTHORIZED"
+              ? t("aiGradeUnauthorized")
+              : t("aiGradeFailed"),
+        );
         return;
       }
       // The AI's score IS the final score (user-directed): it is adopted
@@ -455,8 +475,8 @@ function Handwritten() {
       });
       return;
     }
-    const { data, error } = await supabase
-      .storage.from("handwritten-papers")
+    const { data, error } = await supabase.storage
+      .from("handwritten-papers")
       .createSignedUrl(row.image_path, 3600);
     if (error || !data) {
       toast.error(translateError(error ?? new Error("signed url failed"), lang));
@@ -487,7 +507,9 @@ function Handwritten() {
               >
                 <option value="">{t("hwAdHoc")}</option>
                 {(assessments ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>{a.title}</option>
+                  <option key={a.id} value={a.id}>
+                    {a.title}
+                  </option>
                 ))}
               </select>
             </div>
@@ -584,7 +606,11 @@ function Handwritten() {
           </div>
           {imageDataUrl && (
             <div className="space-y-2">
-              <img src={imageDataUrl} alt={imageName} className="max-h-80 rounded-md border object-contain" />
+              <img
+                src={imageDataUrl}
+                alt={imageName}
+                className="max-h-80 rounded-md border object-contain"
+              />
               <p className="text-xs text-muted-foreground">{imageName}</p>
             </div>
           )}
@@ -601,7 +627,10 @@ function Handwritten() {
           )}
           <p className="rounded-md bg-warning/20 p-3 text-sm">{t("hwOcrNote")}</p>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={runOcr} disabled={!imageDataUrl || busyOcr || visionConfigured === false}>
+            <Button
+              onClick={runOcr}
+              disabled={!imageDataUrl || busyOcr || visionConfigured === false}
+            >
               {busyOcr ? t("hwExtracting") : t("hwExtract")}
             </Button>
             {visionConfigured === false && (
@@ -622,7 +651,11 @@ function Handwritten() {
             }}
           />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={runSuggest} disabled={busySuggest || !correctedText.trim() || !questionPrompt.trim() || !maxValid}>
+            <Button
+              variant="outline"
+              onClick={runSuggest}
+              disabled={busySuggest || !correctedText.trim() || !questionPrompt.trim() || !maxValid}
+            >
               {busySuggest ? t("hwSuggesting") : t("hwSuggest")}
             </Button>
           </div>
@@ -659,7 +692,16 @@ function Handwritten() {
               onChange={(e) => setTeacherFeedback(e.target.value)}
             />
           </div>
-          <Button onClick={save} disabled={busySave || !finalValid || imageBlocked || !correctedText.trim() || !questionPrompt.trim()}>
+          <Button
+            onClick={save}
+            disabled={
+              busySave ||
+              !finalValid ||
+              imageBlocked ||
+              !correctedText.trim() ||
+              !questionPrompt.trim()
+            }
+          >
             {busySave ? t("hwSaving") : t("hwSaveGrade")}
           </Button>
         </Panel>
@@ -688,12 +730,18 @@ function Handwritten() {
                         {paperUrls[row.id] ? t("hwHidePaper") : t("hwViewPaper")}
                       </Button>
                       {paperUrls[row.id] && (
-                        <img src={paperUrls[row.id]} alt="" className="max-h-80 rounded-md border object-contain" />
+                        <img
+                          src={paperUrls[row.id]}
+                          alt=""
+                          className="max-h-80 rounded-md border object-contain"
+                        />
                       )}
                     </div>
                   )}
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">{formatDate(row.created_at, lang)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDate(row.created_at, lang)}
+                    </span>
                     <Button size="sm" variant="outline" onClick={() => void removeRow(row)}>
                       {t("hwDelete")}
                     </Button>

@@ -50,14 +50,19 @@ function bufferKey(assessmentId: string, studentId: string): string {
   return `qemmini:integrity-buffer:${assessmentId}:${studentId}`;
 }
 
-function readBuffer(key: string): { events: BufferedIntegrityEvent[]; times: Record<string, number> } {
+function readBuffer(key: string): {
+  events: BufferedIntegrityEvent[];
+  times: Record<string, number>;
+} {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return { events: [], times: {} };
     const parsed = JSON.parse(raw) as { events?: unknown; times?: unknown };
     const events = Array.isArray(parsed.events) ? (parsed.events as BufferedIntegrityEvent[]) : [];
     const times =
-      parsed.times && typeof parsed.times === "object" ? (parsed.times as Record<string, number>) : {};
+      parsed.times && typeof parsed.times === "object"
+        ? (parsed.times as Record<string, number>)
+        : {};
     return { events, times };
   } catch {
     return { events: [], times: {} };
@@ -84,7 +89,10 @@ export function useIntegrityRecorder(opts: {
 
   const persist = useCallback(() => {
     try {
-      window.localStorage.setItem(key, JSON.stringify({ events: eventsRef.current, times: timesRef.current }));
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({ events: eventsRef.current, times: timesRef.current }),
+      );
     } catch {
       // Private mode / quota: memory buffer still works for this session.
     }
@@ -148,7 +156,8 @@ export function useIntegrityRecorder(opts: {
   const getTimesSeconds = useCallback(() => {
     accrue();
     const out: Record<string, number> = {};
-    for (const [qid, secs] of Object.entries(timesRef.current)) out[qid] = Math.max(0, Math.round(secs));
+    for (const [qid, secs] of Object.entries(timesRef.current))
+      out[qid] = Math.max(0, Math.round(secs));
     return out;
   }, [accrue]);
 
@@ -249,7 +258,8 @@ export function useIntegrityRecorder(opts: {
             if (!entry.isIntersecting) continue;
             const id = (entry.target as HTMLElement).dataset.integrityQuestion;
             if (!id) continue;
-            if (!best || entry.intersectionRatio > best.ratio) best = { id, ratio: entry.intersectionRatio };
+            if (!best || entry.intersectionRatio > best.ratio)
+              best = { id, ratio: entry.intersectionRatio };
           }
           if (best) setCurrentQuestionId(best.id);
         },

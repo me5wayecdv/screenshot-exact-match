@@ -39,9 +39,11 @@ type AnswerRow = {
 
 function formatPct(value: number | null, lang: "ar" | "en"): string {
   if (value === null) return "—";
-  return new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-GB", {
-    maximumFractionDigits: 1,
-  }).format(value) + "%";
+  return (
+    new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-GB", {
+      maximumFractionDigits: 1,
+    }).format(value) + "%"
+  );
 }
 
 export function AssessmentReportQuestions({ assessmentId }: { assessmentId: string }) {
@@ -106,15 +108,24 @@ export function AssessmentReportQuestions({ assessmentId }: { assessmentId: stri
     const marks = Number(q.marks) || 0;
     const qAnswers = answers.filter((a) => a.question_id === q.id);
     const graded = qAnswers
-      .map((a) => (a.final_score ?? a.auto_score))
+      .map((a) => a.final_score ?? a.auto_score)
       .filter((s): s is number => s !== null);
     const avgPct =
       graded.length > 0 && marks > 0
         ? graded.reduce((sum, s) => sum + (Number(s) / marks) * 100, 0) / graded.length
         : null;
     const fullCreditPct =
-      graded.length > 0 ? (graded.filter((s) => Number(s) >= marks).length / graded.length) * 100 : null;
-    return { q, index, answered: qAnswers.length, gradedCount: graded.length, avgPct, fullCreditPct };
+      graded.length > 0
+        ? (graded.filter((s) => Number(s) >= marks).length / graded.length) * 100
+        : null;
+    return {
+      q,
+      index,
+      answered: qAnswers.length,
+      gradedCount: graded.length,
+      avgPct,
+      fullCreditPct,
+    };
   });
 
   return (

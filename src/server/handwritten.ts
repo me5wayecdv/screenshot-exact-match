@@ -83,8 +83,7 @@ export type OcrErrorCode =
   | "VISION_PARSE_FAILED";
 
 export type OcrResult =
-  | { ok: true; text: string; model: string }
-  | { ok: false; code: OcrErrorCode; message: string };
+  { ok: true; text: string; model: string } | { ok: false; code: OcrErrorCode; message: string };
 
 const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 
@@ -93,8 +92,7 @@ const MAX_DATA_URL_CHARS = 8_000_000;
 const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url =
-    process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
+  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
   const anonKey =
     process.env.SUPABASE_ANON_KEY?.trim() ||
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
@@ -195,7 +193,7 @@ const OCR_SYSTEM_PROMPT =
   "أنت أداة استخراج نصوص من صور أوراق امتحانات مكتوبة بخط اليد. " +
   "أعد النص المكتوب بخط اليد حرفياً كما هو، دون تصحيح إملائي أو نحوي ودون إضافة أي كلام من عندك. " +
   "حافظ على فواصل الأسطر. الأجزاء غير المقروءة اكتب مكانها [غير واضح]. " +
-  "أجب بصيغة JSON فقط: {\"text\": \"...\"}.";
+  'أجب بصيغة JSON فقط: {"text": "..."}.';
 
 async function callVisionOcr(
   config: VisionConfig,
@@ -256,7 +254,11 @@ async function callVisionOcr(
     const content = json.choices?.[0]?.message?.content;
     const rawText = typeof content === "string" ? content : "";
     if (!rawText.trim()) {
-      return { ok: false, code: "VISION_PARSE_FAILED", message: "Vision provider returned no text." };
+      return {
+        ok: false,
+        code: "VISION_PARSE_FAILED",
+        message: "Vision provider returned no text.",
+      };
     }
     return { ok: true, text: extractTranscription(rawText) };
   } catch (err) {
@@ -309,6 +311,9 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" }).handler(
 export const getHandwritingStatus = createServerFn({ method: "POST" }).handler(
   async (): Promise<{ configured: boolean; visionModelExplicit: boolean }> => {
     const config = resolveVisionConfig();
-    return { configured: config !== null, visionModelExplicit: config?.visionModelExplicit ?? false };
+    return {
+      configured: config !== null,
+      visionModelExplicit: config?.visionModelExplicit ?? false,
+    };
   },
 );

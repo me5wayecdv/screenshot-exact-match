@@ -1,7 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export type Me = { id: string; email: string; role: "school_teacher" | "tutor" | "student" | "admin"; fullName: string; joinCode: string | null };
+export type Me = {
+  id: string;
+  email: string;
+  role: "school_teacher" | "tutor" | "student" | "admin";
+  fullName: string;
+  joinCode: string | null;
+};
 
 export function useMe() {
   return useQuery({
@@ -16,7 +22,8 @@ export function useMe() {
       ]);
       // Defensive: pre-migration rows still carry role='teacher'; treat them as school_teacher.
       const rawRole = role?.role as string | undefined;
-      const mappedRole: Me["role"] = rawRole === "teacher" ? "school_teacher" : (rawRole as Me["role"]) ?? "student";
+      const mappedRole: Me["role"] =
+        rawRole === "teacher" ? "school_teacher" : ((rawRole as Me["role"]) ?? "student");
       return {
         id: user.id,
         email: user.email ?? "",

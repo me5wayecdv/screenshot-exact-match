@@ -38,13 +38,26 @@ function ResetPassword() {
   }
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-6 shadow-soft">
+      <form
+        onSubmit={onSubmit}
+        className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-6 shadow-soft"
+      >
         <Brand className="text-primary" />
         <div className="space-y-1.5">
           <Label htmlFor="pw">{t("newPassword")}</Label>
-          <Input id="pw" type="password" dir="ltr" minLength={8} required value={pw} onChange={(e) => setPw(e.target.value)} />
+          <Input
+            id="pw"
+            type="password"
+            dir="ltr"
+            minLength={8}
+            required
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+          />
         </div>
-        <Button className="w-full" disabled={busy}>{t("updatePassword")}</Button>
+        <Button className="w-full" disabled={busy}>
+          {t("updatePassword")}
+        </Button>
       </form>
     </div>
   );

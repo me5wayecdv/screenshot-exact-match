@@ -62,7 +62,7 @@ export function buildAiGradingPrompt(input: AiGradingPromptInput): {
     '{"suggested_score": <number>, "feedback": "<string>", "confidence": "high" | "medium" | "low"}',
     'حيث confidence هو تقديرك لثقتك في الاقتراح: "high" عندما تكون الإجابة',
     'واضحة ومعايير التصحيح حاسمة، و"low" عندما تكون الإجابة غامضة أو قصيرة',
-    'جداً أو لا تغطيها المعايير.',
+    "جداً أو لا تغطيها المعايير.",
   ].join(" ");
 
   const user = [

@@ -11,16 +11,39 @@ const tone = {
 export type Tone = keyof typeof tone;
 
 export function Pill({ children, t = "neutral" }: { children: ReactNode; t?: Tone | undefined }) {
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tone[t]}`}>{children}</span>;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tone[t]}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 export const statusTone: Record<string, Tone> = {
-  draft: "neutral", published: "success", closed: "warning", archived: "neutral",
-  submitted: "info", awaiting_review: "warning", approved: "primary", released: "success",
-  not_graded: "neutral", auto_graded: "primary", ai_suggested: "info", rejected: "danger",
+  draft: "neutral",
+  published: "success",
+  closed: "warning",
+  archived: "neutral",
+  submitted: "info",
+  awaiting_review: "warning",
+  approved: "primary",
+  released: "success",
+  not_graded: "neutral",
+  auto_graded: "primary",
+  ai_suggested: "info",
+  rejected: "danger",
 };
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+}: {
+  title: string;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+}) {
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
@@ -37,5 +60,9 @@ export function Panel({ children, className = "" }: { children: ReactNode; class
 }
 
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">{children}</div>;
+  return (
+    <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+      {children}
+    </div>
+  );
 }

@@ -6,7 +6,10 @@ export const Route = createFileRoute("/privacy")({
   head: () => ({
     meta: [
       { title: "Privacy · Qemmini" },
-      { name: "description", content: "How Qemmini collects, uses and protects account and student data." },
+      {
+        name: "description",
+        content: "How Qemmini collects, uses and protects account and student data.",
+      },
       { property: "og:title", content: "Privacy · Qemmini" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -26,6 +29,7 @@ function PrivacyPage() {
     { title: t("privacySecurityTitle"), body: t("privacySecurityBody") },
     { title: t("privacyRightsTitle"), body: t("privacyRightsBody") },
     { title: t("privacyChangesTitle"), body: t("privacyChangesBody") },
+    { title: t("contactTitle"), body: t("contactBody") },
   ];
   return (
     <div className="min-h-screen">
@@ -46,8 +50,12 @@ function PrivacyPage() {
       <footer className="border-t py-8 text-center text-sm text-muted-foreground">
         <p>© {new Date().getFullYear()} Qemmini</p>
         <nav className="mt-2 flex justify-center gap-4">
-          <Link to="/" className="hover:underline">{t("backHome")}</Link>
-          <Link to="/terms" className="hover:underline">{t("terms")}</Link>
+          <Link to="/" className="hover:underline">
+            {t("backHome")}
+          </Link>
+          <Link to="/terms" className="hover:underline">
+            {t("terms")}
+          </Link>
         </nav>
       </footer>
     </div>

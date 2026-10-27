@@ -6,7 +6,10 @@ export const Route = createFileRoute("/terms")({
   head: () => ({
     meta: [
       { title: "Terms · Qemmini" },
-      { name: "description", content: "Terms of use for the Qemmini assessment and learning platform." },
+      {
+        name: "description",
+        content: "Terms of use for the Qemmini assessment and learning platform.",
+      },
       { property: "og:title", content: "Terms · Qemmini" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -25,6 +28,7 @@ function TermsPage() {
     { title: t("termsFairUseTitle"), body: t("termsFairUseBody") },
     { title: t("termsAvailabilityTitle"), body: t("termsAvailabilityBody") },
     { title: t("termsChangesTitle"), body: t("termsChangesBody") },
+    { title: t("contactTitle"), body: t("contactBody") },
   ];
   return (
     <div className="min-h-screen">
@@ -45,8 +49,12 @@ function TermsPage() {
       <footer className="border-t py-8 text-center text-sm text-muted-foreground">
         <p>© {new Date().getFullYear()} Qemmini</p>
         <nav className="mt-2 flex justify-center gap-4">
-          <Link to="/" className="hover:underline">{t("backHome")}</Link>
-          <Link to="/privacy" className="hover:underline">{t("privacy")}</Link>
+          <Link to="/" className="hover:underline">
+            {t("backHome")}
+          </Link>
+          <Link to="/privacy" className="hover:underline">
+            {t("privacy")}
+          </Link>
         </nav>
       </footer>
     </div>

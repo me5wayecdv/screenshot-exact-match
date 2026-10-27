@@ -25,9 +25,13 @@ type Submission = Database["public"]["Tables"]["submissions"]["Row"];
 // deterministic objective auto-grade. No AI in this pass.
 type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
 
-
 export const Route = createFileRoute("/_authenticated/grading")({
-  head: () => ({ meta: [{ title: "Grading · Qemmini" }, { name: "description", content: "Review submissions awaiting grading." }] }),
+  head: () => ({
+    meta: [
+      { title: "Grading · Qemmini" },
+      { name: "description", content: "Review submissions awaiting grading." },
+    ],
+  }),
   component: Grading,
 });
 
@@ -63,15 +67,27 @@ function useGradingList(teacherId: string | undefined) {
     queryKey: ["grading-list", teacherId],
     enabled: !!teacherId,
     queryFn: async () => {
-      const aRes = await supabase.from("assessments").select("id, title").eq("teacher_id", teacherId!);
+      const aRes = await supabase
+        .from("assessments")
+        .select("id, title")
+        .eq("teacher_id", teacherId!);
       if (aRes.error) throw aRes.error;
       const assessments = aRes.data ?? [];
       const byId = new Map(assessments.map((a) => [a.id, a.title]));
-      if (assessments.length === 0) return { submissions: [] as Submission[], released: [] as Submission[], titles: byId, names: new Map<string, string>() };
+      if (assessments.length === 0)
+        return {
+          submissions: [] as Submission[],
+          released: [] as Submission[],
+          titles: byId,
+          names: new Map<string, string>(),
+        };
       const sRes = await supabase
         .from("submissions")
         .select("*")
-        .in("assessment_id", assessments.map((a) => a.id))
+        .in(
+          "assessment_id",
+          assessments.map((a) => a.id),
+        )
         .eq("status", "awaiting_review")
         .order("submitted_at", { ascending: false });
       if (sRes.error) throw sRes.error;
@@ -79,7 +95,10 @@ function useGradingList(teacherId: string | undefined) {
       const rRes = await supabase
         .from("submissions")
         .select("*")
-        .in("assessment_id", assessments.map((a) => a.id))
+        .in(
+          "assessment_id",
+          assessments.map((a) => a.id),
+        )
         .eq("status", "released")
         .order("submitted_at", { ascending: false });
       if (rRes.error) throw rRes.error;
@@ -102,7 +121,11 @@ function useGradingDetail(submission: Submission | null) {
     queryFn: async () => {
       const s = submission!;
       const [qRes, aRes] = await Promise.all([
-        supabase.from("questions").select("*, question_keys(*)").eq("assessment_id", s.assessment_id).order("position"),
+        supabase
+          .from("questions")
+          .select("*, question_keys(*)")
+          .eq("assessment_id", s.assessment_id)
+          .order("position"),
         supabase.from("answers").select("*").eq("submission_id", s.id),
       ]);
       if (qRes.error) throw qRes.error;
@@ -119,9 +142,12 @@ function Grading() {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useMe();
-  const { data: list, isLoading: listLoading } = useGradingList(me?.role === "school_teacher" ? me.id : undefined);
+  const { data: list, isLoading: listLoading } = useGradingList(
+    me?.role === "school_teacher" ? me.id : undefined,
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = list?.submissions.find((s) => s.id === selectedId) ?? list?.submissions[0] ?? null;
+  const selected =
+    list?.submissions.find((s) => s.id === selectedId) ?? list?.submissions[0] ?? null;
   const { data: detail, isLoading: detailLoading } = useGradingDetail(selected);
   const [scores, setScores] = useState<Record<string, string>>({});
   const [feedbacks, setFeedbacks] = useState<Record<string, string>>({});
@@ -251,7 +277,12 @@ function Grading() {
     }, 0);
     const { error } = await supabase
       .from("submissions")
-      .update({ status: "released", final_score: final, total_possible: totalPossible, released_at: new Date().toISOString() })
+      .update({
+        status: "released",
+        final_score: final,
+        total_possible: totalPossible,
+        released_at: new Date().toISOString(),
+      })
       .eq("id", selected.id);
     setBusy(false);
     if (error) return void toast.error(translateError(error, lang));
@@ -263,9 +294,14 @@ function Grading() {
     // in the audit row on the report page. The try/catch guarantees a
     // send problem can never break the release itself.
     try {
-      const sendResult = await sendWhatsAppReport({ data: { submissionId: selected.id, trigger: "auto" } });
+      const sendResult = await sendWhatsAppReport({
+        data: { submissionId: selected.id, trigger: "auto" },
+      });
       if (sendResult.ok && sendResult.status === "sent") toast.success(t("whatsappSent"));
-      else if (!sendResult.ok) toast.error(sendResult.error ? translateError(new Error(sendResult.error), lang) : t("errorGeneric"));
+      else if (!sendResult.ok)
+        toast.error(
+          sendResult.error ? translateError(new Error(sendResult.error), lang) : t("errorGeneric"),
+        );
     } catch (e) {
       toast.error(translateError(e, lang));
     }
@@ -280,9 +316,14 @@ function Grading() {
         title={t("grading")}
         subtitle={t("gradingAutoNote")}
         actions={
-          <Button asChild variant="outline">
-            <Link to="/handwritten">{t("hwPaperGrade")}</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link to="/handwritten">{t("hwPaperGrade")}</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/audit">{t("auditViewHistory")}</Link>
+            </Button>
+          </div>
         }
       />
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
@@ -302,7 +343,9 @@ function Grading() {
                     <span className="block text-xs text-muted-foreground">
                       {list?.names.get(s.student_id) ?? "—"} · {formatDate(s.submitted_at, lang)}
                     </span>
-                    <Pill t={statusTone[s.status] ?? "neutral"}>{t(`sub_${s.status}` as never)}</Pill>
+                    <Pill t={statusTone[s.status] ?? "neutral"}>
+                      {t(`sub_${s.status}` as never)}
+                    </Pill>
                   </button>
                 </li>
               ))}
@@ -314,7 +357,9 @@ function Grading() {
               <ul className="space-y-3">
                 {released.map((s) => (
                   <li key={s.id} className="rounded-md border p-3">
-                    <span className="block text-sm font-medium">{list?.titles.get(s.assessment_id) ?? "—"}</span>
+                    <span className="block text-sm font-medium">
+                      {list?.titles.get(s.assessment_id) ?? "—"}
+                    </span>
                     <span className="block text-xs text-muted-foreground">
                       {list?.names.get(s.student_id) ?? "—"} · {formatDate(s.submitted_at, lang)}
                     </span>
@@ -338,8 +383,9 @@ function Grading() {
               <Panel>
                 <h2 className="font-semibold">{list?.titles.get(selected.assessment_id) ?? "—"}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {t("student_")}: {list?.names.get(selected.student_id) ?? "—"} · {t("submittedAt")}: {formatDate(selected.submitted_at, lang)} ·{" "}
-                  {t("totalMarks")}: {totalPossible}
+                  {t("student_")}: {list?.names.get(selected.student_id) ?? "—"} ·{" "}
+                  {t("submittedAt")}: {formatDate(selected.submitted_at, lang)} · {t("totalMarks")}:{" "}
+                  {totalPossible}
                 </p>
               </Panel>
               <IntegritySummary submissionId={selected.id} assessmentId={selected.assessment_id} />
@@ -353,7 +399,9 @@ function Grading() {
                       <span className="text-sm font-semibold text-primary">
                         {t("question")} {i + 1} · {t(`q_${q.type}` as never)}
                       </span>
-                      <span className="text-xs text-muted-foreground">{t("marks")}: {Number(q.marks)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {t("marks")}: {Number(q.marks)}
+                      </span>
                     </div>
                     <p className="whitespace-pre-wrap text-sm">{q.prompt}</p>
                     <div className="rounded-md bg-muted p-3 text-sm">
@@ -364,15 +412,29 @@ function Grading() {
                       <div className="space-y-1 text-sm">
                         {q.type !== "written" ? (
                           <>
-                            <p><span className="text-muted-foreground">{t("expected")}: </span>{key.correct_answer || "—"}</p>
+                            <p>
+                              <span className="text-muted-foreground">{t("expected")}: </span>
+                              {key.correct_answer || "—"}
+                            </p>
                             {((key.accepted_alternatives as string[]) ?? []).length > 0 && (
-                              <p><span className="text-muted-foreground">{t("alternatives")}: </span>{((key.accepted_alternatives as string[]) ?? []).join("، ")}</p>
+                              <p>
+                                <span className="text-muted-foreground">{t("alternatives")}: </span>
+                                {((key.accepted_alternatives as string[]) ?? []).join("، ")}
+                              </p>
                             )}
                           </>
                         ) : (
-                          <p className="whitespace-pre-wrap"><span className="text-muted-foreground">{t("rubric")}: </span>{key.rubric || "—"}</p>
+                          <p className="whitespace-pre-wrap">
+                            <span className="text-muted-foreground">{t("rubric")}: </span>
+                            {key.rubric || "—"}
+                          </p>
                         )}
-                        {key.explanation && <p><span className="text-muted-foreground">{t("explanation")}: </span>{key.explanation}</p>}
+                        {key.explanation && (
+                          <p>
+                            <span className="text-muted-foreground">{t("explanation")}: </span>
+                            {key.explanation}
+                          </p>
+                        )}
                       </div>
                     )}
                     {!a ? (
@@ -428,8 +490,12 @@ function Grading() {
                 );
               })}
               <div className="flex flex-wrap gap-2">
-                <Button onClick={save} disabled={busy}>{busy ? t("saving") : t("gradingSaveScores")}</Button>
-                <Button variant="outline" onClick={release} disabled={busy}>{t("release")}</Button>
+                <Button onClick={save} disabled={busy}>
+                  {busy ? t("saving") : t("gradingSaveScores")}
+                </Button>
+                <Button variant="outline" onClick={release} disabled={busy}>
+                  {t("release")}
+                </Button>
               </div>
             </div>
           )}

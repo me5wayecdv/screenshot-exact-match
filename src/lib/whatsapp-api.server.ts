@@ -126,7 +126,11 @@ export async function sendWhatsAppTemplate(
     });
   } catch (e) {
     // Network failure: never include the token or the raw request.
-    return { configured: true, ok: false, error: e instanceof Error ? e.message.slice(0, 500) : "network_error" };
+    return {
+      configured: true,
+      ok: false,
+      error: e instanceof Error ? e.message.slice(0, 500) : "network_error",
+    };
   }
 
   const body = (await res.json().catch(() => null)) as {

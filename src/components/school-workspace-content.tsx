@@ -125,7 +125,8 @@ export function SchoolWorkspaceContent() {
           <p className="text-sm text-muted-foreground">{t("schoolTotalAssessments")}</p>
           <p className="mt-1 text-3xl font-bold">{assessments.length}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {t("st_published")}: {countStatus("published")} · {t("st_draft")}: {countStatus("draft")}
+            {t("st_published")}: {countStatus("published")} · {t("st_draft")}:{" "}
+            {countStatus("draft")}
           </p>
         </Panel>
       </div>
@@ -140,7 +141,9 @@ export function SchoolWorkspaceContent() {
           ) : (
             <ul className="divide-y text-sm">
               {teachers.map((teacher) => (
-                <li key={teacher.id} className="py-2">{teacher.full_name || "—"}</li>
+                <li key={teacher.id} className="py-2">
+                  {teacher.full_name || "—"}
+                </li>
               ))}
             </ul>
           )}
@@ -154,7 +157,9 @@ export function SchoolWorkspaceContent() {
           ) : (
             <ul className="divide-y text-sm">
               {classes.map((c) => (
-                <li key={c.id} className="py-2">{c.name}</li>
+                <li key={c.id} className="py-2">
+                  {c.name}
+                </li>
               ))}
             </ul>
           )}

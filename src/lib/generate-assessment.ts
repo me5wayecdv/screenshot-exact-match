@@ -82,9 +82,7 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
   const d = data as Record<string, unknown>;
   const sourceText = typeof d.sourceText === "string" ? d.sourceText.trim() : "";
   if (sourceText.length < SOURCE_MIN_CHARS) throw new Error("VALIDATION");
-  const types = Array.isArray(d.types)
-    ? [...new Set(d.types.filter(isGenerateQuestionType))]
-    : [];
+  const types = Array.isArray(d.types) ? [...new Set(d.types.filter(isGenerateQuestionType))] : [];
   if (types.length === 0) throw new Error("VALIDATION");
   const rawCount = typeof d.questionCount === "number" ? d.questionCount : NaN;
   if (!Number.isFinite(rawCount)) throw new Error("VALIDATION");

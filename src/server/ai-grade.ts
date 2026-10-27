@@ -60,8 +60,7 @@ export type AiGradeResult =
 const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url =
-    process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
+  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
   const anonKey =
     process.env.SUPABASE_ANON_KEY?.trim() ||
     process.env.VITE_SUPABASE_ANON_KEY?.trim() ||

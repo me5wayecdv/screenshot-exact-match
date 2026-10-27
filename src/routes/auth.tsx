@@ -52,13 +52,18 @@ function AuthPage() {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: window.location.origin + "/dashboard", data: { full_name: name, role } },
+          options: {
+            emailRedirectTo: window.location.origin + "/dashboard",
+            data: { full_name: name, role },
+          },
         });
         if (error) throw error;
         if (data.session) navigate({ to: "/dashboard", replace: true });
         else toast.success(t("checkEmail"));
       } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + "/reset-password" });
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + "/reset-password",
+        });
         if (error) throw error;
         toast.success(t("resetSent"));
       }
@@ -91,17 +96,27 @@ function AuthPage() {
       </aside>
       <main className="flex flex-col p-6">
         <div className="flex justify-between">
-          <Link to="/" className="md:invisible"><Brand className="text-primary" /></Link>
+          <Link to="/" className="md:invisible">
+            <Brand className="text-primary" />
+          </Link>
           <LangToggle />
         </div>
         <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center">
-          <h1 className="mb-6 text-2xl font-bold">{mode === "signup" ? t("signUp") : mode === "forgot" ? t("forgot") : t("signIn")}</h1>
+          <h1 className="mb-6 text-2xl font-bold">
+            {mode === "signup" ? t("signUp") : mode === "forgot" ? t("forgot") : t("signIn")}
+          </h1>
           <form onSubmit={onSubmit} className="space-y-4">
             {mode === "signup" && (
               <>
                 <div className="space-y-1.5">
                   <Label htmlFor="name">{t("fullName")}</Label>
-                  <Input id="name" required value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+                  <Input
+                    id="name"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={100}
+                  />
                 </div>
                 <fieldset className="space-y-1.5">
                   <legend className="text-sm font-medium">{t("iAm")}</legend>
@@ -123,40 +138,91 @@ function AuthPage() {
             )}
             <div className="space-y-1.5">
               <Label htmlFor="email">{t("email")}</Label>
-              <Input id="email" type="email" dir="ltr" required value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Input
+                id="email"
+                type="email"
+                dir="ltr"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
             </div>
             {mode !== "forgot" && (
               <div className="space-y-1.5">
                 <Label htmlFor="password">{t("password")}</Label>
-                <Input id="password" type="password" dir="ltr" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+                <Input
+                  id="password"
+                  type="password"
+                  dir="ltr"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
               </div>
             )}
             <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? t("loading") : mode === "signup" ? t("signUp") : mode === "forgot" ? t("sendReset") : t("signIn")}
+              {busy
+                ? t("loading")
+                : mode === "signup"
+                  ? t("signUp")
+                  : mode === "forgot"
+                    ? t("sendReset")
+                    : t("signIn")}
             </Button>
           </form>
           {mode !== "forgot" && (
             <>
               <div className="my-4 text-center text-xs text-muted-foreground">{t("or")}</div>
-              <Button variant="outline" className="w-full" onClick={google}>{t("google")}</Button>
-              {mode === "signup" && <p className="mt-2 text-xs text-muted-foreground">{lang === "ar" ? "حسابات Google الجديدة تُنشأ كحسابات طلاب." : "New Google accounts are created as student accounts."}</p>}
+              <Button variant="outline" className="w-full" onClick={google}>
+                {t("google")}
+              </Button>
+              {mode === "signup" && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {lang === "ar"
+                    ? "حسابات Google الجديدة تُنشأ كحسابات طلاب."
+                    : "New Google accounts are created as student accounts."}
+                </p>
+              )}
             </>
           )}
           <div className="mt-6 space-y-2 text-center text-sm">
             {mode === "signin" && (
               <>
-                <button className="text-primary hover:underline" onClick={() => setMode("forgot")}>{t("forgot")}</button>
-                <p>{t("noAccount")} <button className="font-medium text-primary hover:underline" onClick={() => setMode("signup")}>{t("signUp")}</button></p>
+                <button className="text-primary hover:underline" onClick={() => setMode("forgot")}>
+                  {t("forgot")}
+                </button>
+                <p>
+                  {t("noAccount")}{" "}
+                  <button
+                    className="font-medium text-primary hover:underline"
+                    onClick={() => setMode("signup")}
+                  >
+                    {t("signUp")}
+                  </button>
+                </p>
               </>
             )}
             {mode !== "signin" && (
-              <p>{t("haveAccount")} <button className="font-medium text-primary hover:underline" onClick={() => setMode("signin")}>{t("signIn")}</button></p>
+              <p>
+                {t("haveAccount")}{" "}
+                <button
+                  className="font-medium text-primary hover:underline"
+                  onClick={() => setMode("signin")}
+                >
+                  {t("signIn")}
+                </button>
+              </p>
             )}
           </div>
           <footer className="mx-auto mt-8 w-full max-w-sm pb-2 text-center text-xs text-muted-foreground">
-            <Link to="/terms" className="hover:underline">{t("terms")}</Link>
+            <Link to="/terms" className="hover:underline">
+              {t("terms")}
+            </Link>
             {" · "}
-            <Link to="/privacy" className="hover:underline">{t("privacy")}</Link>
+            <Link to="/privacy" className="hover:underline">
+              {t("privacy")}
+            </Link>
           </footer>
         </div>
       </main>

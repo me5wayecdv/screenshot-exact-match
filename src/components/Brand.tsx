@@ -4,7 +4,12 @@ export function Brand({ className = "" }: { className?: string }) {
   const { t } = useI18n();
   return (
     <span className={`inline-flex items-center gap-2 font-display text-xl font-bold ${className}`}>
-      <span aria-hidden className="grid h-8 w-8 place-items-center rounded-md bg-accent text-accent-foreground">ق</span>
+      <span
+        aria-hidden
+        className="grid h-8 w-8 place-items-center rounded-md bg-accent text-accent-foreground"
+      >
+        ق
+      </span>
       {t("brand")}
     </span>
   );

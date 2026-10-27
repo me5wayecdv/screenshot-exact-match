@@ -27,7 +27,13 @@ import { Pill } from "@/components/ui-kit";
 import { sendWhatsAppReport, getWhatsAppConfigured } from "@/lib/whatsapp.functions";
 import type { WhatsAppSendRow } from "@/lib/whatsapp";
 
-export function WhatsAppSendButton({ submissionId, studentId }: { submissionId: string; studentId: string }) {
+export function WhatsAppSendButton({
+  submissionId,
+  studentId,
+}: {
+  submissionId: string;
+  studentId: string;
+}) {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -75,7 +81,10 @@ export function WhatsAppSendButton({ submissionId, studentId }: { submissionId: 
       if (result.ok && result.status === "sent") toast.success(t("whatsappSent"));
       else if (result.ok) toast.message(t("whatsappSkipped"));
       else if (result.status === "not_released") toast.error(t("whatsappNotReleased"));
-      else toast.error(result.error ? translateError(new Error(result.error), lang) : t("errorGeneric"));
+      else
+        toast.error(
+          result.error ? translateError(new Error(result.error), lang) : t("errorGeneric"),
+        );
     } catch (e) {
       toast.error(translateError(e, lang));
     } finally {
@@ -87,7 +96,11 @@ export function WhatsAppSendButton({ submissionId, studentId }: { submissionId: 
   // Loading either gate: render the button disabled rather than flashing
   // a wrong hint for one frame.
   if (configuredQuery.isLoading || contactQuery.isLoading) {
-    return <Button variant="outline" size="sm" disabled>{t("loading")}</Button>;
+    return (
+      <Button variant="outline" size="sm" disabled>
+        {t("loading")}
+      </Button>
+    );
   }
 
   if (configured === false) {
@@ -107,10 +120,16 @@ export function WhatsAppSendButton({ submissionId, studentId }: { submissionId: 
       </Button>
       {last ? (
         <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Pill t={last.status === "sent" ? "success" : last.status === "failed" ? "danger" : "neutral"}>
+          <Pill
+            t={last.status === "sent" ? "success" : last.status === "failed" ? "danger" : "neutral"}
+          >
             {t(`whatsapp_${last.status}` as never)}
           </Pill>
-          {last.error ? <span className="max-w-xs truncate" title={last.error}>{last.error}</span> : null}
+          {last.error ? (
+            <span className="max-w-xs truncate" title={last.error}>
+              {last.error}
+            </span>
+          ) : null}
         </p>
       ) : null}
     </div>

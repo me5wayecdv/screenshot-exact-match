@@ -16,14 +16,18 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedGradingRouteImport } from './routes/_authenticated/grading'
 import { Route as AuthenticatedHandwrittenRouteImport } from './routes/_authenticated/handwritten'
+import { Route as AuthenticatedLessonsRouteImport } from './routes/_authenticated/lessons'
 import { Route as AuthenticatedSchoolRouteImport } from './routes/_authenticated/school'
 import { Route as AuthenticatedStudentsRouteImport } from './routes/_authenticated/students'
 import { Route as AuthenticatedAssessmentsIndexRouteImport } from './routes/_authenticated/assessments.index'
 import { Route as AuthenticatedAssessmentsIdRouteImport } from './routes/_authenticated/assessments.$id'
 import { Route as AuthenticatedAssessmentsGenerateRouteImport } from './routes/_authenticated/assessments.generate'
+import { Route as AuthenticatedAssessmentsReportIdRouteImport } from './routes/_authenticated/assessments.report.$id'
+import { Route as AuthenticatedAssessmentsTakeIdRouteImport } from './routes/_authenticated/assessments.take.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -59,6 +63,11 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -75,6 +84,11 @@ const AuthenticatedHandwrittenRoute =
     path: '/handwritten',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedLessonsRoute = AuthenticatedLessonsRouteImport.update({
+  id: '/lessons',
+  path: '/lessons',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSchoolRoute = AuthenticatedSchoolRouteImport.update({
   id: '/school',
   path: '/school',
@@ -103,6 +117,18 @@ const AuthenticatedAssessmentsGenerateRoute =
     path: '/assessments/generate',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAssessmentsReportIdRoute =
+  AuthenticatedAssessmentsReportIdRouteImport.update({
+    id: '/assessments/report/$id',
+    path: '/assessments/report/$id',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAssessmentsTakeIdRoute =
+  AuthenticatedAssessmentsTakeIdRouteImport.update({
+    id: '/assessments/take/$id',
+    path: '/assessments/take/$id',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -111,14 +137,18 @@ export interface FileRoutesByFullPath {
   '/reset-password': typeof ResetPasswordRoute
   '/terms': typeof TermsRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/grading': typeof AuthenticatedGradingRoute
   '/handwritten': typeof AuthenticatedHandwrittenRoute
+  '/lessons': typeof AuthenticatedLessonsRoute
   '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
   '/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/assessments/': typeof AuthenticatedAssessmentsIndexRoute
+  '/assessments/report/$id': typeof AuthenticatedAssessmentsReportIdRoute
+  '/assessments/take/$id': typeof AuthenticatedAssessmentsTakeIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -127,14 +157,18 @@ export interface FileRoutesByTo {
   '/reset-password': typeof ResetPasswordRoute
   '/terms': typeof TermsRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/grading': typeof AuthenticatedGradingRoute
   '/handwritten': typeof AuthenticatedHandwrittenRoute
+  '/lessons': typeof AuthenticatedLessonsRoute
   '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
   '/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/assessments': typeof AuthenticatedAssessmentsIndexRoute
+  '/assessments/report/$id': typeof AuthenticatedAssessmentsReportIdRoute
+  '/assessments/take/$id': typeof AuthenticatedAssessmentsTakeIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -145,14 +179,18 @@ export interface FileRoutesById {
   '/reset-password': typeof ResetPasswordRoute
   '/terms': typeof TermsRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/grading': typeof AuthenticatedGradingRoute
   '/_authenticated/handwritten': typeof AuthenticatedHandwrittenRoute
+  '/_authenticated/lessons': typeof AuthenticatedLessonsRoute
   '/_authenticated/school': typeof AuthenticatedSchoolRoute
   '/_authenticated/students': typeof AuthenticatedStudentsRoute
   '/_authenticated/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
   '/_authenticated/assessments/generate': typeof AuthenticatedAssessmentsGenerateRoute
   '/_authenticated/assessments/': typeof AuthenticatedAssessmentsIndexRoute
+  '/_authenticated/assessments/report/$id': typeof AuthenticatedAssessmentsReportIdRoute
+  '/_authenticated/assessments/take/$id': typeof AuthenticatedAssessmentsTakeIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -163,14 +201,18 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/terms'
     | '/admin'
+    | '/audit'
     | '/dashboard'
     | '/grading'
     | '/handwritten'
+    | '/lessons'
     | '/school'
     | '/students'
     | '/assessments/$id'
     | '/assessments/generate'
     | '/assessments/'
+    | '/assessments/report/$id'
+    | '/assessments/take/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -179,14 +221,18 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/terms'
     | '/admin'
+    | '/audit'
     | '/dashboard'
     | '/grading'
     | '/handwritten'
+    | '/lessons'
     | '/school'
     | '/students'
     | '/assessments/$id'
     | '/assessments/generate'
     | '/assessments'
+    | '/assessments/report/$id'
+    | '/assessments/take/$id'
   id:
     | '__root__'
     | '/'
@@ -196,14 +242,18 @@ export interface FileRouteTypes {
     | '/reset-password'
     | '/terms'
     | '/_authenticated/admin'
+    | '/_authenticated/audit'
     | '/_authenticated/dashboard'
     | '/_authenticated/grading'
     | '/_authenticated/handwritten'
+    | '/_authenticated/lessons'
     | '/_authenticated/school'
     | '/_authenticated/students'
     | '/_authenticated/assessments/$id'
     | '/_authenticated/assessments/generate'
     | '/_authenticated/assessments/'
+    | '/_authenticated/assessments/report/$id'
+    | '/_authenticated/assessments/take/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -266,6 +316,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/audit': {
+      id: '/_authenticated/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuthenticatedAuditRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -285,6 +342,13 @@ declare module '@tanstack/react-router' {
       path: '/handwritten'
       fullPath: '/handwritten'
       preLoaderRoute: typeof AuthenticatedHandwrittenRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/lessons': {
+      id: '/_authenticated/lessons'
+      path: '/lessons'
+      fullPath: '/lessons'
+      preLoaderRoute: typeof AuthenticatedLessonsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/school': {
@@ -322,31 +386,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssessmentsGenerateRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/assessments/report/$id': {
+      id: '/_authenticated/assessments/report/$id'
+      path: '/assessments/report/$id'
+      fullPath: '/assessments/report/$id'
+      preLoaderRoute: typeof AuthenticatedAssessmentsReportIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/assessments/take/$id': {
+      id: '/_authenticated/assessments/take/$id'
+      path: '/assessments/take/$id'
+      fullPath: '/assessments/take/$id'
+      preLoaderRoute: typeof AuthenticatedAssessmentsTakeIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedGradingRoute: typeof AuthenticatedGradingRoute
   AuthenticatedHandwrittenRoute: typeof AuthenticatedHandwrittenRoute
+  AuthenticatedLessonsRoute: typeof AuthenticatedLessonsRoute
   AuthenticatedSchoolRoute: typeof AuthenticatedSchoolRoute
   AuthenticatedStudentsRoute: typeof AuthenticatedStudentsRoute
   AuthenticatedAssessmentsIdRoute: typeof AuthenticatedAssessmentsIdRoute
   AuthenticatedAssessmentsGenerateRoute: typeof AuthenticatedAssessmentsGenerateRoute
   AuthenticatedAssessmentsIndexRoute: typeof AuthenticatedAssessmentsIndexRoute
+  AuthenticatedAssessmentsReportIdRoute: typeof AuthenticatedAssessmentsReportIdRoute
+  AuthenticatedAssessmentsTakeIdRoute: typeof AuthenticatedAssessmentsTakeIdRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedGradingRoute: AuthenticatedGradingRoute,
   AuthenticatedHandwrittenRoute: AuthenticatedHandwrittenRoute,
+  AuthenticatedLessonsRoute: AuthenticatedLessonsRoute,
   AuthenticatedSchoolRoute: AuthenticatedSchoolRoute,
   AuthenticatedStudentsRoute: AuthenticatedStudentsRoute,
   AuthenticatedAssessmentsIdRoute: AuthenticatedAssessmentsIdRoute,
   AuthenticatedAssessmentsGenerateRoute: AuthenticatedAssessmentsGenerateRoute,
   AuthenticatedAssessmentsIndexRoute: AuthenticatedAssessmentsIndexRoute,
+  AuthenticatedAssessmentsReportIdRoute: AuthenticatedAssessmentsReportIdRoute,
+  AuthenticatedAssessmentsTakeIdRoute: AuthenticatedAssessmentsTakeIdRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =

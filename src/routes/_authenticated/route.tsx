@@ -1,6 +1,16 @@
 import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Home, ClipboardList, CheckSquare, Users, LogOut, School, BookOpen, Shield, Sparkles } from "lucide-react";
+import {
+  Home,
+  ClipboardList,
+  CheckSquare,
+  Users,
+  LogOut,
+  School,
+  BookOpen,
+  Shield,
+  History,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Brand, LangToggle } from "@/components/Brand";
 import { useI18n } from "@/lib/i18n";
@@ -25,8 +35,8 @@ function AppShell() {
       ? [
           { to: "/dashboard", label: t("dashboard"), icon: Home },
           { to: "/assessments", label: t("assessments"), icon: ClipboardList },
-          { to: "/assessments/generate", label: t("genTitle"), icon: Sparkles },
           { to: "/grading", label: t("grading"), icon: CheckSquare },
+          { to: "/audit", label: t("auditHistory"), icon: History },
           { to: "/students", label: t("students"), icon: Users },
           { to: "/school", label: t("school"), icon: School },
         ]
@@ -34,7 +44,7 @@ function AppShell() {
         ? [
             { to: "/dashboard", label: t("dashboard"), icon: Home },
             { to: "/lessons", label: t("lessons"), icon: BookOpen },
-            { to: "/assessments/generate", label: t("genTitle"), icon: Sparkles },
+            { to: "/audit", label: t("auditHistory"), icon: History },
             { to: "/students", label: t("students"), icon: Users },
           ]
         : me?.role === "admin"
@@ -42,6 +52,7 @@ function AppShell() {
               { to: "/dashboard", label: t("dashboard"), icon: Home },
               { to: "/school", label: t("school"), icon: School },
               { to: "/admin", label: t("admin"), icon: Shield },
+              { to: "/audit", label: t("auditHistory"), icon: History },
             ]
           : [{ to: "/dashboard", label: t("myAssessments"), icon: Home }];
 
@@ -55,7 +66,9 @@ function AppShell() {
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <aside className="flex shrink-0 flex-col bg-sidebar text-sidebar-foreground md:min-h-screen md:w-60">
-        <div className="flex items-center justify-between p-5"><Brand /></div>
+        <div className="flex items-center justify-between p-5">
+          <Brand />
+        </div>
         <nav className="flex gap-1 overflow-x-auto px-3 md:flex-col">
           {nav.map((n) => (
             <Link
@@ -73,14 +86,22 @@ function AppShell() {
           <p className="text-xs opacity-70">{me ? t(me.role) : ""}</p>
           <div className="flex items-center gap-1">
             <LangToggle className="hover:bg-sidebar-accent" />
-            <button onClick={signOut} className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-sidebar-accent">
+            <button
+              onClick={signOut}
+              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-sidebar-accent"
+            >
               <LogOut className="h-4 w-4 rtl:rotate-180" aria-hidden /> {t("signOut")}
             </button>
           </div>
         </div>
         <div className="flex justify-end gap-1 px-3 pb-3 md:hidden">
           <LangToggle className="hover:bg-sidebar-accent" />
-          <button onClick={signOut} className="rounded-md px-3 py-1.5 text-sm hover:bg-sidebar-accent">{t("signOut")}</button>
+          <button
+            onClick={signOut}
+            className="rounded-md px-3 py-1.5 text-sm hover:bg-sidebar-accent"
+          >
+            {t("signOut")}
+          </button>
         </div>
       </aside>
       <main className="flex-1 p-5 md:p-10">

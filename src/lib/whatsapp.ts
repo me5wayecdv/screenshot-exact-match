@@ -42,6 +42,10 @@ export type WhatsAppSendRow = {
 
 export type WhatsAppSendResult =
   | { ok: true; status: "sent"; messageId: string | null; auditSaved: boolean }
-  | { ok: true; status: "skipped"; reason: "not_configured" | "auto_disabled" | "already_sent" | "no_contact" | "no_consent" }
+  | {
+      ok: true;
+      status: "skipped";
+      reason: "not_configured" | "auto_disabled" | "already_sent" | "no_contact" | "no_consent";
+    }
   | { ok: false; status: "failed"; error: string; auditSaved: boolean }
   | { ok: false; status: "forbidden" | "not_found" | "not_released"; error: string };

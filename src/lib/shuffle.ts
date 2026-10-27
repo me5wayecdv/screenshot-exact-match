@@ -44,7 +44,10 @@ export function resolveOrderIds(allIds: string[], order: string[] | null | undef
 }
 
 /** Reorder question objects by a stored id order (same rules as resolveOrderIds). */
-export function resolveQuestionOrder<T extends { id: string }>(questions: T[], order: string[] | null | undefined): T[] {
+export function resolveQuestionOrder<T extends { id: string }>(
+  questions: T[],
+  order: string[] | null | undefined,
+): T[] {
   const byId = new Map(questions.map((q) => [q.id, q]));
   return resolveOrderIds(
     questions.map((q) => q.id),
@@ -64,7 +67,8 @@ export function loadQuestionOrder(assessmentId: string, studentId: string): stri
     const raw = window.localStorage.getItem(orderStorageKey(assessmentId, studentId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed) || !parsed.every((v) => typeof v === "string" && v.length > 0)) return null;
+    if (!Array.isArray(parsed) || !parsed.every((v) => typeof v === "string" && v.length > 0))
+      return null;
     return parsed;
   } catch {
     return null;

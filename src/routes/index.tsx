@@ -8,9 +8,17 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Qemmini · قِمّيني — AI assessment for teachers & students" },
-      { name: "description", content: "Build assessments, auto-grade objective questions and review AI grading suggestions for written answers. Arabic-first." },
+      {
+        name: "description",
+        content:
+          "Build assessments, auto-grade objective questions and review AI grading suggestions for written answers. Arabic-first.",
+      },
       { property: "og:title", content: "Qemmini · قِمّيني" },
-      { property: "og:description", content: "AI-powered assessment and learning platform. The teacher always has the final word." },
+      {
+        property: "og:description",
+        content:
+          "AI-powered assessment and learning platform. The teacher always has the final word.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -31,16 +39,24 @@ function Landing() {
         <Brand className="text-primary" />
         <div className="flex items-center gap-2">
           <LangToggle />
-          <Button asChild variant="outline"><Link to="/auth">{t("signIn")}</Link></Button>
+          <Button asChild variant="outline">
+            <Link to="/auth">{t("signIn")}</Link>
+          </Button>
         </div>
       </header>
       <section className="paper-grid border-y">
         <div className="mx-auto max-w-6xl px-6 py-24">
-          <p className="mb-4 inline-block rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground">{t("tagline")}</p>
-          <h1 className="max-w-3xl text-4xl font-bold leading-tight text-primary md:text-6xl">{t("heroTitle")}</h1>
+          <p className="mb-4 inline-block rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground">
+            {t("tagline")}
+          </p>
+          <h1 className="max-w-3xl text-4xl font-bold leading-tight text-primary md:text-6xl">
+            {t("heroTitle")}
+          </h1>
           <p className="mt-6 max-w-2xl text-lg text-muted-foreground">{t("heroBody")}</p>
           <div className="mt-10">
-            <Button asChild size="lg" className="h-12 px-8 text-base"><Link to="/auth">{t("getStarted")}</Link></Button>
+            <Button asChild size="lg" className="h-12 px-8 text-base">
+              <Link to="/auth">{t("getStarted")}</Link>
+            </Button>
           </div>
         </div>
       </section>
@@ -56,8 +72,12 @@ function Landing() {
       <footer className="border-t py-8 text-center text-sm text-muted-foreground">
         <p>© {new Date().getFullYear()} Qemmini</p>
         <nav className="mt-2 flex justify-center gap-4">
-          <Link to="/terms" className="hover:underline">{t("terms")}</Link>
-          <Link to="/privacy" className="hover:underline">{t("privacy")}</Link>
+          <Link to="/terms" className="hover:underline">
+            {t("terms")}
+          </Link>
+          <Link to="/privacy" className="hover:underline">
+            {t("privacy")}
+          </Link>
         </nav>
       </footer>
     </div>

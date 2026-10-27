@@ -123,7 +123,7 @@ export function buildGeneratePrompt(input: GeneratePromptInput): string {
     ),
     "قواعد كل نوع:",
     "- mcq: 4 خيارات مختلفة، وcorrect_answer يجب أن يساوي أحدها حرفياً.",
-    "- true_false: options فارغة، وcorrect_answer يساوي \"true\" أو \"false\" فقط.",
+    '- true_false: options فارغة، وcorrect_answer يساوي "true" أو "false" فقط.',
     "- short_answer: correct_answer إجابة مختصرة متوقعة، وaccepted_alternatives بدائل مقبولة إن وجدت.",
     "- written: correct_answer فارغة، وrubric إلزامية: معايير تصحيح كل معيار في سطر مع درجته.",
     "- marks: رقم بين 0.5 و 10، والافتراضي 1 عند عدم التحديد.",
@@ -189,23 +189,43 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
       const correct = cleanStr(item.correct_answer, 500);
       if (options.length < 2 || !correct || !options.includes(correct)) continue;
       questions.push({
-        type, prompt, options, correct_answer: correct,
-        accepted_alternatives: [], rubric: "", explanation, marks, objective,
+        type,
+        prompt,
+        options,
+        correct_answer: correct,
+        accepted_alternatives: [],
+        rubric: "",
+        explanation,
+        marks,
+        objective,
       });
     } else if (type === "true_false") {
       const correct = cleanStr(item.correct_answer, 10);
       if (correct !== "true" && correct !== "false") continue;
       questions.push({
-        type, prompt, options: [], correct_answer: correct,
-        accepted_alternatives: [], rubric: "", explanation, marks, objective,
+        type,
+        prompt,
+        options: [],
+        correct_answer: correct,
+        accepted_alternatives: [],
+        rubric: "",
+        explanation,
+        marks,
+        objective,
       });
     } else if (type === "short_answer") {
       const correct = cleanStr(item.correct_answer, 500);
       if (!correct) continue;
       questions.push({
-        type, prompt, options: [], correct_answer: correct,
+        type,
+        prompt,
+        options: [],
+        correct_answer: correct,
         accepted_alternatives: cleanStrArray(item.accepted_alternatives, 500, 10),
-        rubric: "", explanation, marks, objective,
+        rubric: "",
+        explanation,
+        marks,
+        objective,
       });
     } else {
       // written: the rubric is the key; a written question without one is
@@ -213,8 +233,15 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
       const rubric = cleanStr(item.rubric, 4000);
       if (!rubric) continue;
       questions.push({
-        type, prompt, options: [], correct_answer: "",
-        accepted_alternatives: [], rubric, explanation, marks, objective,
+        type,
+        prompt,
+        options: [],
+        correct_answer: "",
+        accepted_alternatives: [],
+        rubric,
+        explanation,
+        marks,
+        objective,
       });
     }
   }
