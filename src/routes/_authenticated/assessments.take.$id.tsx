@@ -99,7 +99,7 @@ function Take() {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useMe();
-  const { data, isLoading, error } = useTakeData(id, me?.id);
+  const { data, isLoading, isFetching, error } = useTakeData(id, me?.id);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -210,9 +210,16 @@ function Take() {
   }, [data, me, id, draft, latestSubmitted]);
 
   // Initialise the form from the draft's answers exactly once per draft,
-  // so refetches never clobber in-progress edits.
+  // so refetches never clobber in-progress edits. The init must wait
+  // out a background refetch: on a resume, React Query hands back the
+  // previous visit's cached data first (draft + the answers as of that
+  // visit's early fetch, i.e. empty), and initialising from it would
+  // show an empty form — and let autosave overwrite the real saved
+  // answers with blanks — while the fresh fetch is still in flight.
+  // Skipping while isFetching leaves initKey unset, so the init runs
+  // once the fresh data lands.
   useEffect(() => {
-    if (!data || !draft) return;
+    if (!data || !draft || isFetching) return;
     const key = `${id}:${draft.id}`;
     if (initKey.current === key) return;
     initKey.current = key;
@@ -221,7 +228,7 @@ function Take() {
     for (const a of data.answersBySubmission[draft.id] ?? [])
       next[a.question_id] = a.response ?? "";
     setAnswers(next);
-  }, [data, id, draft]);
+  }, [data, id, draft, isFetching]);
 
   // --- §6: debounced autosave into the draft (server-enforced: edits
   // freeze at expiry / window end inside save_draft).

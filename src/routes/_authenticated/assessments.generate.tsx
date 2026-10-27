@@ -153,6 +153,10 @@ function Generate() {
   const [difficulty, setDifficulty] = useState<GenerateDifficulty>("mixed");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ id: string; title: string; n: number } | null>(null);
+  // Persistent generation error: toasts auto-dismiss, so a failed
+  // generation used to leave no trace. This panel stays until the next
+  // submit (or a success) and keeps the raw error code for diagnosis.
+  const [genError, setGenError] = useState<string | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [visionOk, setVisionOk] = useState<boolean | null>(null);
@@ -265,6 +269,7 @@ function Generate() {
     e.preventDefault();
     if (!formValid || busy) return;
     setBusy(true);
+    setGenError(null);
     try {
       const res = await generateAssessment({
         data: {
@@ -282,7 +287,9 @@ function Generate() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const key = genErrorKey(msg);
-      toast.error(key ? (t(key as never) as string) : translateError(err, lang));
+      const display = key ? (t(key as never) as string) : translateError(err, lang);
+      toast.error(display);
+      setGenError(msg && display !== msg ? `${display} [${msg}]` : display);
     } finally {
       setBusy(false);
     }
@@ -323,6 +330,11 @@ function Generate() {
         <form onSubmit={submit}>
           <Panel className="space-y-5">
             <p className="rounded-md bg-warning/20 p-3 text-sm">{t("genDraftNote")}</p>
+            {genError ? (
+              <p role="alert" className="rounded-md bg-destructive/15 p-3 text-sm">
+                {genError}
+              </p>
+            ) : null}
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="g-title">{t("genTitleOptional")}</Label>
