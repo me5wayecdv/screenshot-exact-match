@@ -114,14 +114,16 @@ async function loadReleasedQuestion(
     .eq("id", questionId)
     .maybeSingle();
   if (!question) return null;
+  // §6: existence check only — a student may hold several released
+  // attempts, so maybeSingle would error on the second one. limit(1).
   const { data: submission } = await client
     .from("submissions")
     .select("id")
     .eq("assessment_id", question.assessment_id)
     .eq("student_id", userId)
     .eq("status", "released")
-    .maybeSingle();
-  if (!submission) return null;
+    .limit(1);
+  if (!submission || submission.length === 0) return null;
   return {
     id: question.id,
     assessment_id: question.assessment_id,
@@ -138,14 +140,16 @@ async function hasReleasedSubmission(
   userId: string,
   assessmentId: string,
 ): Promise<boolean> {
+  // §6: see loadReleasedQuestion — limit(1), never maybeSingle, because
+  // a student may hold several released attempts.
   const { data } = await client
     .from("submissions")
     .select("id")
     .eq("assessment_id", assessmentId)
     .eq("student_id", userId)
     .eq("status", "released")
-    .maybeSingle();
-  return !!data;
+    .limit(1);
+  return (data?.length ?? 0) > 0;
 }
 
 async function callChat(

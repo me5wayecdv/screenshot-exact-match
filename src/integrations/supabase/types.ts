@@ -95,6 +95,9 @@ export type Database = {
         Row: {
           created_at: string
           due_at: string | null
+          duration_minutes: number | null
+          starts_at: string | null
+          max_attempts: number
           grade_level: string
           id: string
           instructions: string
@@ -107,6 +110,9 @@ export type Database = {
         Insert: {
           created_at?: string
           due_at?: string | null
+          duration_minutes?: number | null
+          starts_at?: string | null
+          max_attempts?: number
           grade_level?: string
           id?: string
           instructions?: string
@@ -119,6 +125,9 @@ export type Database = {
         Update: {
           created_at?: string
           due_at?: string | null
+          duration_minutes?: number | null
+          starts_at?: string | null
+          max_attempts?: number
           grade_level?: string
           id?: string
           instructions?: string
@@ -523,6 +532,10 @@ export type Database = {
           status: Database["public"]["Enums"]["submission_status"]
           student_id: string
           submitted_at: string
+          attempt_number: number
+          started_at: string | null
+          expires_at: string | null
+          question_order: string[] | null
           teacher_feedback: string
           total_possible: number
         }
@@ -534,6 +547,10 @@ export type Database = {
           status?: Database["public"]["Enums"]["submission_status"]
           student_id: string
           submitted_at?: string
+          attempt_number?: number
+          started_at?: string | null
+          expires_at?: string | null
+          question_order?: string[] | null
           teacher_feedback?: string
           total_possible?: number
         }
@@ -545,6 +562,10 @@ export type Database = {
           status?: Database["public"]["Enums"]["submission_status"]
           student_id?: string
           submitted_at?: string
+          attempt_number?: number
+          started_at?: string | null
+          expires_at?: string | null
+          question_order?: string[] | null
           teacher_feedback?: string
           total_possible?: number
         }
@@ -696,6 +717,7 @@ export type Database = {
         | "rejected"
       submission_status:
         | "submitted"
+        | "in_progress"
         | "awaiting_review"
         | "approved"
         | "released"
@@ -838,6 +860,7 @@ export const Constants = {
       ],
       submission_status: [
         "submitted",
+        "in_progress",
         "awaiting_review",
         "approved",
         "released",

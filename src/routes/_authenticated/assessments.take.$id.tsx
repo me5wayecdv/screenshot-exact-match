@@ -13,6 +13,13 @@ import {
   resolveOrderIds,
   shuffleIds,
 } from "@/lib/shuffle";
+import {
+  canStartAttempt,
+  effectiveDeadlineMs,
+  formatCountdown,
+  remainingSeconds,
+  windowState,
+} from "@/lib/exam-attempt";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -54,28 +61,34 @@ function useTakeData(id: string, studentId: string | undefined) {
         supabase.from("questions").select("*").eq("assessment_id", id).order("position"),
       ]);
       if (a.error) throw a.error;
-      const submissionRes = await supabase
+      const subsRes = await supabase
         .from("submissions")
         .select("*")
         .eq("assessment_id", id)
         .eq("student_id", studentId!)
-        .maybeSingle();
-      if (submissionRes.error) throw submissionRes.error;
-      let existingAnswers: AnswerRow[] = [];
-      if (submissionRes.data) {
+        .order("attempt_number", { ascending: true });
+      if (subsRes.error) throw subsRes.error;
+      const submissions = (subsRes.data ?? []) as Submission[];
+      const answersBySubmission: Record<string, AnswerRow[]> = {};
+      if (submissions.length > 0) {
         const ans = await supabase
           .from("answers")
           .select("*")
-          .eq("submission_id", submissionRes.data.id);
+          .in(
+            "submission_id",
+            submissions.map((s) => s.id),
+          );
         if (ans.error) throw ans.error;
-        existingAnswers = (ans.data ?? []) as unknown as AnswerRow[];
+        for (const row of (ans.data ?? []) as AnswerRow[]) {
+          (answersBySubmission[row.submission_id] ??= []).push(row);
+        }
       }
       return {
         assessment: a.data,
         assigned: !!asg.data,
         questions: (q.data ?? []) as Q[],
-        submission: submissionRes.data as Submission | null,
-        existingAnswers,
+        submissions,
+        answersBySubmission,
       };
     },
   });
@@ -89,38 +102,100 @@ function Take() {
   const { data, isLoading, error } = useTakeData(id, me?.id);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const initKey = useRef("");
+  const startKey = useRef("");
+  const resumeKey = useRef("");
+  const autoSubmitKey = useRef("");
+  const lastSaved = useRef("");
+  // Drafts created in THIS page session (auto-start / new attempt) are
+  // fresh, not resumed: the resume effect must skip them, or every new
+  // attempt would wrongly record a session_interrupted event.
+  const freshDraftIds = useRef(new Set<string>());
 
-  // --- Slice 3 (integrity): recorder mounts only while answering ---
-  // (data loaded + student + no submission yet + not past due). The locked
-  // review view records nothing.
-  const answering =
-    !!data &&
-    !!me &&
-    me.role === "student" &&
-    !data.submission &&
-    !(data.assessment.due_at && Date.now() > new Date(data.assessment.due_at).getTime());
+  const submissions = data?.submissions ?? [];
+  const draft = submissions.find((s) => s.status === "in_progress") ?? null;
+  const submitted = submissions.filter((s) => s.status !== "in_progress");
+  const latestSubmitted = submitted.length > 0 ? submitted[submitted.length - 1] : null;
+  const maxAttempts = Math.max(1, data?.assessment.max_attempts ?? 1);
+  const win = data
+    ? windowState(Date.now(), data.assessment.starts_at, data.assessment.due_at)
+    : "open";
+
+  // --- §6 (integrity): recorder mounts only while a draft is being edited.
   const recorder = useIntegrityRecorder({
-    enabled: answering,
+    enabled: !!draft,
     assessmentId: id,
     studentId: me?.id ?? "",
   });
 
-  // --- Slice 3 (integrity): per-student shuffled question order ---
-  // Submission column wins, then localStorage; a fresh shuffle is saved to
-  // localStorage immediately and to the submission row at submit time.
-  // Locked legacy submissions (no stored order anywhere) keep position order.
+  // --- §6: resume — flush the previous session's buffered events into the
+  // draft, then record one session_interrupted event (once per draft).
+  useEffect(() => {
+    if (!draft || !me) return;
+    if (freshDraftIds.current.has(draft.id)) return;
+    const key = draft.id;
+    if (resumeKey.current === key) return;
+    resumeKey.current = key;
+    (async () => {
+      try {
+        await recorder.flushEvents(draft.id);
+      } catch {
+        // Non-fatal: events stay buffered for the next flush.
+      }
+      const { error: ieErr } = await supabase.from("integrity_events").insert({
+        submission_id: draft.id,
+        event_type: "session_interrupted",
+        question_id: null,
+      });
+      if (!ieErr) toast.success(t("takeResumed"));
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.id, me?.id]);
+
+  // --- §6: auto-start a new attempt when the student lands with no draft
+  // and attempts remain. start_attempt is idempotent: a concurrent second
+  // call simply resumes the in-progress row it finds.
+  useEffect(() => {
+    if (!data || !me || me.role !== "student") return;
+    if (!data.assigned || data.assessment.status !== "published") return;
+    if (draft || win !== "open") return;
+    if (!canStartAttempt(submissions.length, maxAttempts)) return;
+    const key = `${id}:${me.id}:${submissions.length}`;
+    if (startKey.current === key) return;
+    startKey.current = key;
+    const order = shuffleIds(data.questions.map((q) => q.id));
+    saveQuestionOrder(id, me.id, order);
+    setStarting(true);
+    supabase
+      .rpc("start_attempt", { _assessment: id, _question_order: order })
+      .then(({ data: subId, error: rpcErr }) => {
+        setStarting(false);
+        if (rpcErr) {
+          toast.error(translateError(rpcErr, lang));
+          return;
+        }
+        if (typeof subId === "string") freshDraftIds.current.add(subId);
+        void qc.invalidateQueries({ queryKey: ["take", id, me.id] });
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, me, draft, win]);
+
+  // --- §6: question order — draft row wins, then localStorage, then a
+  // fresh shuffle (which the auto-start above persists via start_attempt).
   const [displayOrder, setDisplayOrder] = useState<string[] | null>(null);
   const orderKeyRef = useRef("");
   useEffect(() => {
     if (!data || !me) return;
-    const key = `${id}:${me.id}:${data.submission?.id ?? "new"}`;
+    const active = draft ?? latestSubmitted;
+    const key = `${id}:${me.id}:${active?.id ?? "new"}`;
     if (orderKeyRef.current === key) return;
     orderKeyRef.current = key;
-    const submissionOrder =
-      (data.submission as unknown as { question_order?: string[] | null } | null)?.question_order ??
-      null;
-    const stored = submissionOrder ?? loadQuestionOrder(id, me.id);
+    const storedOrder =
+      (active as unknown as { question_order?: string[] | null } | null)?.question_order ?? null;
+    const stored = storedOrder ?? loadQuestionOrder(id, me.id);
     if (stored && stored.length > 0) {
       setDisplayOrder(
         resolveOrderIds(
@@ -130,27 +205,115 @@ function Take() {
       );
       return;
     }
-    if (data.submission) {
-      setDisplayOrder(data.questions.map((q) => q.id));
-      return;
-    }
-    const fresh = shuffleIds(data.questions.map((q) => q.id));
-    saveQuestionOrder(id, me.id, fresh);
-    setDisplayOrder(fresh);
-  }, [data, me, id]);
+    setDisplayOrder(data.questions.map((q) => q.id));
+  }, [data, me, id, draft, latestSubmitted]);
 
-  // Initialise the form from an existing submission's answers exactly once
-  // per assessment/submission, so refetches never clobber in-progress edits.
+  // Initialise the form from the draft's answers exactly once per draft,
+  // so refetches never clobber in-progress edits.
   useEffect(() => {
-    if (!data) return;
-    const key = `${id}:${data.submission?.id ?? "new"}`;
+    if (!data || !draft) return;
+    const key = `${id}:${draft.id}`;
     if (initKey.current === key) return;
     initKey.current = key;
     const next: Record<string, string> = {};
     for (const q of data.questions) next[q.id] = "";
-    for (const a of data.existingAnswers) next[a.question_id] = a.response ?? "";
+    for (const a of data.answersBySubmission[draft.id] ?? [])
+      next[a.question_id] = a.response ?? "";
     setAnswers(next);
-  }, [data, id]);
+  }, [data, id, draft]);
+
+  // --- §6: debounced autosave into the draft (server-enforced: edits
+  // freeze at expiry / window end inside save_draft).
+  useEffect(() => {
+    if (!draft || !me) return;
+    const payload = JSON.stringify(answers);
+    if (payload === lastSaved.current) return;
+    setSaveState("saving");
+    const timer = setTimeout(() => {
+      const times = recorder.getTimesSeconds();
+      const rows = Object.entries(answers).map(([question_id, response]) => ({
+        question_id,
+        response,
+        time_spent_seconds: Math.max(0, Math.round(times[question_id] ?? 0)),
+      }));
+      supabase
+        .rpc("save_draft", { _submission: draft.id, _answers: rows })
+        .then(async ({ data: ok }) => {
+          if (ok) {
+            lastSaved.current = payload;
+            setSaveState("saved");
+            try {
+              await recorder.flushEvents(draft.id);
+            } catch {
+              // Non-fatal: events stay buffered for the next flush.
+            }
+          } else {
+            setSaveState("idle");
+          }
+        });
+    }, 1500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers, draft?.id]);
+
+  // --- §6: live countdown. The deadline is the earlier of the server
+  // timer expiry and the assessment due date.
+  const deadlineMs = draft ? effectiveDeadlineMs(draft.expires_at, data?.assessment.due_at) : null;
+  useEffect(() => {
+    if (deadlineMs === null) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [deadlineMs]);
+  const remaining = remainingSeconds(deadlineMs, nowMs);
+
+  async function submitAttempt() {
+    if (!me || !draft || busy) return;
+    setBusy(true);
+    const { data: ok, error: rpcErr } = await supabase.rpc("submit_attempt", {
+      _submission: draft.id,
+    });
+    setBusy(false);
+    if (rpcErr || !ok) {
+      if (rpcErr) toast.error(translateError(rpcErr, lang));
+      else toast.error(t("errorGeneric"));
+      return;
+    }
+    try {
+      await recorder.flushEvents(draft.id);
+    } catch {
+      toast.error(t("integrityFlushWarning"));
+    }
+    toast.success(t("submitted"));
+    await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
+  }
+
+  // --- §6: auto-submit the frozen answers when the countdown hits zero.
+  useEffect(() => {
+    if (!draft || remaining === null || remaining !== 0) return;
+    const key = draft.id;
+    if (autoSubmitKey.current === key) return;
+    autoSubmitKey.current = key;
+    void submitAttempt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, draft?.id]);
+
+  async function startNewAttempt() {
+    if (!me || !data) return;
+    const order = shuffleIds(data.questions.map((q) => q.id));
+    saveQuestionOrder(id, me.id, order);
+    setStarting(true);
+    const { data: subId, error: rpcErr } = await supabase.rpc("start_attempt", {
+      _assessment: id,
+      _question_order: order,
+    });
+    setStarting(false);
+    if (rpcErr) {
+      toast.error(translateError(rpcErr, lang));
+      return;
+    }
+    if (typeof subId === "string") freshDraftIds.current.add(subId);
+    await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
+  }
 
   if (meLoading || isLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
   // Student-only page. Teachers are never assigned as students, but gate
@@ -159,7 +322,7 @@ function Take() {
   if (me && me.role !== "student") return <Empty>{t("takeStudentsOnly")}</Empty>;
   if (error || !data) return <Empty>{t("takeNotAssigned")}</Empty>;
 
-  const { assessment, submission } = data;
+  const { assessment } = data;
   const questions = displayOrder
     ? resolveQuestionOrder(data.questions, displayOrder)
     : data.questions;
@@ -167,77 +330,87 @@ function Take() {
     return <Empty>{t("takeNotAssigned")}</Empty>;
   if (questions.length === 0) return <Empty>{t("takeNoQuestions")}</Empty>;
 
-  const locked = !!submission;
-  const late = !!assessment.due_at && !locked && Date.now() > new Date(assessment.due_at).getTime();
   const total = questions.reduce((s, q) => s + Number(q.marks), 0);
-  const answerByQuestion = new Map(data.existingAnswers.map((a) => [a.question_id, a]));
+  const editing = !!draft && remaining !== 0 && win !== "past_due";
+  const pastDue = win === "past_due" && !draft;
 
-  async function submit() {
-    if (!me || locked || late) return;
-    if (!window.confirm(t("submitConfirm"))) return;
-    setBusy(true);
-    const { data: sub, error: sErr } = await supabase
-      .from("submissions")
-      .insert({
-        assessment_id: id,
-        student_id: me.id,
-        status: "awaiting_review",
-        total_possible: total,
-        ...(displayOrder || questions.length > 0
-          ? { question_order: displayOrder ?? questions.map((q) => q.id) }
-          : {}),
-      })
-      .select("id")
-      .single();
-    if (sErr || !sub) {
-      setBusy(false);
-      // Unique (assessment_id, student_id): a submission already exists
-      // (e.g. submitted in another tab). Reload into the locked view.
-      if (sErr?.code === "23505") {
-        toast.error(t("alreadySubmitted"));
-        await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
-        return;
-      }
-      return void toast.error(translateError(sErr, lang));
-    }
-    const times = recorder.getTimesSeconds();
-    const rows = questions.map((q) => ({
-      submission_id: sub.id,
-      question_id: q.id,
-      response: answers[q.id] ?? "",
-      max_marks: Number(q.marks),
-      review_status: "not_graded",
-      time_spent_seconds: Math.max(0, Math.round(times[q.id] ?? 0)),
-    }));
-    const { error: aErr } = await supabase.from("answers").insert(rows);
-    setBusy(false);
-    if (aErr) {
-      // Known partial-failure edge (see deliverable notes): the submission
-      // row now exists but its answers did not save. Surface the error and
-      // reload; do not silently pretend the submission succeeded.
-      toast.error(translateError(aErr, lang));
-      await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
-      return;
-    }
-    try {
-      await recorder.flushEvents(sub.id);
-    } catch {
-      // Non-fatal: the submission + answers are already saved.
-      toast.error(t("integrityFlushWarning"));
-    }
-    toast.success(t("submitted"));
-    await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
+  // Window hasn't opened and no draft exists (a draft always wins: a
+  // student who already started is never locked out by a later edit).
+  if (!draft && win === "not_started") return <Empty>{t("takeNotStarted")}</Empty>;
+  if (!draft && starting) return <p className="text-muted-foreground">{t("loading")}</p>;
+
+  // History view: latest submitted attempt, with a new-attempt button
+  // while the teacher's max_attempts allows it and the window is open.
+  if (!draft && latestSubmitted) {
+    const rows = data.answersBySubmission[latestSubmitted.id] ?? [];
+    const answerByQuestion = new Map(rows.map((a) => [a.question_id, a]));
+    const canNew = canStartAttempt(submissions.length, maxAttempts) && win === "open";
+    return (
+      <>
+        <PageHeader
+          title={assessment.title}
+          subtitle={
+            <span className="flex flex-wrap items-center gap-2">
+              <Pill t={statusTone[latestSubmitted.status] ?? "neutral"}>
+                {t(`sub_${latestSubmitted.status}` as never)}
+              </Pill>
+              {t("takeAttempt")}: {latestSubmitted.attempt_number} · {t("totalMarks")}: {total}
+              {latestSubmitted.status === "released" && latestSubmitted.final_score !== null && (
+                <>
+                  {" "}
+                  {t("finalScore")}: {Number(latestSubmitted.final_score)} /{" "}
+                  {Number(latestSubmitted.total_possible)}
+                </>
+              )}
+            </span>
+          }
+        />
+        <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">{t("takeLocked")}</p>
+        <div className="space-y-6">
+          {questions.map((q, i) => (
+            <Panel key={q.id} className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-primary">
+                  {t("question")} {i + 1} · {t(`q_${q.type}` as never)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("marks")}: {Number(q.marks)}
+                </span>
+              </div>
+              <p className="whitespace-pre-wrap text-sm">{q.prompt}</p>
+              <p className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
+                {t("yourAnswer")}: {answerByQuestion.get(q.id)?.response || t("unanswered")}
+              </p>
+            </Panel>
+          ))}
+        </div>
+        {canNew && (
+          <div className="mt-6">
+            <Button onClick={startNewAttempt} disabled={starting}>
+              {starting ? t("saving") : t("takeNewAttempt")}
+            </Button>
+          </div>
+        )}
+      </>
+    );
   }
 
+  if (!draft && pastDue) return <Empty>{t("takeLateBlocked")}</Empty>;
+  if (!draft) return <Empty>{t("takeNotAssigned")}</Empty>;
+
+  // Answering mode: editing a draft (or finalising frozen answers).
   return (
     <>
       <PageHeader
         title={assessment.title}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
-            {locked && submission && (
-              <Pill t={statusTone[submission.status] ?? "neutral"}>
-                {t(`sub_${submission.status}` as never)}
+            <Pill t="neutral">
+              {t("takeAttempt")}: {draft.attempt_number}
+            </Pill>
+            {remaining !== null && (
+              <Pill t={remaining <= 60 ? "danger" : "neutral"}>
+                {t("takeTimeLeft")}: {formatCountdown(remaining)}
               </Pill>
             )}
             {t("totalMarks")}: {total} · {t("questions")}: {questions.length}
@@ -246,25 +419,19 @@ function Take() {
                 {t("dueAt")}: {formatDate(assessment.due_at, lang)}
               </span>
             )}
+            {saveState === "saving" && (
+              <span className="text-xs text-muted-foreground">{t("takeSaving")}</span>
+            )}
+            {saveState === "saved" && (
+              <span className="text-xs text-muted-foreground">{t("takeSaved")}</span>
+            )}
           </span>
         }
       />
       {assessment.instructions && (
         <Panel className="mb-6 whitespace-pre-wrap text-sm">{assessment.instructions}</Panel>
       )}
-      {locked && (
-        <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">
-          {t("takeLocked")}
-          {submission?.status === "released" && submission.final_score !== null && (
-            <>
-              {" "}
-              {t("finalScore")}: {Number(submission.final_score)} /{" "}
-              {Number(submission.total_possible)}
-            </>
-          )}
-        </p>
-      )}
-      {late && (
+      {!editing && (
         <p className="mb-6 rounded-md bg-destructive/15 p-3 text-sm">{t("takeLateBlocked")}</p>
       )}
 
@@ -286,7 +453,7 @@ function Take() {
               </div>
               <p className="whitespace-pre-wrap text-sm">{q.prompt}</p>
               {q.type === "mcq" && (
-                <fieldset disabled={locked || late} className="space-y-2">
+                <fieldset disabled={!editing} className="space-y-2">
                   {((q.options as string[]) ?? []).map((opt, oi) => (
                     <label key={oi} className="flex items-center gap-2 text-sm">
                       <input
@@ -301,7 +468,7 @@ function Take() {
                 </fieldset>
               )}
               {q.type === "true_false" && (
-                <fieldset disabled={locked || late} className="flex gap-4">
+                <fieldset disabled={!editing} className="flex gap-4">
                   {(["true", "false"] as const).map((v) => (
                     <label key={v} className="flex items-center gap-2 text-sm">
                       <input
@@ -322,7 +489,7 @@ function Take() {
                     id={`a-${q.id}`}
                     value={answers[q.id] ?? ""}
                     maxLength={20000}
-                    disabled={locked || late}
+                    disabled={!editing}
                     onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
                   />
                 </div>
@@ -335,28 +502,27 @@ function Take() {
                     rows={5}
                     value={answers[q.id] ?? ""}
                     maxLength={20000}
-                    disabled={locked || late}
+                    disabled={!editing}
                     onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
                   />
                 </div>
-              )}
-              {locked && (
-                <p className="whitespace-pre-wrap rounded-md bg-muted p-3 text-sm">
-                  {t("yourAnswer")}: {answerByQuestion.get(q.id)?.response || t("unanswered")}
-                </p>
               )}
             </Panel>
           </div>
         ))}
       </div>
 
-      {!locked && !late && (
-        <div className="mt-6">
-          <Button onClick={submit} disabled={busy}>
-            {busy ? t("saving") : t("submit")}
-          </Button>
-        </div>
-      )}
+      <div className="mt-6">
+        <Button
+          onClick={() => {
+            if (!window.confirm(t("submitConfirm"))) return;
+            void submitAttempt();
+          }}
+          disabled={busy}
+        >
+          {busy ? t("saving") : t("submit")}
+        </Button>
+      </div>
     </>
   );
 }

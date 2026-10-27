@@ -15,12 +15,11 @@ import { supabase } from "@/integrations/supabase/client";
  * fingerprint, user agent, or any URL. Events are a signal for the teacher,
  * never an automatic penalty or accusation.
  *
- * WHY BUFFERING: the take page creates the submissions row only at submit
- * time, so there is no submission_id while the student is answering.
- * Events + accumulated times are therefore buffered in memory and mirrored
- * to localStorage (so a reload/resume keeps them), then flushed to
- * public.integrity_events once, right after the submission row is created.
- * A student who never submits leaves nothing in the database.
+ * WHY BUFFERING: events + accumulated times are buffered in memory and
+ * mirrored to localStorage (so a reload/resume keeps them), then flushed
+ * to public.integrity_events — on resume, on every autosave, and at
+ * submit — against the §6 draft submission id. A student who never
+ * submits leaves nothing in the database.
  */
 
 export type IntegrityEventType = "tab_hidden" | "tab_visible" | "window_blur" | "window_focus";
@@ -163,37 +162,45 @@ export function useIntegrityRecorder(opts: {
 
   const flushEvents = useCallback(
     async (submissionId: string) => {
+      // In-flight guard only: §6 flushes repeatedly (on resume, on every
+      // autosave, at submit), so a successful flush must NOT latch the
+      // guard — it clears the buffer and releases, and events recorded
+      // afterwards ride the next flush. A concurrent flush returns early
+      // and its events stay buffered for the following flush.
       if (flushedRef.current) return;
       flushedRef.current = true;
-      accrue();
-      persist();
-      const events = eventsRef.current;
-      if (events.length === 0) {
+      try {
+        accrue();
+        persist();
+        const events = eventsRef.current;
+        if (events.length === 0) {
+          try {
+            window.localStorage.removeItem(key);
+          } catch {
+            // ignore
+          }
+          return;
+        }
+        const { error } = await supabase.from("integrity_events").insert(
+          events.map((e) => ({
+            submission_id: submissionId,
+            event_type: e.event_type,
+            question_id: e.question_id,
+            created_at: e.created_at,
+          })),
+        );
+        if (error) {
+          // Keep the buffer (and allow a retry) but surface the failure.
+          throw error;
+        }
+        eventsRef.current = [];
         try {
           window.localStorage.removeItem(key);
         } catch {
           // ignore
         }
-        return;
-      }
-      const { error } = await supabase.from("integrity_events").insert(
-        events.map((e) => ({
-          submission_id: submissionId,
-          event_type: e.event_type,
-          question_id: e.question_id,
-          created_at: e.created_at,
-        })),
-      );
-      if (error) {
-        // Keep the buffer (and allow a retry) but surface the failure.
+      } finally {
         flushedRef.current = false;
-        throw error;
-      }
-      eventsRef.current = [];
-      try {
-        window.localStorage.removeItem(key);
-      } catch {
-        // ignore
       }
     },
     [accrue, key, persist],

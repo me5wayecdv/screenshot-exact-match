@@ -357,6 +357,9 @@ function MetaEditor({
     grade_level: a.grade_level,
     subject_id: a.subject_id ?? "",
     due_at: toLocalInput(a.due_at),
+    starts_at: toLocalInput(a.starts_at),
+    duration_minutes: a.duration_minutes != null ? String(a.duration_minutes) : "",
+    max_attempts: String(a.max_attempts ?? 1),
   });
   const [newSubject, setNewSubject] = useState("");
   const [busy, setBusy] = useState(false);
@@ -385,6 +388,11 @@ function MetaEditor({
         grade_level: f.grade_level,
         subject_id,
         due_at: f.due_at ? new Date(f.due_at).toISOString() : null,
+        starts_at: f.starts_at ? new Date(f.starts_at).toISOString() : null,
+        duration_minutes: f.duration_minutes.trim()
+          ? Math.max(1, parseInt(f.duration_minutes, 10) || 1)
+          : null,
+        max_attempts: Math.max(1, parseInt(f.max_attempts, 10) || 1),
         updated_at: new Date().toISOString(),
       })
       .eq("id", a.id);
@@ -444,6 +452,37 @@ function MetaEditor({
             dir="ltr"
             value={f.due_at}
             onChange={(e) => setF({ ...f, due_at: e.target.value })}
+          />
+          <Label htmlFor="m-starts" className="pt-2">
+            {t("startsAt")}
+          </Label>
+          <Input
+            id="m-starts"
+            type="datetime-local"
+            dir="ltr"
+            value={f.starts_at}
+            onChange={(e) => setF({ ...f, starts_at: e.target.value })}
+          />
+          <Label htmlFor="m-duration" className="pt-2">
+            {t("durationMinutes")}
+          </Label>
+          <Input
+            id="m-duration"
+            type="number"
+            min={1}
+            placeholder={t("durationUnlimited")}
+            value={f.duration_minutes}
+            onChange={(e) => setF({ ...f, duration_minutes: e.target.value })}
+          />
+          <Label htmlFor="m-attempts" className="pt-2">
+            {t("maxAttempts")}
+          </Label>
+          <Input
+            id="m-attempts"
+            type="number"
+            min={1}
+            value={f.max_attempts}
+            onChange={(e) => setF({ ...f, max_attempts: e.target.value })}
           />
         </div>
         <div className="space-y-1.5 md:col-span-2">

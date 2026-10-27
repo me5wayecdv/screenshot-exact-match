@@ -9,6 +9,7 @@ import { AssessmentReportQuestions } from "@/components/assessment-report-questi
 import { IntegritySummary } from "@/components/integrity-summary";
 import { WhatsAppReportSection } from "@/components/whatsapp-report-section";
 import { gradesToCsv, questionsToCsv } from "@/lib/lms-export";
+import { latestSubmittedPerStudent } from "@/lib/exam-attempt";
 
 /**
  * Per-assessment report — school-teacher only (legacy 'teacher' rows are
@@ -36,6 +37,7 @@ type SubmissionRow = {
   status: string;
   final_score: number | null;
   total_possible: number | null;
+  attempt_number: number;
 };
 
 function pct(numerator: number, denominator: number): number | null {
@@ -115,7 +117,7 @@ function AssessmentReportPage() {
         supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id),
         supabase
           .from("submissions")
-          .select("id, student_id, status, final_score, total_possible")
+          .select("id, student_id, status, final_score, total_possible, attempt_number")
           .eq("assessment_id", id),
       ]);
       if (assignmentsError) throw assignmentsError;
@@ -165,10 +167,15 @@ function AssessmentReportPage() {
   const submissions = statsQuery.data?.submissions ?? [];
   const names = statsQuery.data?.names ?? {};
   const assignedCount = assignments.length;
-  const submittedCount = submissions.length;
+  // §6: stats count each student once, on their latest submitted attempt.
+  // Drafts never count, and an older released attempt must not double-count
+  // once a newer attempt exists. The integrity list below still shows every
+  // attempt, since each attempt has its own integrity events.
+  const statsRows = latestSubmittedPerStudent(submissions);
+  const submittedCount = statsRows.length;
   const participation = pct(submittedCount, assignedCount);
-  const ungradedCount = submissions.filter((s) => s.status === "awaiting_review").length;
-  const released = submissions.filter(
+  const ungradedCount = statsRows.filter((s) => s.status === "awaiting_review").length;
+  const released = statsRows.filter(
     (s) => s.status === "released" && s.final_score !== null && Number(s.total_possible) > 0,
   );
   const averageReleasedPct =
@@ -220,7 +227,7 @@ function AssessmentReportPage() {
     downloadCsv(
       `${assessment?.title ?? "assessment"}-grades.csv`,
       gradesToCsv(
-        submissions.map((s) => ({
+        statsRows.map((s) => ({
           studentName: names[s.student_id] ?? "—",
           assessmentTitle: assessment?.title ?? "",
           finalScore: s.final_score,
