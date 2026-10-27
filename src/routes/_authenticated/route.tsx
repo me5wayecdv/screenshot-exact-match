@@ -10,6 +10,7 @@ import {
   BookOpen,
   Shield,
   History,
+  TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Brand, LangToggle } from "@/components/Brand";
@@ -37,6 +38,7 @@ function AppShell() {
           { to: "/assessments", label: t("assessments"), icon: ClipboardList },
           { to: "/grading", label: t("grading"), icon: CheckSquare },
           { to: "/audit", label: t("auditHistory"), icon: History },
+          { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
           { to: "/students", label: t("students"), icon: Users },
           { to: "/school", label: t("school"), icon: School },
         ]
@@ -45,6 +47,7 @@ function AppShell() {
             { to: "/dashboard", label: t("dashboard"), icon: Home },
             { to: "/lessons", label: t("lessons"), icon: BookOpen },
             { to: "/audit", label: t("auditHistory"), icon: History },
+            { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
             { to: "/students", label: t("students"), icon: Users },
           ]
         : me?.role === "admin"
