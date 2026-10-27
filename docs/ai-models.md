@@ -218,3 +218,36 @@ shown in history with scores side by side. The UI labels this
 neutrally — similarity is a review aid for inconsistent grading, never
 evidence of copying. No migration was needed for Phase 3: matching,
 markers, and grouping all work on existing tables and buckets.
+
+## Assessment generation: failure codes (`/assessments/generate`)
+
+Generation used to `throw` a plain Error whose only content was a code
+(`AI_UPSTREAM`), and a thrown server-fn error is re-serialised by the
+framework in production — so the teacher saw a button that "did nothing".
+`src/lib/generate-assessment.ts` now RETURNS a discriminated result
+(`{ ok: true, ... }` or `{ ok: false, code, detail }`, taxonomy in
+`src/lib/ai-failure.ts`), and the page keeps it in a persistent panel:
+
+| Code                | Meaning                                                      | Fix |
+| ------------------- | ------------------------------------------------------------ | --- |
+| `AI_NOT_CONFIGURED` | `AI_BASE_URL`/`AI_MODEL` missing, or hosted URL with no key   | set the vars/secret |
+| `AI_AUTH`           | provider returned 401/403                                     | `AI_API_KEY` wrong or missing Workers AI permission |
+| `AI_RATE_LIMIT`     | provider returned 429                                         | Workers AI daily quota / retry later |
+| `AI_BAD_REQUEST`    | provider returned 400/404/405/422                             | usually a wrong `AI_MODEL` id |
+| `AI_UPSTREAM`       | 5xx or transport failure (detail carries the cause)           | retry; check provider status |
+| `AI_TIMEOUT`        | no reply within 120 s                                         | shorter source text; retry |
+| `AI_EMPTY_REPLY`    | 200 with empty content (detail carries `finish_reason`)       | retry with shorter text |
+| `AI_PARSE_FAILED`   | reply had no usable JSON/questions (detail carries its head)   | retry; shorter/cleaner source |
+| `DB_ERROR`          | Supabase insert failed (detail carries the row/column error)   | RLS or schema problem |
+| `NOT_TEACHER`       | caller role is not school_teacher/tutor                       | expected |
+| `VALIDATION`        | payload rejected (source < 50 chars, no type, bad count)      | expected |
+
+Two hardening changes ship with it:
+
+1. `max_tokens: 4096` is now sent explicitly. Without it the provider's
+   implicit output cap applied and a multi-question JSON reply was cut off
+   mid-array — the request "succeeded", nothing was saved.
+2. `extractJsonObject()` repairs a truncated reply (keeps every question
+   object that arrived complete, closes the array/object) instead of
+   failing the whole generation; a missing model `title` no longer
+   discards a valid question set (the teacher's title is used instead).

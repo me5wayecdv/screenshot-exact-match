@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { generateAssessment } from "@/lib/generate-assessment";
+import type { GenerateFailureCode } from "@/lib/ai-failure";
 import type { GenerateDifficulty, GenerateQuestionType } from "@/lib/generate-assessment-prompt";
 import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
 import { getHandwritingStatus } from "@/server/handwritten";
@@ -49,16 +50,24 @@ export const Route = createFileRoute("/_authenticated/assessments/generate")({
   component: Generate,
 });
 
-/** Map the server function's stable error codes to i18n keys. */
-function genErrorKey(msg: string): string | null {
-  if (msg.includes("AI_NOT_CONFIGURED")) return "genAiKeyMissing";
-  if (msg.includes("AI_PARSE_FAILED")) return "genParseFailed";
-  if (msg.includes("AI_TIMEOUT")) return "genTimeout";
-  if (msg.includes("AI_UPSTREAM")) return "genUpstreamFailed";
-  if (msg.includes("NOT_TEACHER")) return "genNotTeacher";
-  if (msg.includes("VALIDATION")) return "genInvalidInput";
-  return null;
-}
+/**
+ * Map the server function's stable failure codes to i18n keys. The code is
+ * always shown next to the message (persistent panel, not a toast), so a
+ * failure is never invisible and never needs a re-run to diagnose.
+ */
+const GEN_ERROR_KEYS: Record<GenerateFailureCode, string> = {
+  AI_NOT_CONFIGURED: "genAiKeyMissing",
+  AI_AUTH: "genAiAuth",
+  AI_RATE_LIMIT: "genRateLimit",
+  AI_BAD_REQUEST: "genBadRequest",
+  AI_UPSTREAM: "genUpstreamFailed",
+  AI_TIMEOUT: "genTimeout",
+  AI_EMPTY_REPLY: "genEmptyReply",
+  AI_PARSE_FAILED: "genParseFailed",
+  NOT_TEACHER: "genNotTeacher",
+  VALIDATION: "genInvalidInput",
+  DB_ERROR: "genDbError",
+};
 
 /** Server-side source-text cap (mirrors generate-assessment.ts). */
 const MAX_SOURCE_CHARS = 30_000;
@@ -282,14 +291,25 @@ function Generate() {
           difficulty,
         },
       });
+      // The server function RETURNS its failures (a thrown error loses its
+      // message in production), so a non-ok result is the diagnosis.
+      if (!res.ok) {
+        const display = t(GEN_ERROR_KEYS[res.code] as never) as string;
+        setGenError(
+          res.detail ? `${display} [${res.code}] — ${res.detail}` : `${display} [${res.code}]`,
+        );
+        toast.error(display);
+        return;
+      }
       setResult({ id: res.assessmentId, title: res.title, n: res.questionCount });
       toast.success(t("genSuccess"));
     } catch (err) {
+      // Only transport-level failures reach here (offline, 500 page, CSRF):
+      // keep the raw message in the panel so they are diagnosable too.
       const msg = err instanceof Error ? err.message : String(err);
-      const key = genErrorKey(msg);
-      const display = key ? (t(key as never) as string) : translateError(err, lang);
+      const display = translateError(err, lang);
       toast.error(display);
-      setGenError(msg && display !== msg ? `${display} [${msg}]` : display);
+      setGenError(`${display} [NETWORK] — ${msg}`);
     } finally {
       setBusy(false);
     }

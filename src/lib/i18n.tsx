@@ -600,6 +600,14 @@ const dict = {
     genNotTeacher: "هذا الإجراء للمعلمين فقط.",
     genInvalidInput:
       "تحقق من المدخلات: نص لا يقل عن 50 حرفاً، ونوع سؤال واحد على الأقل، وعدد أسئلة بين 1 و 20.",
+    genAiAuth:
+      "الخادم وصل لمزوّد الذكاء الاصطناعي لكن المفتاح مرفوض (401/403). تحقق من صلاحية سر AI_API_KEY (Workers AI: Read).",
+    genRateLimit:
+      "تم الوصول لحد استخدام الذكاء الاصطناعي (429). انتظر قليلاً أو تحقق من حصة Workers AI اليومية في لوحة Cloudflare.",
+    genBadRequest:
+      "المزوّد رفض الطلب نفسه (400/404/422) — غالباً اسم الموديل في AI_MODEL غير صحيح أو غير متاح.",
+    genEmptyReply: "المزوّد رجع رداً فارغاً. أعد المحاولة بنص أقصر.",
+    genDbError: "تعذّر حفظ المسودة في قاعدة البيانات. أعد المحاولة أو أبلغ مسؤول المنصة.",
     genNeedSource: "الصق نص الدرس أولاً (50 حرفاً على الأقل).",
     genNeedType: "اختر نوع سؤال واحد على الأقل.",
     // USP slice 3 — integrity signals
@@ -1245,6 +1253,15 @@ const dict = {
     genNotTeacher: "This action is for teachers only.",
     genInvalidInput:
       "Check your inputs: text of at least 50 characters, at least one question type, and 1–20 questions.",
+    genAiAuth:
+      "The server reached the AI provider but the key was rejected (401/403). Check the AI_API_KEY secret permissions (Workers AI: Read).",
+    genRateLimit:
+      "AI usage limit reached (429). Wait a moment, or check the daily Workers AI quota in the Cloudflare dashboard.",
+    genBadRequest:
+      "The provider rejected the request itself (400/404/422) — usually an invalid or unavailable AI_MODEL id.",
+    genEmptyReply: "The provider returned an empty reply. Try again with shorter text.",
+    genDbError:
+      "The draft could not be saved to the database. Try again or tell the platform admin.",
     genNeedSource: "Paste the lesson text first (at least 50 characters).",
     genNeedType: "Select at least one question type.",
     // USP slice 3 — integrity signals
