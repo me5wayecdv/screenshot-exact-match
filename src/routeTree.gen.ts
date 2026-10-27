@@ -23,7 +23,6 @@ import { Route as AuthenticatedGradingRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedHandwrittenRouteImport } from './routes/_authenticated/handwritten'
 import { Route as AuthenticatedLessonsRouteImport } from './routes/_authenticated/lessons'
 import { Route as AuthenticatedReviewsRouteImport } from './routes/_authenticated/reviews'
-import { Route as AuthenticatedSchoolRouteImport } from './routes/_authenticated/school'
 import { Route as AuthenticatedStudentsRouteImport } from './routes/_authenticated/students'
 import { Route as AuthenticatedTutorRouteImport } from './routes/_authenticated/tutor'
 import { Route as AuthenticatedAssessmentsIndexRouteImport } from './routes/_authenticated/assessments.index'
@@ -102,11 +101,6 @@ const AuthenticatedReviewsRoute = AuthenticatedReviewsRouteImport.update({
   path: '/reviews',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedSchoolRoute = AuthenticatedSchoolRouteImport.update({
-  id: '/school',
-  path: '/school',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedStudentsRoute = AuthenticatedStudentsRouteImport.update({
   id: '/students',
   path: '/students',
@@ -162,7 +156,6 @@ export interface FileRoutesByFullPath {
   '/handwritten': typeof AuthenticatedHandwrittenRoute
   '/lessons': typeof AuthenticatedLessonsRoute
   '/reviews': typeof AuthenticatedReviewsRoute
-  '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
   '/tutor': typeof AuthenticatedTutorRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
@@ -185,7 +178,6 @@ export interface FileRoutesByTo {
   '/handwritten': typeof AuthenticatedHandwrittenRoute
   '/lessons': typeof AuthenticatedLessonsRoute
   '/reviews': typeof AuthenticatedReviewsRoute
-  '/school': typeof AuthenticatedSchoolRoute
   '/students': typeof AuthenticatedStudentsRoute
   '/tutor': typeof AuthenticatedTutorRoute
   '/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
@@ -210,7 +202,6 @@ export interface FileRoutesById {
   '/_authenticated/handwritten': typeof AuthenticatedHandwrittenRoute
   '/_authenticated/lessons': typeof AuthenticatedLessonsRoute
   '/_authenticated/reviews': typeof AuthenticatedReviewsRoute
-  '/_authenticated/school': typeof AuthenticatedSchoolRoute
   '/_authenticated/students': typeof AuthenticatedStudentsRoute
   '/_authenticated/tutor': typeof AuthenticatedTutorRoute
   '/_authenticated/assessments/$id': typeof AuthenticatedAssessmentsIdRoute
@@ -235,7 +226,6 @@ export interface FileRouteTypes {
     | '/handwritten'
     | '/lessons'
     | '/reviews'
-    | '/school'
     | '/students'
     | '/tutor'
     | '/assessments/$id'
@@ -258,7 +248,6 @@ export interface FileRouteTypes {
     | '/handwritten'
     | '/lessons'
     | '/reviews'
-    | '/school'
     | '/students'
     | '/tutor'
     | '/assessments/$id'
@@ -282,7 +271,6 @@ export interface FileRouteTypes {
     | '/_authenticated/handwritten'
     | '/_authenticated/lessons'
     | '/_authenticated/reviews'
-    | '/_authenticated/school'
     | '/_authenticated/students'
     | '/_authenticated/tutor'
     | '/_authenticated/assessments/$id'
@@ -401,13 +389,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedReviewsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/school': {
-      id: '/_authenticated/school'
-      path: '/school'
-      fullPath: '/school'
-      preLoaderRoute: typeof AuthenticatedSchoolRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/students': {
       id: '/_authenticated/students'
       path: '/students'
@@ -469,7 +450,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedHandwrittenRoute: typeof AuthenticatedHandwrittenRoute
   AuthenticatedLessonsRoute: typeof AuthenticatedLessonsRoute
   AuthenticatedReviewsRoute: typeof AuthenticatedReviewsRoute
-  AuthenticatedSchoolRoute: typeof AuthenticatedSchoolRoute
   AuthenticatedStudentsRoute: typeof AuthenticatedStudentsRoute
   AuthenticatedTutorRoute: typeof AuthenticatedTutorRoute
   AuthenticatedAssessmentsIdRoute: typeof AuthenticatedAssessmentsIdRoute
@@ -488,7 +468,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedHandwrittenRoute: AuthenticatedHandwrittenRoute,
   AuthenticatedLessonsRoute: AuthenticatedLessonsRoute,
   AuthenticatedReviewsRoute: AuthenticatedReviewsRoute,
-  AuthenticatedSchoolRoute: AuthenticatedSchoolRoute,
   AuthenticatedStudentsRoute: AuthenticatedStudentsRoute,
   AuthenticatedTutorRoute: AuthenticatedTutorRoute,
   AuthenticatedAssessmentsIdRoute: AuthenticatedAssessmentsIdRoute,
