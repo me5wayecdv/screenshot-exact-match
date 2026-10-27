@@ -6,7 +6,6 @@ import {
   CheckSquare,
   Users,
   LogOut,
-  School,
   BookOpen,
   Shield,
   History,
@@ -43,7 +42,6 @@ function AppShell() {
           { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
           { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
           { to: "/students", label: t("students"), icon: Users },
-          { to: "/school", label: t("school"), icon: School },
         ]
       : me?.role === "tutor"
         ? [
@@ -57,7 +55,6 @@ function AppShell() {
         : me?.role === "admin"
           ? [
               { to: "/dashboard", label: t("dashboard"), icon: Home },
-              { to: "/school", label: t("school"), icon: School },
               { to: "/admin", label: t("admin"), icon: Shield },
               { to: "/audit", label: t("auditHistory"), icon: History },
             ]

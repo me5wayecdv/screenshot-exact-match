@@ -17,11 +17,7 @@ function Admin() {
     queryKey: ["admin-page"],
     enabled: me?.role === "admin",
     queryFn: async () => {
-      const [sc, tc, st] = await Promise.all([
-        supabase
-          .from("schools")
-          .select("id, name, join_code, created_at")
-          .order("created_at", { ascending: false }),
+      const [tc, st] = await Promise.all([
         supabase
           .from("user_roles")
           .select("id", { count: "exact", head: true })
@@ -31,7 +27,7 @@ function Admin() {
           .select("id", { count: "exact", head: true })
           .eq("role", "student"),
       ]);
-      return { schools: sc.data ?? [], teachers: tc.count ?? 0, students: st.count ?? 0 };
+      return { teachers: tc.count ?? 0, students: st.count ?? 0 };
     },
   });
   if (isLoading || !me) return <p className="text-muted-foreground">{t("loading")}</p>;
@@ -46,7 +42,6 @@ function Admin() {
       <PageHeader title={t("admin")} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
-          { label: t("summarySchools"), value: data?.schools.length },
           { label: t("summaryTeachers"), value: data?.teachers },
           { label: t("summaryStudents"), value: data?.students },
         ].map((c) => (
@@ -56,21 +51,6 @@ function Admin() {
           </Panel>
         ))}
       </div>
-      <h2 className="mb-3 mt-10 text-lg font-semibold">{t("schools")}</h2>
-      {data && data.schools.length === 0 ? (
-        <Empty>{t("noSchools")}</Empty>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {data?.schools.map((s) => (
-            <Panel key={s.id}>
-              <h3 className="font-semibold">{s.name}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("joinCodeLabel")}: <span dir="ltr">{s.join_code}</span>
-              </p>
-            </Panel>
-          ))}
-        </div>
-      )}
     </>
   );
 }

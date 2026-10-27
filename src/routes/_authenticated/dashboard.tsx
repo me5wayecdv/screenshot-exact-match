@@ -35,24 +35,18 @@ function SchoolTeacherHome({ name }: { name: string }) {
   const { data } = useQuery({
     queryKey: ["teacher-summary"],
     queryFn: async () => {
-      const [a, s, st, sc] = await Promise.all([
+      const [a, s, st] = await Promise.all([
         supabase
           .from("assessments")
           .select("id, title, status, created_at")
           .order("created_at", { ascending: false }),
         supabase.from("submissions").select("id, status, submitted_at, assessment_id"),
         supabase.rpc("my_students"),
-        // RLS on schools returns only schools this teacher belongs to (member / creator).
-        supabase
-          .from("schools")
-          .select("id, name, join_code, created_at")
-          .order("created_at", { ascending: false }),
       ]);
       return {
         assessments: a.data ?? [],
         submissions: s.data ?? [],
         students: st.data ?? [],
-        schools: sc.data ?? [],
       };
     },
   });
@@ -109,26 +103,6 @@ function SchoolTeacherHome({ name }: { name: string }) {
                 <Pill t={statusTone[a.status]}>{t(`st_${a.status}` as never)}</Pill>
               </span>
             </Link>
-          ))}
-        </div>
-      )}
-      <h2 className="mb-3 mt-10 text-lg font-semibold">{t("schools")}</h2>
-      {data && data.schools.length === 0 ? (
-        <Empty>{t("noSchools")}</Empty>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2">
-          {data?.schools.map((s) => (
-            <Panel key={s.id}>
-              <h3 className="font-semibold">{s.name}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("joinCodeLabel")}: <span dir="ltr">{s.join_code}</span>
-              </p>
-              <div className="mt-4">
-                <Button asChild variant="secondary" size="sm">
-                  <Link to="/school">{t("school")}</Link>
-                </Button>
-              </div>
-            </Panel>
           ))}
         </div>
       )}
@@ -208,8 +182,7 @@ function AdminHome({ name }: { name: string }) {
   const { data } = useQuery({
     queryKey: ["admin-summary"],
     queryFn: async () => {
-      const [sc, tc, st] = await Promise.all([
-        supabase.from("schools").select("id", { count: "exact", head: true }),
+      const [tc, st] = await Promise.all([
         supabase
           .from("user_roles")
           .select("id", { count: "exact", head: true })
@@ -219,11 +192,10 @@ function AdminHome({ name }: { name: string }) {
           .select("id", { count: "exact", head: true })
           .eq("role", "student"),
       ]);
-      return { schools: sc.count ?? 0, teachers: tc.count ?? 0, students: st.count ?? 0 };
+      return { teachers: tc.count ?? 0, students: st.count ?? 0 };
     },
   });
   const cards = [
-    { label: t("summarySchools"), value: data?.schools },
     { label: t("summaryTeachers"), value: data?.teachers },
     { label: t("summaryStudents"), value: data?.students },
   ];
@@ -321,7 +293,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           onSaved={() => qc.invalidateQueries({ queryKey: ["student-home"] })}
         />
       </Panel>
-      {/* (1) School work — assessments assigned by school teachers. */}
+      {/* (1) Teacher work — assessments assigned by teachers. */}
       <h2 className="mb-3 text-lg font-semibold">{t("schoolWork")}</h2>
       <Panel className="mb-8">
         <form onSubmit={join} className="flex flex-wrap items-end gap-3">
@@ -399,7 +371,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           })}
         </div>
       )}
-      {/* (2) My lessons — lessons this student enrolled in (tutor track, separate from school work). */}
+      {/* (2) My lessons — lessons this student enrolled in (tutor track). */}
       <h2 className="mb-3 mt-10 text-lg font-semibold">{t("myLessons")}</h2>
       <Panel className="mb-8">
         <form onSubmit={enroll} className="flex flex-wrap items-end gap-3">

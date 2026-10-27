@@ -20,12 +20,10 @@ import { latestSubmittedPerStudent } from "@/lib/exam-attempt";
  * EXISTING `answers` table; deleting that import + JSX block removes
  * only the breakdown, the stats above keep working.
  *
- * SHARING (Phase 7): the owner reads everything; a school colleague
- * (same school_teachers school) reads the stats, per-question breakdown,
- * integrity summaries, and exports — but NOT the WhatsApp send section
- * (owner-only) and never question_keys (no colleague policy exists).
- * A non-colleague still gets "not found". Colleagues cannot grade,
- * release, or edit: those paths enforce owns_assessment().
+ * SHARING: the owner reads everything. There is no colleague access:
+ * only the assessment's own teacher can open this page, and the
+ * WhatsApp send section is owner-only by the same rule.
+ * A non-owner still gets "not found".
  */
 export const Route = createFileRoute("/_authenticated/assessments/report/$id")({
   component: AssessmentReportPage,
@@ -81,30 +79,9 @@ function AssessmentReportPage() {
 
   const assessment = assessmentQuery.data ?? null;
   // Ownership: RLS restricts the assessment read to the teacher's own
-  // rows plus same-school colleagues' rows (Phase 7). The colleague
-  // check below mirrors that policy client-side for page access;
-  // WhatsApp sending stays owner-only regardless.
+  // rows, and page access mirrors that rule client-side.
   const isOwner = !assessment || assessment.teacher_id === me?.id;
-
-  const colleagueQuery = useQuery({
-    queryKey: ["assessment-report-colleague", id, me?.id, assessment?.teacher_id],
-    enabled: !!me && !!assessment && assessment.teacher_id !== me?.id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("school_teachers")
-        .select("school_id, teacher_id")
-        .in("teacher_id", [me!.id, assessment!.teacher_id]);
-      if (error) throw error;
-      const mySchools = new Set(
-        (data ?? []).filter((r) => r.teacher_id === me!.id).map((r) => r.school_id),
-      );
-      return (data ?? []).some(
-        (r) => r.teacher_id === assessment!.teacher_id && mySchools.has(r.school_id),
-      );
-    },
-  });
-  const isColleague = colleagueQuery.data ?? false;
-  const canView = isOwner || isColleague;
+  const canView = isOwner;
 
   const statsQuery = useQuery({
     queryKey: ["assessment-report-stats", id],
@@ -139,11 +116,7 @@ function AssessmentReportPage() {
     },
   });
 
-  if (
-    meLoading ||
-    assessmentQuery.isLoading ||
-    (assessment && !isOwner && colleagueQuery.isLoading)
-  ) {
+  if (meLoading || assessmentQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   }
 

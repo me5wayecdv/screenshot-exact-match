@@ -2,7 +2,7 @@
  * Pure LMS export builders (Phase 7). No keys, ever: the question CSV
  * carries prompts/options/objectives/marks only, and the grades CSV
  * carries released scores only. Callers fetch through RLS, so a teacher
- * can only export assessments they own or share a school with.
+ * can only export assessments they own.
  */
 
 import { toCsv } from "./analytics";

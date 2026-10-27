@@ -152,29 +152,7 @@ function Analytics() {
     queryKey: ["an-groups", me?.id, role],
     enabled: !!me?.id && isTeacher,
     queryFn: async () => {
-      // Classes first (school teachers); lessons as the tutor equivalent.
-      const { data: classes } = await supabase
-        .from("classes")
-        .select("id, name")
-        .eq("teacher_id", me!.id);
-      if ((classes ?? []).length > 0) {
-        const ids = classes!.map((c) => c.id);
-        const { data: members } = await supabase
-          .from("class_members")
-          .select("class_id, student_id")
-          .in("class_id", ids);
-        const byClass = new Map<string, string[]>();
-        for (const m of members ?? []) {
-          const list = byClass.get(m.class_id) ?? [];
-          list.push(m.student_id);
-          byClass.set(m.class_id, list);
-        }
-        return classes!.map((c) => ({
-          id: c.id,
-          name: c.name,
-          studentIds: byClass.get(c.id) ?? [],
-        }));
-      }
+      // Groups are the teacher's lessons (tutor track).
       const { data: lessons } = await supabase
         .from("lessons")
         .select("id, title")
