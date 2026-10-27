@@ -15,6 +15,7 @@ import { getHandwritingStatus, ocrHandwrittenImage } from "@/server/handwritten"
 import { matchPaperPages } from "@/server/paper-matching";
 import { countUncertainSpans, parseUncertainSpans } from "@/lib/uncertain-text";
 import { groupSimilarAnswers } from "@/lib/similar-answers";
+import { matchProgress, nextUngradedMatch, pendingMatchItems } from "@/lib/paper-match";
 import {
   logAiTrainingExample,
   suggestGrade,
@@ -35,6 +36,11 @@ import {
 //    through the SAME single-grade form — no second grading path.
 //  - Uncertain OCR spans (⟦ ⟧) are the model's own self-reported
 //    uncertainty, highlighted in review — never a measured confidence.
+//  - Phase 6 batch completion: the match panel is a queue — per-page
+//    student names, graded tracking, auto-advance to the next ungraded
+//    page after each save, retry-only-unmatched re-runs, and per-page
+//    removal (photo deleted best-effort). Re-using a graded page
+//    creates a second history row; delete the wrong row from history.
 //  - PLATFORM RULE: every uploaded photo is persisted server-side.
 //    The paper is uploaded on select to the private Supabase Storage
 //    bucket 'handwritten-papers' (path {teacher_id}/{uuid}.jpg), and the
@@ -69,6 +75,9 @@ type MatchItem = {
   confidence: "high" | "medium" | "low" | "none";
   method: "number" | "ai" | "none" | "manual";
   model: string;
+  /** Phase 6: per-page student name + graded tracking for the queue. */
+  studentName: string;
+  graded: boolean;
 };
 
 type HwRow = {
@@ -181,6 +190,8 @@ function Handwritten() {
   /** Phase 3 match flow state (pages uploaded for question matching). */
   const [matchItems, setMatchItems] = useState<MatchItem[]>([]);
   const [matchBusy, setMatchBusy] = useState(false);
+  /** Phase 6: the match item currently loaded in the grade form (if any). */
+  const [activeMatchId, setActiveMatchId] = useState<string | null>(null);
 
   const { data: assessments } = useQuery({
     queryKey: ["hw-assessments", me?.id],
@@ -384,6 +395,8 @@ function Handwritten() {
             confidence: "none",
             method: "none",
             model: "",
+            studentName: "",
+            graded: false,
           },
         ]);
         // PLATFORM RULE: the page is persisted server-side on select.
@@ -414,7 +427,13 @@ function Handwritten() {
       toast.error(t("hwMatchNeedAssessment"));
       return;
     }
-    if (matchItems.length === 0) return;
+    // Phase 6: only unmatched pages are (re-)sent — a partial failure
+    // costs one retry of the failed pages, not a full re-match.
+    const pending = pendingMatchItems(matchItems);
+    if (pending.length === 0) {
+      toast.success(t("hwMatchAllMatched"));
+      return;
+    }
     if (matchItems.some((it) => !it.imagePath)) {
       toast.error(t("hwImageNotSaved"));
       return;
@@ -425,7 +444,7 @@ function Handwritten() {
       const result = await matchPaperPages({
         data: {
           assessmentId,
-          pages: matchItems.map((it) => ({ imageDataUrl: it.dataUrl, imagePath: it.imagePath })),
+          pages: pending.map((it) => ({ imageDataUrl: it.dataUrl, imagePath: it.imagePath })),
           accessToken,
         },
       });
@@ -438,9 +457,10 @@ function Handwritten() {
         );
         return;
       }
+      const byId = new Map(pending.map((it, i) => [it.id, result.pages[i]]));
       setMatchItems((prev) =>
-        prev.map((it, i) => {
-          const page = result.pages[i];
+        prev.map((it) => {
+          const page = byId.get(it.id);
           if (!page) return it;
           return {
             ...it,
@@ -460,6 +480,19 @@ function Handwritten() {
     }
   }
 
+  /** Phase 6: remove a queued page (and its stored photo, best-effort). */
+  async function removeMatchItem(item: MatchItem) {
+    if (item.imagePath) {
+      try {
+        await supabase.storage.from("handwritten-papers").remove([item.imagePath]);
+      } catch {
+        // Ignored: the queue entry itself is removed either way.
+      }
+    }
+    setMatchItems((prev) => prev.filter((it) => it.id !== item.id));
+    if (activeMatchId === item.id) setActiveMatchId(null);
+  }
+
   /** Prefill the single-grade form from a matched page (same save path). */
   function applyMatchItem(item: MatchItem) {
     if (item.questionId) setQuestionId(item.questionId);
@@ -471,6 +504,8 @@ function Handwritten() {
     setCorrectedText(item.text);
     setOcrModel(item.model);
     setSuggestion(null);
+    setStudentName(item.studentName);
+    setActiveMatchId(item.id);
   }
 
   async function runOcr() {
@@ -616,6 +651,31 @@ function Handwritten() {
       setTeacherFeedback("");
       setStudentName("");
       await qc.invalidateQueries({ queryKey: ["hw-history", me.id] });
+      // Phase 6 — batch completion: mark the queued page graded and
+      // auto-load the next ungraded page, so a 10-page batch grades
+      // in one pass instead of re-picking pages by hand.
+      if (activeMatchId) {
+        // The form's student name wins: a name corrected in the form
+        // is written back to the queue item, so the panel stays true.
+        const updated = matchItems.map((it) =>
+          it.id === activeMatchId ? { ...it, graded: true, studentName: studentName.trim() } : it,
+        );
+        setMatchItems(updated);
+        const next = nextUngradedMatch(updated, activeMatchId);
+        if (next) {
+          applyMatchItem(next);
+          const progress = matchProgress(updated);
+          toast.success(
+            t("hwMatchProgress", {
+              done: String(progress.done),
+              total: String(progress.total),
+            }) as string,
+          );
+        } else {
+          setActiveMatchId(null);
+          toast.success(t("hwMatchAllDone"));
+        }
+      }
     } catch (err) {
       toast.error(translateError(err, lang));
     } finally {
@@ -788,6 +848,17 @@ function Handwritten() {
                       className="max-h-40 rounded-md border object-contain"
                     />
                     <p className="text-xs text-muted-foreground">{item.fileName}</p>
+                    {item.graded && (
+                      <p className="text-xs font-medium text-green-600">✓ {t("hwMatchGraded")}</p>
+                    )}
+                    <div className="space-y-1.5">
+                      <Label>{t("hwMatchStudentName")}</Label>
+                      <Input
+                        value={item.studentName}
+                        onChange={(e) => updateMatchItem(item.id, { studentName: e.target.value })}
+                        placeholder={t("hwMatchStudentName")}
+                      />
+                    </div>
                     {item.text ? (
                       <p className="whitespace-pre-wrap text-sm text-muted-foreground">
                         {item.text.slice(0, 200)}
@@ -839,6 +910,13 @@ function Handwritten() {
                           {t("hwRetryUpload")}
                         </Button>
                       )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void removeMatchItem(item)}
+                      >
+                        {t("hwMatchRemove")}
+                      </Button>
                     </div>
                   </li>
                 ))}
@@ -848,7 +926,9 @@ function Handwritten() {
               <Button
                 onClick={runMatch}
                 disabled={
-                  matchBusy || matchItems.length === 0 || matchItems.some((it) => !it.imagePath)
+                  matchBusy ||
+                  pendingMatchItems(matchItems).length === 0 ||
+                  matchItems.some((it) => !it.imagePath)
                 }
               >
                 {matchBusy ? t("hwMatchRunning") : t("hwMatchRun")}

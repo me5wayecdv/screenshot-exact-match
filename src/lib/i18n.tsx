@@ -253,6 +253,13 @@ const dict = {
     hwSimilarNote:
       "للمراجعة فقط — التشابه النصي ليس دليلاً على غش، لكنه يساعد على اكتشاف تفاوت الدرجات بين إجابات متطابقة تقريباً.",
     hwSimilarGroup: "مجموعة من {count} إجابات",
+    // Phase 6 — batch completion
+    hwMatchStudentName: "اسم الطالب لهذه الصفحة",
+    hwMatchGraded: "تم التصحيح",
+    hwMatchRemove: "إزالة",
+    hwMatchAllMatched: "كل الصفحات مطابقة بالفعل.",
+    hwMatchProgress: "تم حفظ {done} من {total} صفحات — الصفحة التالية جاهزة.",
+    hwMatchAllDone: "تم تصحيح كل الصفحات المطابقة.",
     // Phase 4 — analytics
     anTitle: "تحليلات الأداء",
     anSubtitle:
@@ -842,6 +849,13 @@ const dict = {
     hwSimilarNote:
       "For review only — textual similarity is not proof of copying, but it helps spot inconsistent grading of near-identical answers.",
     hwSimilarGroup: "Group of {count} answers",
+    // Phase 6 — batch completion
+    hwMatchStudentName: "Student name for this page",
+    hwMatchGraded: "Graded",
+    hwMatchRemove: "Remove",
+    hwMatchAllMatched: "All pages are already matched.",
+    hwMatchProgress: "Saved {done} of {total} pages — the next page is ready.",
+    hwMatchAllDone: "All matched pages are graded.",
     // Phase 4 — analytics
     anTitle: "Performance analytics",
     anSubtitle:
