@@ -12,6 +12,7 @@ import {
   History,
   TrendingUp,
   GraduationCap,
+  MessageSquare,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Brand, LangToggle } from "@/components/Brand";
@@ -40,6 +41,7 @@ function AppShell() {
           { to: "/grading", label: t("grading"), icon: CheckSquare },
           { to: "/audit", label: t("auditHistory"), icon: History },
           { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
+          { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
           { to: "/students", label: t("students"), icon: Users },
           { to: "/school", label: t("school"), icon: School },
         ]
@@ -49,6 +51,7 @@ function AppShell() {
             { to: "/lessons", label: t("lessons"), icon: BookOpen },
             { to: "/audit", label: t("auditHistory"), icon: History },
             { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
+            { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
             { to: "/students", label: t("students"), icon: Users },
           ]
         : me?.role === "admin"
@@ -61,6 +64,7 @@ function AppShell() {
           : [
               { to: "/dashboard", label: t("myAssessments"), icon: Home },
               { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
+              { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
             ];
 
   async function signOut() {

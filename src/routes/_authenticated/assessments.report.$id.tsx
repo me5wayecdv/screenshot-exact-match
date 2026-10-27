@@ -1,12 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { useI18n, formatDate } from "@/lib/i18n";
+import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { AssessmentReportQuestions } from "@/components/assessment-report-questions";
 import { IntegritySummary } from "@/components/integrity-summary";
 import { WhatsAppReportSection } from "@/components/whatsapp-report-section";
+import { gradesToCsv, questionsToCsv } from "@/lib/lms-export";
 
 /**
  * Per-assessment report — school-teacher only (legacy 'teacher' rows are
@@ -17,12 +19,12 @@ import { WhatsAppReportSection } from "@/components/whatsapp-report-section";
  * EXISTING `answers` table; deleting that import + JSX block removes
  * only the breakdown, the stats above keep working.
  *
- * OWNER-ONLY BY RLS (merge decision): a school-teacher opening another
- * teacher's report URL gets "not found", not the data — the assessments
- * / submissions / answers RLS policies only allow a teacher's own rows.
- * School-wide report visibility (a teacher seeing colleagues' reports)
- * needs new school-member read policies and is deliberately NOT enabled
- * in this pass; see the push summary.
+ * SHARING (Phase 7): the owner reads everything; a school colleague
+ * (same school_teachers school) reads the stats, per-question breakdown,
+ * integrity summaries, and exports — but NOT the WhatsApp send section
+ * (owner-only) and never question_keys (no colleague policy exists).
+ * A non-colleague still gets "not found". Colleagues cannot grade,
+ * release, or edit: those paths enforce owns_assessment().
  */
 export const Route = createFileRoute("/_authenticated/assessments/report/$id")({
   component: AssessmentReportPage,
@@ -76,14 +78,35 @@ function AssessmentReportPage() {
   });
 
   const assessment = assessmentQuery.data ?? null;
-  // Ownership: RLS already restricts the assessment read above to the
-  // teacher's own rows (a colleague's assessment loads as null -> the
-  // "not found" branch below), so this is a belt-and-braces UI check.
+  // Ownership: RLS restricts the assessment read to the teacher's own
+  // rows plus same-school colleagues' rows (Phase 7). The colleague
+  // check below mirrors that policy client-side for page access;
+  // WhatsApp sending stays owner-only regardless.
   const isOwner = !assessment || assessment.teacher_id === me?.id;
+
+  const colleagueQuery = useQuery({
+    queryKey: ["assessment-report-colleague", id, me?.id, assessment?.teacher_id],
+    enabled: !!me && !!assessment && assessment.teacher_id !== me?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("school_teachers")
+        .select("school_id, teacher_id")
+        .in("teacher_id", [me!.id, assessment!.teacher_id]);
+      if (error) throw error;
+      const mySchools = new Set(
+        (data ?? []).filter((r) => r.teacher_id === me!.id).map((r) => r.school_id),
+      );
+      return (data ?? []).some(
+        (r) => r.teacher_id === assessment!.teacher_id && mySchools.has(r.school_id),
+      );
+    },
+  });
+  const isColleague = colleagueQuery.data ?? false;
+  const canView = isOwner || isColleague;
 
   const statsQuery = useQuery({
     queryKey: ["assessment-report-stats", id],
-    enabled: !!assessment && isOwner,
+    enabled: !!assessment && canView,
     queryFn: async () => {
       const [
         { data: assignments, error: assignmentsError },
@@ -114,7 +137,11 @@ function AssessmentReportPage() {
     },
   });
 
-  if (meLoading || assessmentQuery.isLoading) {
+  if (
+    meLoading ||
+    assessmentQuery.isLoading ||
+    (assessment && !isOwner && colleagueQuery.isLoading)
+  ) {
     return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   }
 
@@ -130,7 +157,7 @@ function AssessmentReportPage() {
     return <Empty>{t("notFound")}</Empty>;
   }
 
-  if (!isOwner) {
+  if (!canView) {
     return <Empty>{t("reportAccessDenied")}</Empty>;
   }
 
@@ -151,6 +178,58 @@ function AssessmentReportPage() {
           0,
         ) / released.length
       : null;
+
+  function downloadCsv(filename: string, csv: string) {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // LMS export (Phase 7): questions WITHOUT keys, and released grades.
+  // Both fetch through RLS, so a colleague exports only what they can read.
+  async function exportQuestions() {
+    const { data, error } = await supabase
+      .from("questions")
+      .select("prompt, type, options, objective, marks, difficulty")
+      .eq("assessment_id", id)
+      .order("position");
+    if (error) {
+      toast.error(translateError(error, lang));
+      return;
+    }
+    downloadCsv(
+      `${assessment?.title ?? "assessment"}-questions.csv`,
+      questionsToCsv(
+        (data ?? []).map((q) => ({
+          prompt: q.prompt,
+          type: q.type,
+          options: Array.isArray(q.options) ? (q.options as string[]) : [],
+          objective: q.objective ?? "",
+          marks: Number(q.marks),
+          difficulty: q.difficulty ?? "medium",
+        })),
+      ),
+    );
+  }
+
+  function exportGrades() {
+    downloadCsv(
+      `${assessment?.title ?? "assessment"}-grades.csv`,
+      gradesToCsv(
+        submissions.map((s) => ({
+          studentName: names[s.student_id] ?? "—",
+          assessmentTitle: assessment?.title ?? "",
+          finalScore: s.final_score,
+          totalPossible: s.total_possible,
+          status: s.status,
+        })),
+      ),
+    );
+  }
 
   return (
     <div>
@@ -238,8 +317,32 @@ function AssessmentReportPage() {
           {/* WhatsApp parent sends, one row per RELEASED submission.
               `released` is already computed above (status === "released"
               with a non-null score); the section renders nothing when
-              it is empty. */}
-          <WhatsAppReportSection submissions={released} />
+              it is empty. Owner-only: colleagues never send on
+              someone else's assessment. */}
+          {isOwner && <WhatsAppReportSection submissions={released} />}
+
+          <div className="mt-8">
+            <Panel>
+              <h2 className="mb-4 text-lg font-bold">{t("reportExport")}</h2>
+              <p className="mb-3 text-sm text-muted-foreground">{t("reportExportNote")}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
+                  onClick={() => void exportQuestions()}
+                >
+                  {t("reportExportQuestions")}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
+                  onClick={exportGrades}
+                >
+                  {t("reportExportGrades")}
+                </button>
+              </div>
+            </Panel>
+          </div>
         </>
       )}
     </div>

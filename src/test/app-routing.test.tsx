@@ -20,6 +20,7 @@ describe("App routing", () => {
     "/audit",
     "/analytics",
     "/tutor",
+    "/reviews",
     "/terms",
     "/privacy",
     "/assessments/take/123",

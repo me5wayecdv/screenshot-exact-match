@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
@@ -10,12 +11,12 @@ import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit"
  * schools (id, name), school_teachers (school_id, teacher_id) — the
  * current user's first school is used — classes (id, school_id, name).
  *
- * RLS NOTE: teachers/classes lists are genuinely school-wide (school
- * member read policies exist), but the assessments overview only shows
- * assessments the viewer can read — i.e. their own — because the
- * assessments/submissions/answers policies are still owner-only.
- * School-wide assessment visibility needs new member-read policies and
- * is a follow-up, not silently enabled here.
+ * RLS NOTE (Phase 7): the assessments overview lists every assessment
+ * of the school's teachers that the viewer can read — their own plus
+ * same-school colleagues' (colleague SELECT policies on assessments /
+ * submissions / answers, migration 20261027050000). Colleagues open the
+ * report read-only: no grading, release, editing, or WhatsApp sends,
+ * and never question_keys.
  */
 export function SchoolWorkspaceContent() {
   const { t } = useI18n();
@@ -176,7 +177,9 @@ export function SchoolWorkspaceContent() {
           <ul className="divide-y text-sm">
             {assessments.map((a) => (
               <li key={a.id} className="flex items-center justify-between gap-3 py-2">
-                <span>{a.title}</span>
+                <Link to="/assessments/report/$id" params={{ id: a.id }} className="underline">
+                  {a.title}
+                </Link>
                 <Pill t={statusTone[a.status] ?? "neutral"}>{t(`st_${a.status}` as never)}</Pill>
               </li>
             ))}

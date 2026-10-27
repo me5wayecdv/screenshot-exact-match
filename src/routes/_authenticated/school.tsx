@@ -94,6 +94,9 @@ function School() {
   return (
     <>
       <PageHeader title={t("school")} />
+      <Panel className="mb-4">
+        <p className="text-sm text-muted-foreground">{t("schoolSharingNote")}</p>
+      </Panel>
       <div className="grid gap-4 md:grid-cols-2">
         <Panel>
           <form onSubmit={createSchool} className="flex flex-wrap items-end gap-3">

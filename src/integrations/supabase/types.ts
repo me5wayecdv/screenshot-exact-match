@@ -278,6 +278,60 @@ export type Database = {
           },
         ]
       }
+      grade_review_requests: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          question_id: string | null
+          resolved_at: string | null
+          status: string
+          student_id: string
+          submission_id: string
+          teacher_id: string
+          teacher_response: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          question_id?: string | null
+          resolved_at?: string | null
+          status?: string
+          student_id: string
+          submission_id: string
+          teacher_id: string
+          teacher_response?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          question_id?: string | null
+          resolved_at?: string | null
+          status?: string
+          student_id?: string
+          submission_id?: string
+          teacher_id?: string
+          teacher_response?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grade_review_requests_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grade_review_requests_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       questions: {
         Row: {
           assessment_id: string
