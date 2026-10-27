@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,8 +13,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { generateAssessment } from "@/lib/generate-assessment";
-import type { GenerateQuestionType } from "@/lib/generate-assessment-prompt";
+import type { GenerateDifficulty, GenerateQuestionType } from "@/lib/generate-assessment-prompt";
 import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
+import { getHandwritingStatus } from "@/server/handwritten";
+import { ocrSourceImages } from "@/server/source-ocr";
 
 // Route file convention (verified against the repo listing at HEAD):
 // src/routes/_authenticated/assessments.$id.tsx, assessments.index.tsx,
@@ -24,9 +26,14 @@ import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
 // segment, so /assessments/generate does NOT fall through to the builder.
 // routeTree.gen.ts is auto-generated — do not edit it by hand.
 //
-// V1 SCOPE: pasted chapter/lesson text ONLY. There is no PDF upload or
-// PDF parsing in this slice (explicit follow-up); the UI says so plainly
-// (genPdfNote) instead of implying uploads work.
+// Phase 2 SCOPE: pasted text PLUS file/image sources. PDF and Word
+// files are parsed in the browser (pdfjs-dist / mammoth, dynamically
+// imported so they never bloat the initial bundle); curriculum photos
+// go through the vision OCR server function (src/server/source-ocr.ts).
+// Every uploaded file is saved to the private 'generation-sources'
+// bucket BEFORE extraction (platform rule: no browser-only uploads),
+// and extracted text lands in the source textarea for the teacher to
+// REVIEW and EDIT before any generation runs.
 //
 // Teacher-final-word: generation only ever saves an UNPUBLISHED draft.
 // The success state links to the EXISTING builder route, where the
@@ -53,6 +60,80 @@ function genErrorKey(msg: string): string | null {
   return null;
 }
 
+/** Server-side source-text cap (mirrors generate-assessment.ts). */
+const MAX_SOURCE_CHARS = 30_000;
+const MAX_DOC_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_IMAGES = 5;
+
+function appendSource(prev: string, text: string): string {
+  const clean = text.trim();
+  if (!clean) return prev;
+  return prev.trim() ? `${prev.trim()}\n\n${clean}` : clean;
+}
+
+/** Compress an image to a ≤1600px JPEG (same bound as handwritten papers). */
+async function compressImage(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable.");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.85),
+  );
+  if (!blob) throw new Error("Compression failed.");
+  return blob;
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Read failed."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Platform rule: every uploaded file is persisted server-side first. */
+async function uploadSource(blob: Blob, ext: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("No session.");
+  const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from("generation-sources").upload(path, blob);
+  if (error) throw error;
+}
+
+/** PDF text extraction (pdfjs-dist, dynamically imported). */
+async function extractPdfText(arrayBuffer: ArrayBuffer): Promise<string> {
+  const pdfjs = await import("pdfjs-dist");
+  const { default: workerUrl } = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  const doc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    pages.push(content.items.map((it) => ("str" in it ? it.str : "")).join(" "));
+  }
+  return pages.join("\n\n").trim();
+}
+
+/** Word (.docx) text extraction (mammoth, dynamically imported). */
+async function extractDocxText(arrayBuffer: ArrayBuffer): Promise<string> {
+  const mammoth = await import("mammoth");
+  const { value } = await mammoth.extractRawText({ arrayBuffer });
+  return value.trim();
+}
+
 function Generate() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
@@ -69,8 +150,18 @@ function Generate() {
   const [sourceText, setSourceText] = useState("");
   const [count, setCount] = useState("5");
   const [types, setTypes] = useState<GenerateQuestionType[]>([...GENERATE_QUESTION_TYPES]);
+  const [difficulty, setDifficulty] = useState<GenerateDifficulty>("mixed");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ id: string; title: string; n: number } | null>(null);
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileNote, setFileNote] = useState<string | null>(null);
+  const [visionOk, setVisionOk] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    getHandwritingStatus({ data: {} })
+      .then((s) => setVisionOk(s.configured))
+      .catch(() => setVisionOk(null));
+  }, []);
 
   if (meLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
   if (!me || (me.role !== "school_teacher" && me.role !== "tutor")) {
@@ -81,6 +172,7 @@ function Generate() {
   const countNum = Number(count);
   const formValid =
     sourceLen >= 50 &&
+    sourceLen <= MAX_SOURCE_CHARS &&
     types.length > 0 &&
     Number.isInteger(countNum) &&
     countNum >= 1 &&
@@ -88,6 +180,85 @@ function Generate() {
 
   function toggleType(ty: GenerateQuestionType, on: boolean) {
     setTypes(on ? [...types, ty] : types.filter((x) => x !== ty));
+  }
+
+  function noteExtracted(name: string, text: string) {
+    const msg = t("genExtracted", {
+      name,
+      count: String(text.trim().length),
+    }) as string;
+    setFileNote(msg);
+    toast.success(msg);
+  }
+
+  async function handleDocFile(file: File) {
+    const lower = file.name.toLowerCase();
+    const isPdf = lower.endsWith(".pdf");
+    const isDocx = lower.endsWith(".docx");
+    if (!isPdf && !isDocx) return void toast.error(t("genDocUnsupported"));
+    if (file.size > MAX_DOC_BYTES) return void toast.error(t("genFileTooBig"));
+    setFileBusy(true);
+    try {
+      try {
+        await uploadSource(file, isPdf ? "pdf" : "docx");
+      } catch {
+        toast.error(t("genUploadFailed"));
+        return;
+      }
+      const buf = await file.arrayBuffer();
+      const text = isPdf ? await extractPdfText(buf) : await extractDocxText(buf);
+      if (text.trim().length < 50) {
+        toast.error(t("genExtractFailed"));
+        return;
+      }
+      setSourceText((prev) => appendSource(prev, text));
+      noteExtracted(file.name, text);
+    } catch {
+      toast.error(t("genExtractFailed"));
+    } finally {
+      setFileBusy(false);
+    }
+  }
+
+  async function handleImageFiles(files: File[]) {
+    if (files.length > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
+    if (files.some((f) => f.size > MAX_IMAGE_BYTES)) return void toast.error(t("genFileTooBig"));
+    setFileBusy(true);
+    try {
+      const dataUrls: string[] = [];
+      for (const f of files) {
+        const compressed = await compressImage(f);
+        try {
+          await uploadSource(compressed, "jpg");
+        } catch {
+          toast.error(t("genUploadFailed"));
+          return;
+        }
+        dataUrls.push(await blobToDataUrl(compressed));
+      }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const res = await ocrSourceImages({
+        data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
+      });
+      if (!res.ok) {
+        if (res.code === "VISION_NOT_CONFIGURED") return void toast.error(t("genVisionMissing"));
+        if (res.code === "VISION_UNSUPPORTED") return void toast.error(t("genVisionUnsupported"));
+        return void toast.error(t("genOcrFailed"));
+      }
+      const text = res.texts.join("\n\n");
+      if (text.trim().length < 50) {
+        toast.error(t("genExtractFailed"));
+        return;
+      }
+      setSourceText((prev) => appendSource(prev, text));
+      noteExtracted(files.map((f) => f.name).join("، "), text);
+    } catch {
+      toast.error(t("genOcrFailed"));
+    } finally {
+      setFileBusy(false);
+    }
   }
 
   async function submit(e: FormEvent) {
@@ -103,6 +274,7 @@ function Generate() {
           sourceText: sourceText.trim(),
           questionCount: countNum,
           types,
+          difficulty,
         },
       });
       setResult({ id: res.assessmentId, title: res.title, n: res.questionCount });
@@ -195,14 +367,49 @@ function Generate() {
                 id="g-source"
                 rows={10}
                 value={sourceText}
-                maxLength={12000}
                 onChange={(e) => setSourceText(e.target.value)}
                 placeholder={t("genSourcePlaceholder")}
               />
               <p className="text-xs text-muted-foreground">
-                {t("genSourceHint")} · {sourceLen} / 12000
+                {t("genSourceHint")} · {sourceLen} / {MAX_SOURCE_CHARS}
               </p>
-              <p className="text-xs text-muted-foreground">{t("genPdfNote")}</p>
+              <p className="text-xs text-muted-foreground">{t("genFileNote")}</p>
+            </div>
+
+            <div className="space-y-3 rounded-md border p-3">
+              <div className="space-y-1.5">
+                <Label>{t("genUploadDoc")}</Label>
+                <Input
+                  type="file"
+                  accept=".pdf,.docx"
+                  disabled={fileBusy}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (f) void handleDocFile(f);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">{t("genUploadDocHint")}</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>{t("genUploadImages")}</Label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={fileBusy || visionOk === false}
+                  onChange={(e) => {
+                    const fs = [...(e.target.files ?? [])];
+                    e.target.value = "";
+                    if (fs.length) void handleImageFiles(fs);
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {visionOk === false ? t("genVisionMissing") : t("genUploadImagesHint")}
+                </p>
+              </div>
+              {fileBusy && <p className="text-sm text-muted-foreground">{t("genExtracting")}</p>}
+              {fileNote && <p className="text-sm text-muted-foreground">{fileNote}</p>}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -219,7 +426,21 @@ function Generate() {
                   onChange={(e) => setCount(e.target.value)}
                 />
               </div>
-              <fieldset className="space-y-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="g-diff">{t("genDifficulty")}</Label>
+                <select
+                  id="g-diff"
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={difficulty}
+                  onChange={(e) => setDifficulty(e.target.value as GenerateDifficulty)}
+                >
+                  <option value="mixed">{t("genDiffMixed")}</option>
+                  <option value="easy">{t("genDiffEasy")}</option>
+                  <option value="medium">{t("genDiffMedium")}</option>
+                  <option value="hard">{t("genDiffHard")}</option>
+                </select>
+              </div>
+              <fieldset className="space-y-2 md:col-span-2">
                 <legend className="text-sm font-medium">{t("genQuestionTypes")}</legend>
                 {GENERATE_QUESTION_TYPES.map((ty) => (
                   <label key={ty} className="flex items-center gap-2 text-sm">
@@ -237,9 +458,11 @@ function Generate() {
               <p className="text-sm text-destructive">
                 {sourceLen < 50
                   ? t("genNeedSource")
-                  : types.length === 0
-                    ? t("genNeedType")
-                    : t("genInvalidInput")}
+                  : sourceLen > MAX_SOURCE_CHARS
+                    ? t("genTooLong")
+                    : types.length === 0
+                      ? t("genNeedType")
+                      : t("genInvalidInput")}
               </p>
             )}
             <Button disabled={!formValid || busy}>

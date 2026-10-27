@@ -125,3 +125,38 @@ model). That phase is NOT built: before any training use, the dataset must
 be used only with proper consent, and free-text answers must be scrubbed
 for personal data (a student could have typed a name into an answer).
 See the comment in `src/server/ai-grade.ts` (`logAiTrainingExample`).
+
+## Phase 2 — generation from files and images
+
+The generate page accepts three source kinds, all landing in the source
+textarea for teacher review before generation (never generated from
+raw extraction):
+
+- PDF: parsed in the browser with pdfjs-dist (dynamically imported).
+- Word (.docx): parsed in the browser with mammoth (dynamically
+  imported). Legacy .doc binaries are not supported.
+- Curriculum page photos (up to 5): compressed to ≤1600px JPEG, saved
+  to the private `generation-sources` bucket, then OCR'd by the vision
+  server function `src/server/source-ocr.ts`, which reuses the same
+  vision config and error codes as handwritten OCR
+  (`AI_VISION_MODEL`, else `AI_MODEL`; `VISION_NOT_CONFIGURED` /
+  `VISION_UNSUPPORTED` / `VISION_TIMEOUT` / `VISION_UPSTREAM` /
+  `VISION_PARSE_FAILED`).
+
+Every uploaded source file is persisted server-side first (platform
+rule), under `{teacher_id}/{uuid}.{ext}` with folder-based RLS (see
+`supabase/migrations/20261027040000_phase2_generation.sql`). Source
+text is capped at 30,000 characters (raised from 12,000 for full
+chapters); longer input is blocked in the UI rather than silently
+truncated.
+
+Difficulty: the generator assigns each question `easy`, `medium`, or
+`hard` (stored on `questions.difficulty`, editable in the builder).
+The teacher picks `mixed` (the model varies levels) or one level for
+the whole draft. Invalid model values fall back to `medium` in
+`parseGeneratedDraft`, never dropped.
+
+Question bank: the builder lists the teacher's own earlier questions
+(RLS-scoped) and copies a selected question + its key into the
+current assessment. Copies are new rows — editing a copy never
+affects the original assessment.

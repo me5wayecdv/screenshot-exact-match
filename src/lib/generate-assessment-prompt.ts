@@ -27,6 +27,25 @@ export function isGenerateQuestionType(v: unknown): v is GenerateQuestionType {
   return typeof v === "string" && (GENERATE_QUESTION_TYPES as string[]).includes(v);
 }
 
+/** Per-question difficulty stored on questions.difficulty. */
+export type QuestionDifficulty = "easy" | "medium" | "hard";
+
+/** Generation preference: one level, or "mixed" (the model varies levels). */
+export type GenerateDifficulty = QuestionDifficulty | "mixed";
+
+export function isQuestionDifficulty(v: unknown): v is QuestionDifficulty {
+  return v === "easy" || v === "medium" || v === "hard";
+}
+
+export function isGenerateDifficulty(v: unknown): v is GenerateDifficulty {
+  return v === "mixed" || isQuestionDifficulty(v);
+}
+
+/** Unknown/invalid difficulty from a model reply falls back to medium. */
+function cleanDifficulty(v: unknown): QuestionDifficulty {
+  return isQuestionDifficulty(v) ? v : "medium";
+}
+
 /** One validated, ready-to-save generated question. */
 export type GeneratedQuestion = {
   type: GenerateQuestionType;
@@ -43,6 +62,7 @@ export type GeneratedQuestion = {
   explanation: string;
   marks: number;
   objective: string;
+  difficulty: QuestionDifficulty;
 };
 
 export type GeneratedDraft = {
@@ -56,6 +76,8 @@ export type GeneratePromptInput = {
   gradeLevel: string;
   /** Requested question count per type, e.g. { mcq: 3, true_false: 2 }. */
   counts: Partial<Record<GenerateQuestionType, number>>;
+  /** Difficulty preference: one level, or "mixed" (vary across questions). */
+  difficulty: GenerateDifficulty;
 };
 
 /**
@@ -95,11 +117,16 @@ export function buildGeneratePrompt(input: GeneratePromptInput): string {
     .join("\n");
   const subjectLine = input.subjectName ? `المادة: ${input.subjectName}\n` : "";
   const gradeLine = input.gradeLevel ? `الصف الدراسي: ${input.gradeLevel}\n` : "";
+  const difficultyLine =
+    input.difficulty === "mixed"
+      ? "مستويات الصعوبة: وزّع الأسئلة على مستويات مختلفة (سهل ومتوسط وصعب) واذكر مستوى كل سؤال في حقل difficulty."
+      : `مستوى صعوبة كل الأسئلة: ${input.difficulty === "easy" ? "سهل" : input.difficulty === "hard" ? "صعب" : "متوسط"} (اذكر القيمة نفسها في حقل difficulty لكل سؤال).`;
   return [
     "أنت معلم خبير يصيغ اختبارات من نصوص المناهج. أجب بصيغة JSON فقط، بدون أي نص خارج JSON وبدون أسوار كود (code fences).",
     "اكتب الأسئلة بنفس لغة النص المصدر. استخدم النص المصدر فقط: لا تخترع حقائق أو أسئلة عن معلومات غير موجودة فيه.",
     `${subjectLine}${gradeLine}أنشئ اختباراً بالمواصفات التالية:`,
     countLines,
+    difficultyLine,
     "صيغة JSON المطلوبة بالضبط:",
     JSON.stringify(
       {
@@ -115,6 +142,7 @@ export function buildGeneratePrompt(input: GeneratePromptInput): string {
             explanation: "شرح قصير (اختياري)",
             marks: 1,
             objective: "هدف التعلم (اختياري)",
+            difficulty: "medium",
           },
         ],
       },
@@ -127,6 +155,7 @@ export function buildGeneratePrompt(input: GeneratePromptInput): string {
     "- short_answer: correct_answer إجابة مختصرة متوقعة، وaccepted_alternatives بدائل مقبولة إن وجدت.",
     "- written: correct_answer فارغة، وrubric إلزامية: معايير تصحيح كل معيار في سطر مع درجته.",
     "- marks: رقم بين 0.5 و 10، والافتراضي 1 عند عدم التحديد.",
+    "- difficulty: مستوى صعوبة السؤال: easy أو medium أو hard فقط.",
     "نص المصدر:",
     input.sourceText,
   ].join("\n\n");
@@ -198,6 +227,7 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
+        difficulty: cleanDifficulty(item.difficulty),
       });
     } else if (type === "true_false") {
       const correct = cleanStr(item.correct_answer, 10);
@@ -212,6 +242,7 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
+        difficulty: cleanDifficulty(item.difficulty),
       });
     } else if (type === "short_answer") {
       const correct = cleanStr(item.correct_answer, 500);
@@ -226,6 +257,7 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
+        difficulty: cleanDifficulty(item.difficulty),
       });
     } else {
       // written: the rubric is the key; a written question without one is
@@ -242,6 +274,7 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
+        difficulty: cleanDifficulty(item.difficulty),
       });
     }
   }

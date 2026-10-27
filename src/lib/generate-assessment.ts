@@ -43,8 +43,10 @@ import {
   buildGeneratePrompt,
   distributeCounts,
   extractJsonObject,
+  isGenerateDifficulty,
   isGenerateQuestionType,
   parseGeneratedDraft,
+  type GenerateDifficulty,
   type GenerateQuestionType,
 } from "./generate-assessment-prompt";
 
@@ -53,10 +55,14 @@ export type GenerateAssessmentInput = {
   title: string;
   subjectId: string | null;
   gradeLevel: string;
-  /** Pasted chapter/lesson text ONLY (V1 scope — no PDF parsing). */
+  /** Pasted chapter/lesson text, or text extracted from an uploaded
+   *  file/image (the generate page extracts before calling; this
+   *  function still only ever receives plain text). */
   sourceText: string;
   questionCount: number;
   types: GenerateQuestionType[];
+  /** Difficulty preference: one level, or "mixed" (default). */
+  difficulty: GenerateDifficulty;
 };
 
 export type GenerateAssessmentResult = {
@@ -72,7 +78,10 @@ type AuthedContext = {
 
 const AI_TIMEOUT_MS = 120_000;
 const SOURCE_MIN_CHARS = 50;
-const SOURCE_MAX_CHARS = 12_000;
+/** Raised from 12,000 in Phase 2: file/image sources (a full chapter)
+ *  legitimately exceed the paste-only budget; 30,000 chars (~8k tokens)
+ *  still fits comfortably in the models' context windows. */
+const SOURCE_MAX_CHARS = 30_000;
 
 /** Validate the untrusted client payload. Throws Error("VALIDATION"). */
 function validateGenerateInput(data: unknown): GenerateAssessmentInput {
@@ -93,6 +102,7 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
     sourceText: sourceText.slice(0, SOURCE_MAX_CHARS),
     questionCount: Math.min(20, Math.max(1, Math.floor(rawCount))),
     types,
+    difficulty: isGenerateDifficulty(d.difficulty) ? d.difficulty : "mixed",
   };
 }
 
@@ -150,6 +160,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
       subjectName,
       gradeLevel: input.gradeLevel,
       counts,
+      difficulty: input.difficulty,
     });
 
     // OpenAI-compatible chat completions call. response_format is
@@ -233,6 +244,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
           marks: q.marks,
           objective: q.objective,
           options: q.options,
+          difficulty: q.difficulty,
         })
         .select("id")
         .single();

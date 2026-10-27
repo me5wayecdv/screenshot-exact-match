@@ -14,45 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      ai_training_examples: {
-        Row: {
-          ai_feedback: string | null
-          ai_suggested_score: number
-          created_at: string
-          id: string
-          model_name: string | null
-          question_text: string
-          rubric_text: string | null
-          student_answer_text: string
-          teacher_feedback: string | null
-          teacher_final_score: number
-        }
-        Insert: {
-          ai_feedback?: string | null
-          ai_suggested_score: number
-          created_at?: string
-          id?: string
-          model_name?: string | null
-          question_text: string
-          rubric_text?: string | null
-          student_answer_text: string
-          teacher_feedback?: string | null
-          teacher_final_score: number
-        }
-        Update: {
-          ai_feedback?: string | null
-          ai_suggested_score?: number
-          created_at?: string
-          id?: string
-          model_name?: string | null
-          question_text?: string
-          rubric_text?: string | null
-          student_answer_text?: string
-          teacher_feedback?: string | null
-          teacher_final_score?: number
-        }
-        Relationships: []
-      }
       answers: {
         Row: {
           ai_suggestion: Json | null
@@ -65,7 +26,6 @@ export type Database = {
           response: string
           review_status: Database["public"]["Enums"]["review_status"]
           submission_id: string
-          time_spent_seconds: number
         }
         Insert: {
           ai_suggestion?: Json | null
@@ -78,7 +38,6 @@ export type Database = {
           response?: string
           review_status?: Database["public"]["Enums"]["review_status"]
           submission_id: string
-          time_spent_seconds?: number
         }
         Update: {
           ai_suggestion?: Json | null
@@ -91,7 +50,6 @@ export type Database = {
           response?: string
           review_status?: Database["public"]["Enums"]["review_status"]
           submission_id?: string
-          time_spent_seconds?: number
         }
         Relationships: [
           {
@@ -145,7 +103,6 @@ export type Database = {
           teacher_id: string
           title: string
           updated_at: string
-          auto_whatsapp_send: boolean
         }
         Insert: {
           created_at?: string
@@ -158,7 +115,6 @@ export type Database = {
           teacher_id?: string
           title: string
           updated_at?: string
-          auto_whatsapp_send?: boolean
         }
         Update: {
           created_at?: string
@@ -171,7 +127,6 @@ export type Database = {
           teacher_id?: string
           title?: string
           updated_at?: string
-          auto_whatsapp_send?: boolean
         }
         Relationships: [
           {
@@ -270,69 +225,24 @@ export type Database = {
           }
         ]
       }
-      integrity_events: {
-        Row: {
-          created_at: string
-          event_type: string
-          id: string
-          question_id: string | null
-          submission_id: string
-        }
-        Insert: {
-          created_at?: string
-          event_type: string
-          id?: string
-          question_id?: string | null
-          submission_id: string
-        }
-        Update: {
-          created_at?: string
-          event_type?: string
-          id?: string
-          question_id?: string | null
-          submission_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "integrity_events_question_id_fkey"
-            columns: ["question_id"]
-            isOneToOne: false
-            referencedRelation: "questions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "integrity_events_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
-            referencedRelation: "submissions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       profiles: {
         Row: {
           created_at: string
           full_name: string
           id: string
           join_code: string | null
-          parent_phone: string | null
-          whatsapp_consent: boolean
         }
         Insert: {
           created_at?: string
           full_name?: string
           id: string
           join_code?: string | null
-          parent_phone?: string | null
-          whatsapp_consent?: boolean
         }
         Update: {
           created_at?: string
           full_name?: string
           id?: string
           join_code?: string | null
-          parent_phone?: string | null
-          whatsapp_consent?: boolean
         }
         Relationships: []
       }
@@ -372,6 +282,7 @@ export type Database = {
         Row: {
           assessment_id: string
           created_at: string
+          difficulty: string
           id: string
           marks: number
           objective: string
@@ -383,6 +294,7 @@ export type Database = {
         Insert: {
           assessment_id: string
           created_at?: string
+          difficulty?: string
           id?: string
           marks?: number
           objective?: string
@@ -394,6 +306,7 @@ export type Database = {
         Update: {
           assessment_id?: string
           created_at?: string
+          difficulty?: string
           id?: string
           marks?: number
           objective?: string
@@ -558,7 +471,6 @@ export type Database = {
           submitted_at: string
           teacher_feedback: string
           total_possible: number
-          question_order: Json | null
         }
         Insert: {
           assessment_id: string
@@ -570,7 +482,6 @@ export type Database = {
           submitted_at?: string
           teacher_feedback?: string
           total_possible?: number
-          question_order?: Json | null
         }
         Update: {
           assessment_id?: string
@@ -582,7 +493,6 @@ export type Database = {
           submitted_at?: string
           teacher_feedback?: string
           total_possible?: number
-          question_order?: Json | null
         }
         Relationships: [
           {
@@ -650,44 +560,6 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
-      }
-      whatsapp_sends: {
-        Row: {
-          error: string | null
-          id: string
-          message_id: string | null
-          sent_at: string
-          status: string
-          submission_id: string
-          trigger: string
-        }
-        Insert: {
-          error?: string | null
-          id?: string
-          message_id?: string | null
-          sent_at?: string
-          status: string
-          submission_id: string
-          trigger: string
-        }
-        Update: {
-          error?: string | null
-          id?: string
-          message_id?: string | null
-          sent_at?: string
-          status?: string
-          submission_id?: string
-          trigger?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "whatsapp_sends_submission_id_fkey"
-            columns: ["submission_id"]
-            isOneToOne: false
-            referencedRelation: "submissions"
-            referencedColumns: ["id"]
-          },
-        ]
       }
     }
     Views: {

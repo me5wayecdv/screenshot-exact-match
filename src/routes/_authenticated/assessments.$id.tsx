@@ -169,16 +169,19 @@ function Builder() {
             />
           ))}
           {!locked && (
-            <Panel>
-              <p className="mb-3 text-sm font-medium">{t("addQuestion")}</p>
-              <div className="flex flex-wrap gap-2">
-                {(["mcq", "true_false", "short_answer", "written"] as QType[]).map((ty) => (
-                  <Button key={ty} variant="outline" size="sm" onClick={() => addQuestion(ty)}>
-                    <Plus className="h-4 w-4" aria-hidden /> {t(`q_${ty}` as never)}
-                  </Button>
-                ))}
-              </div>
-            </Panel>
+            <>
+              <Panel>
+                <p className="mb-3 text-sm font-medium">{t("addQuestion")}</p>
+                <div className="flex flex-wrap gap-2">
+                  {(["mcq", "true_false", "short_answer", "written"] as QType[]).map((ty) => (
+                    <Button key={ty} variant="outline" size="sm" onClick={() => addQuestion(ty)}>
+                      <Plus className="h-4 w-4" aria-hidden /> {t(`q_${ty}` as never)}
+                    </Button>
+                  ))}
+                </div>
+              </Panel>
+              <QuestionBank assessmentId={id} positionBase={questions.length} onAdded={refresh} />
+            </>
           )}
         </div>
         <aside>
@@ -209,6 +212,125 @@ function Builder() {
         </aside>
       </div>
     </>
+  );
+}
+
+/**
+ * Question bank (Phase 2): reuse questions from the teacher's own
+ * earlier assessments. The list query is scoped by RLS — the
+ * "teacher manages questions" policy (owns_assessment) only ever
+ * returns this teacher's questions, so no cross-teacher leakage is
+ * possible even though the query has no explicit teacher filter.
+ * Copying inserts a NEW question + key into this assessment (the
+ * source is never linked or moved), so edits here never affect the
+ * original assessment. Hidden while locked, like addQuestion.
+ */
+function QuestionBank({
+  assessmentId,
+  positionBase,
+  onAdded,
+}: {
+  assessmentId: string;
+  positionBase: number;
+  onAdded: () => void;
+}) {
+  const { t, lang } = useI18n();
+  const [search, setSearch] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const { data: bank = [] } = useQuery({
+    queryKey: ["question-bank", assessmentId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("questions")
+        .select(
+          "id, prompt, type, marks, objective, difficulty, options, assessment_id, assessments(title)",
+        )
+        .neq("assessment_id", assessmentId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const q = search.trim().toLowerCase();
+  const visible = q ? bank.filter((b) => b.prompt.toLowerCase().includes(q)) : bank;
+
+  async function copy(b: (typeof bank)[number]) {
+    setBusyId(b.id);
+    try {
+      const { data: key } = await supabase
+        .from("question_keys")
+        .select("*")
+        .eq("question_id", b.id)
+        .maybeSingle();
+      const { data: saved, error: qErr } = await supabase
+        .from("questions")
+        .insert({
+          assessment_id: assessmentId,
+          type: b.type,
+          position: positionBase,
+          prompt: b.prompt,
+          marks: b.marks,
+          objective: b.objective ?? "",
+          options: (b.options as string[]) ?? [],
+          difficulty: b.difficulty ?? "medium",
+        })
+        .select("id")
+        .single();
+      if (qErr || !saved) throw qErr ?? new Error("Copy failed.");
+      const { error: kErr } = await supabase.from("question_keys").insert({
+        question_id: saved.id,
+        correct_answer: key?.correct_answer ?? "",
+        accepted_alternatives: (key?.accepted_alternatives as string[]) ?? [],
+        rubric: key?.rubric ?? "",
+        explanation: key?.explanation ?? "",
+      });
+      if (kErr) throw kErr;
+      toast.success(t("bankAdded"));
+      onAdded();
+    } catch (err) {
+      toast.error(translateError(err, lang));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Panel className="space-y-3">
+      <p className="text-sm font-medium">{t("bankTitle")}</p>
+      <p className="text-xs text-muted-foreground">{t("bankHint")}</p>
+      <Input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder={t("bankSearch")}
+      />
+      {visible.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t("bankEmpty")}</p>
+      ) : (
+        <ul className="space-y-2">
+          {visible.map((b) => (
+            <li key={b.id} className="flex items-start justify-between gap-2 rounded-md border p-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm">{b.prompt}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t(`q_${b.type}` as never)} ·{" "}
+                  {(b.assessments as { title?: string } | null)?.title ?? "—"}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busyId !== null}
+                onClick={() => void copy(b)}
+              >
+                {t("bankAdd")}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
   );
 }
 
@@ -370,6 +492,7 @@ function QuestionEditor({
   const [prompt, setPrompt] = useState(q.prompt);
   const [marks, setMarks] = useState(String(q.marks));
   const [objective, setObjective] = useState(q.objective);
+  const [difficulty, setDifficulty] = useState(q.difficulty ?? "medium");
   const [options, setOptions] = useState<string[]>((q.options as string[]) ?? []);
   const [correct, setCorrect] = useState(key?.correct_answer ?? "");
   const [alts, setAlts] = useState(((key?.accepted_alternatives as string[]) ?? []).join("\n"));
@@ -378,7 +501,7 @@ function QuestionEditor({
   const [dirty, setDirty] = useState(false);
   useEffect(
     () => setDirty(true),
-    [prompt, marks, objective, options, correct, alts, rubric, explanation],
+    [prompt, marks, objective, options, correct, alts, rubric, explanation, difficulty],
   );
   useEffect(() => setDirty(false), []);
 
@@ -407,6 +530,7 @@ function QuestionEditor({
         marks: m,
         objective: objective.trim(),
         options: cleanOpts.filter(Boolean),
+        difficulty,
       })
       .eq("id", q.id);
     if (r1.error) return void toast.error(translateError(r1.error, lang));
@@ -572,6 +696,18 @@ function QuestionEditor({
               onChange={(e) => setObjective(e.target.value)}
             />
           </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t("difficulty")}</Label>
+          <select
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+            value={difficulty}
+            onChange={(e) => setDifficulty(e.target.value)}
+          >
+            <option value="easy">{t("genDiffEasy")}</option>
+            <option value="medium">{t("genDiffMedium")}</option>
+            <option value="hard">{t("genDiffHard")}</option>
+          </select>
         </div>
         {q.type !== "written" && (
           <div className="space-y-1.5">
