@@ -48,7 +48,14 @@ import {
   parseGeneratedDraft,
   type GenerateDifficulty,
   type GenerateQuestionType,
+  type GeneratedDraft,
 } from "./generate-assessment-prompt";
+import {
+  classifyAiHttpStatus,
+  describeProviderError,
+  describeThrown,
+  type GenerateFailureCode,
+} from "./ai-failure";
 
 export type GenerateAssessmentInput = {
   /** Teacher-provided title; blank => the model's title is used. */
@@ -65,11 +72,22 @@ export type GenerateAssessmentInput = {
   difficulty: GenerateDifficulty;
 };
 
-export type GenerateAssessmentResult = {
+export type GenerateAssessmentSuccess = {
+  ok: true;
   assessmentId: string;
   title: string;
   questionCount: number;
 };
+
+export type GenerateAssessmentFailure = {
+  ok: false;
+  /** Stable code shown verbatim in the page's persistent error panel. */
+  code: GenerateFailureCode;
+  /** Non-secret diagnostic detail (HTTP status / provider message head). */
+  detail: string;
+};
+
+export type GenerateAssessmentResult = GenerateAssessmentSuccess | GenerateAssessmentFailure;
 
 type AuthedContext = {
   userId: string;
@@ -108,30 +126,59 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
 
 type AiChatResponse = {
   choices?: { message?: { content?: string | null } }[];
+  usage?: { completion_tokens?: number; total_tokens?: number };
 };
+
+/**
+ * Output-token budget for the reply. The OpenAI-compatible request used to
+ * omit max_tokens entirely, so the provider's implicit cap applied and a
+ * multi-question JSON reply was cut off mid-array (valid questions lost,
+ * nothing saved, no message). 4,096 tokens comfortably holds 20 questions
+ * with Arabic text, and extractJsonObject()'s repair path keeps a partially
+ * arrived reply usable if the provider still cuts earlier.
+ */
+const AI_MAX_TOKENS = 4096;
+
+/** Neutral title when neither the teacher nor the model supplies one. */
+const FALLBACK_TITLE = "اختبار مولَّد";
 
 export const generateAssessment = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ data, context }): Promise<GenerateAssessmentResult> => {
-    const input = validateGenerateInput(data);
+    // Failures are RETURNED, never thrown: a thrown error is re-serialised
+    // by the framework in production and the teacher sees a dead button
+    // with no diagnosis. Every branch below names its cause.
+    const fail = (code: GenerateFailureCode, detail = ""): GenerateAssessmentFailure => {
+      if (code !== "VALIDATION") console.error(`[generate] ${code}${detail ? `: ${detail}` : ""}`);
+      return { ok: false, code, detail };
+    };
+
+    let input: GenerateAssessmentInput;
+    try {
+      input = validateGenerateInput(data);
+    } catch {
+      return fail("VALIDATION");
+    }
+
     // requireSupabaseAuth puts userId + an RLS-scoped supabase client on
     // context. The cast is defensive: if the installed TanStack version
     // infers the middleware context, the coordinator can drop it.
-    const { userId, supabase } = context as unknown as AuthedContext;
-    if (!userId) throw new Error("NOT_TEACHER");
+    const authed = context as unknown as Partial<AuthedContext>;
+    const userId = authed.userId ?? "";
+    const supabase = authed.supabase as SupabaseClient<Database> | undefined;
+    if (!userId || !supabase) return fail("NOT_TEACHER");
 
     // Role gate: teachers only (school_teacher + tutor; legacy "teacher"
     // rows map to school_teacher, mirroring src/lib/session.ts).
-    const { data: roleRow } = await supabase
+    const { data: roleRow, error: roleErr } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", userId)
       .maybeSingle();
+    if (roleErr) return fail("DB_ERROR", describeThrown(roleErr));
     const rawRole = roleRow?.role as string | undefined;
     const role = rawRole === "teacher" ? "school_teacher" : rawRole;
-    if (role !== "school_teacher" && role !== "tutor") {
-      throw new Error("NOT_TEACHER");
-    }
+    if (role !== "school_teacher" && role !== "tutor") return fail("NOT_TEACHER");
 
     // Optional subject link: must exist and be visible to this teacher
     // (RLS hides other teachers' subjects, so a foreign id fails here).
@@ -142,17 +189,15 @@ export const generateAssessment = createServerFn({ method: "POST" })
         .select("id, name")
         .eq("id", input.subjectId)
         .maybeSingle();
-      if (error || !subj) throw new Error("VALIDATION");
+      if (error || !subj) return fail("VALIDATION", "SUBJECT_NOT_VISIBLE");
       subjectName = subj.name;
     }
 
     // AI provider check BEFORE any AI call or DB write: an unconfigured
     // provider is a configuration state, not a silent failure.
     const aiConfig = resolveAiConfig();
-    if (!aiConfig) throw new Error("AI_NOT_CONFIGURED");
-    const baseUrl = aiConfig.baseUrl;
-    const model = aiConfig.model;
-    const apiKey = aiConfig.apiKey;
+    if (!aiConfig) return fail("AI_NOT_CONFIGURED");
+    const { baseUrl, model, apiKey } = aiConfig;
 
     const counts = distributeCounts(input.questionCount, input.types);
     const prompt = buildGeneratePrompt({
@@ -167,7 +212,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
     // deliberately NOT requested: it is OpenAI-specific and would break
     // other OpenAI-compatible endpoints behind AI_BASE_URL; the prompt
     // demands JSON-only output and extractJsonObject() tolerates fences.
-    let replyText: string;
+    let replyText = "";
     try {
       // No Authorization header when the key is empty (local endpoints
       // without auth, e.g. Ollama).
@@ -179,6 +224,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
         body: JSON.stringify({
           model,
           temperature: 0.3,
+          max_tokens: AI_MAX_TOKENS,
           messages: [
             {
               role: "system",
@@ -190,25 +236,42 @@ export const generateAssessment = createServerFn({ method: "POST" })
         }),
         signal: AbortSignal.timeout(AI_TIMEOUT_MS),
       });
-      if (!res.ok) throw new Error("AI_UPSTREAM");
+      if (!res.ok) {
+        // Read the provider body (capped, message field only) so the code
+        // shown to the teacher is actionable: wrong key, quota, bad model.
+        let detail = "";
+        try {
+          detail = describeProviderError(await res.json());
+        } catch {
+          detail = "";
+        }
+        return fail(
+          classifyAiHttpStatus(res.status),
+          `HTTP ${res.status}${detail ? ` — ${detail}` : ""}`,
+        );
+      }
       const json = (await res.json()) as AiChatResponse;
       replyText = json.choices?.[0]?.message?.content ?? "";
-      if (!replyText.trim()) throw new Error("AI_PARSE_FAILED");
-    } catch (e) {
-      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) {
-        throw new Error("AI_TIMEOUT");
+      if (!replyText.trim()) {
+        const finish = (json as { choices?: { finish_reason?: string }[] }).choices?.[0]
+          ?.finish_reason;
+        return fail("AI_EMPTY_REPLY", finish ? `finish_reason=${finish}` : "");
       }
-      if (e instanceof Error && ["AI_UPSTREAM", "AI_PARSE_FAILED"].includes(e.message)) throw e;
-      throw new Error("AI_UPSTREAM");
+    } catch (e) {
+      const name = e instanceof Error ? e.name : "";
+      if (name === "TimeoutError" || name === "AbortError") return fail("AI_TIMEOUT");
+      return fail("AI_UPSTREAM", describeThrown(e));
     }
 
     // Defensive parse: drops unusable questions; fails cleanly (before
     // any DB write) if nothing valid survives.
-    let draft;
+    let draft: GeneratedDraft;
     try {
       draft = parseGeneratedDraft(extractJsonObject(replyText), input.questionCount);
     } catch {
-      throw new Error("AI_PARSE_FAILED");
+      // Ship the head of the reply so the failure is diagnosable from the
+      // error panel instead of "something went wrong".
+      return fail("AI_PARSE_FAILED", `reply: ${describeThrown(replyText, 160)}`);
     }
 
     // Save as an UNPUBLISHED draft owned by the teacher. No assignments,
@@ -216,7 +279,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
     const { data: assessment, error: aErr } = await supabase
       .from("assessments")
       .insert({
-        title: input.title || draft.title,
+        title: input.title || draft.title || FALLBACK_TITLE,
         teacher_id: userId,
         subject_id: input.subjectId,
         grade_level: input.gradeLevel,
@@ -225,7 +288,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
       })
       .select("id, title")
       .single();
-    if (aErr || !assessment) throw aErr ?? new Error("DB_ERROR");
+    if (aErr || !assessment) return fail("DB_ERROR", describeThrown(aErr));
 
     // Questions are inserted one by one (max 20) so each returned id can
     // be paired with its question_keys row. If a later insert fails, the
@@ -248,7 +311,9 @@ export const generateAssessment = createServerFn({ method: "POST" })
         })
         .select("id")
         .single();
-      if (qErr || !saved) throw qErr ?? new Error("DB_ERROR");
+      if (qErr || !saved) {
+        return fail("DB_ERROR", `questions insert #${i + 1}: ${describeThrown(qErr)}`);
+      }
       const { error: kErr } = await supabase.from("question_keys").insert({
         question_id: saved.id,
         correct_answer: q.correct_answer,
@@ -256,10 +321,13 @@ export const generateAssessment = createServerFn({ method: "POST" })
         rubric: q.rubric,
         explanation: q.explanation,
       });
-      if (kErr) throw kErr;
+      if (kErr) {
+        return fail("DB_ERROR", `question_keys insert #${i + 1}: ${describeThrown(kErr)}`);
+      }
     }
 
     return {
+      ok: true,
       assessmentId: assessment.id,
       title: assessment.title,
       questionCount: draft.questions.length,

@@ -197,8 +197,11 @@ function cleanMarks(v: unknown): number {
 /** Parse + validate raw model JSON. Throws Error("AI_PARSE_FAILED") on bad shape. */
 export function parseGeneratedDraft(raw: unknown, maxQuestions: number): GeneratedDraft {
   if (!isRecord(raw)) throw new Error("AI_PARSE_FAILED");
+  // A missing title is NOT fatal: the caller falls back to the teacher's
+  // title (or a neutral one). Only the questions decide if a reply is
+  // usable — failing here used to throw away a perfectly good set of
+  // questions just because the model skipped the title line.
   const title = cleanStr(raw.title, 200);
-  if (!title) throw new Error("AI_PARSE_FAILED");
   if (!Array.isArray(raw.questions)) throw new Error("AI_PARSE_FAILED");
 
   const questions: GeneratedQuestion[] = [];
@@ -283,10 +286,78 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
   return { title, questions };
 }
 
-/** Extract the JSON object from a model reply (tolerates ```json fences). */
+/**
+ * Rebuild a JSON object whose reply was cut off mid-array (the classic
+ * symptom of hitting the provider's output-token cap): keep every question
+ * object that arrived complete, then close the array and the root object.
+ * Returns null when nothing complete is available.
+ */
+export function repairTruncatedJson(text: string): string | null {
+  const keyMatch = /"questions"\s*:/.exec(text);
+  if (!keyMatch) return null;
+  const arrOpen = text.indexOf("[", keyMatch.index + keyMatch[0].length);
+  if (arrOpen === -1) return null;
+  const prefix = text.slice(0, arrOpen + 1);
+  const tail = text.slice(arrOpen + 1);
+  const items: string[] = [];
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let itemStart = -1;
+  for (let i = 0; i < tail.length; i++) {
+    const ch = tail[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) itemStart = i;
+      depth++;
+      continue;
+    }
+    if (ch === "}") {
+      depth--;
+      if (depth === 0 && itemStart !== -1) {
+        items.push(tail.slice(itemStart, i + 1));
+        itemStart = -1;
+      }
+      continue;
+    }
+  }
+  if (items.length === 0) return null;
+  return `${prefix}${items.join(",")}]}`;
+}
+
+/**
+ * Extract the JSON object from a model reply. Tolerates ```json fences and
+ * leading prose, and repairs a reply truncated at the provider's output cap
+ * instead of failing the whole generation.
+ */
 export function extractJsonObject(text: string): unknown {
   const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) throw new Error("AI_PARSE_FAILED");
-  return JSON.parse(text.slice(start, end + 1));
+  if (start === -1) throw new Error("AI_PARSE_FAILED");
+  const body = text.slice(start);
+  const end = body.lastIndexOf("}");
+  if (end > 0) {
+    try {
+      return JSON.parse(body.slice(0, end + 1));
+    } catch {
+      // fall through to the truncated-reply repair below
+    }
+  }
+  const repaired = repairTruncatedJson(body);
+  if (repaired) {
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      // fall through: genuinely unparseable
+    }
+  }
+  throw new Error("AI_PARSE_FAILED");
 }
