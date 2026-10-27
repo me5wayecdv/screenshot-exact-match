@@ -359,8 +359,12 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="font-semibold">{a.title}</h3>
                   {sub && (
-                    <Pill t={statusTone[sub.status]}>
-                      {sub.status === "released" ? t("sub_released") : t("awaitingResult")}
+                    <Pill t={statusTone[sub.status] ?? "neutral"}>
+                      {sub.status === "released"
+                        ? t("sub_released")
+                        : sub.status === "in_progress"
+                          ? t("draft")
+                          : t("awaitingResult")}
                     </Pill>
                   )}
                 </div>
@@ -373,6 +377,12 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
                       <Pill t="success">
                         {t("finalScore")}: {sub.final_score}/{sub.total_possible}
                       </Pill>
+                    ) : sub.status === "in_progress" ? (
+                      <Button asChild size="sm">
+                        <Link to="/assessments/take/$id" params={{ id: a.id }}>
+                          {t("continueAttempt")}
+                        </Link>
+                      </Button>
                     ) : null
                   ) : !canStart ? (
                     <Pill t="danger">{t("deadlinePassed")}</Pill>

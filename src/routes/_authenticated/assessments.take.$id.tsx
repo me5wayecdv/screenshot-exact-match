@@ -102,6 +102,7 @@ function Take() {
   const { data, isLoading, error } = useTakeData(id, me?.id);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -512,16 +513,32 @@ function Take() {
         ))}
       </div>
 
-      <div className="mt-6">
-        <Button
-          onClick={() => {
-            if (!window.confirm(t("submitConfirm"))) return;
-            void submitAttempt();
-          }}
-          disabled={busy}
-        >
-          {busy ? t("saving") : t("submit")}
-        </Button>
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        {confirming ? (
+          <>
+            <span className="text-sm">{t("submitConfirm")}</span>
+            <Button
+              onClick={async () => {
+                setConfirming(false);
+                await submitAttempt();
+              }}
+              disabled={busy}
+            >
+              {busy ? t("saving") : t("submit")}
+            </Button>
+            <button
+              type="button"
+              className="text-sm underline"
+              onClick={() => setConfirming(false)}
+            >
+              {t("cancel")}
+            </button>
+          </>
+        ) : (
+          <Button onClick={() => setConfirming(true)} disabled={busy}>
+            {busy ? t("saving") : t("submit")}
+          </Button>
+        )}
       </div>
     </>
   );
