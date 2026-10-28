@@ -199,6 +199,24 @@ const OCR_SYSTEM_PROMPT =
   "If the page is in English, transcribe it in English; if in Arabic, in Arabic — never translate. " +
   'أجب بصيغة JSON فقط: {"text": "..."}.';
 
+/** Accept a plain string or an array of { text } parts (some providers
+ *  return message content as parts instead of a string). */
+function textFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "object" && part !== null && "text" in part) {
+          const text = (part as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
 async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
@@ -208,6 +226,77 @@ async function callVisionOcr(
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+    // Cloudflare's OpenAI-compatible endpoint is documented for TEXT
+    // generation only — a vision model called through it is refused
+    // (HTTP 403 observed live 2026-10-29). Vision models on Cloudflare
+    // go through the native Workers AI run endpoint instead; other
+    // providers keep the OpenAI-compatible path below.
+    if (config.baseUrl.includes("api.cloudflare.com/client/v4/accounts/")) {
+      const runBase = config.baseUrl.replace(/\/v1\/?$/, "");
+      const res = await fetch(`${runBase}/run/${config.model}`, {
+        method: "POST",
+        signal: controller.signal,
+        headers,
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: OCR_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: "استخرج النص المكتوب بخط اليد في هذه الصورة حرفياً.",
+            },
+          ],
+          image: imageDataUrl,
+          max_tokens: 4000,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        const lowered = body.toLowerCase();
+        if (
+          res.status === 400 &&
+          (lowered.includes("image") ||
+            lowered.includes("vision") ||
+            lowered.includes("multimodal") ||
+            lowered.includes("unsupported"))
+        ) {
+          return {
+            ok: false,
+            code: "VISION_UNSUPPORTED",
+            message: "The configured model does not support image input.",
+          };
+        }
+        return {
+          ok: false,
+          code: "VISION_UPSTREAM",
+          message: `Vision provider returned HTTP ${res.status}.`,
+        };
+      }
+      const json = (await res.json()) as {
+        success?: boolean;
+        result?: unknown;
+      };
+      if (json.success === false) {
+        return {
+          ok: false,
+          code: "VISION_UPSTREAM",
+          message: "Vision provider rejected the request.",
+        };
+      }
+      const result = json.result;
+      const response =
+        result && typeof result === "object" && "response" in result
+          ? (result as { response?: unknown }).response
+          : result;
+      const rawText = textFromContent(response);
+      if (!rawText.trim()) {
+        return {
+          ok: false,
+          code: "VISION_PARSE_FAILED",
+          message: "Vision provider returned no text.",
+        };
+      }
+      return { ok: true, text: extractTranscription(rawText) };
+    }
     const res = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
