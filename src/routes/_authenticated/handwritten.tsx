@@ -184,6 +184,10 @@ function Handwritten() {
   /** Optional teacher note attached to the saved grade (not the score). */
   const [teacherFeedback, setTeacherFeedback] = useState("");
   const [visionConfigured, setVisionConfigured] = useState<boolean | null>(null);
+  // Persistent OCR error: toasts auto-dismiss, so a failed extraction
+  // used to leave no trace. This panel stays until the next extraction
+  // attempt or a new photo, and keeps the raw code plus server detail.
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const [busyOcr, setBusyOcr] = useState(false);
   const [busySuggest, setBusySuggest] = useState(false);
   const [busySave, setBusySave] = useState(false);
@@ -334,6 +338,7 @@ function Handwritten() {
       setCorrectedText("");
       setOcrModel("");
       setSuggestion(null);
+      setOcrError(null);
       // PLATFORM RULE: every uploaded photo is persisted server-side.
       // The paper is uploaded immediately on select, not only on save.
       setUploadingImage(true);
@@ -514,6 +519,7 @@ function Handwritten() {
       return;
     }
     setBusyOcr(true);
+    setOcrError(null);
     try {
       const accessToken = await getAccessToken();
       const result = await ocrHandwrittenImage({
@@ -521,6 +527,10 @@ function Handwritten() {
       });
       if (!result.ok) {
         if (result.code === "VISION_NOT_CONFIGURED") setVisionConfigured(false);
+        // Persistent panel: toasts auto-dismiss, so a failed extraction
+        // used to leave no trace. Keep the mapped message plus the raw
+        // code and server detail for diagnosis.
+        setOcrError(`${t(ocrErrorKey(result.code) as never)} [${result.code}] ${result.message}`);
         toast.error(t(ocrErrorKey(result.code) as never));
         return;
       }
@@ -529,6 +539,7 @@ function Handwritten() {
       setOcrModel(result.model);
       setSuggestion(null);
     } catch (err) {
+      setOcrError(translateError(err, lang));
       toast.error(translateError(err, lang));
     } finally {
       setBusyOcr(false);
@@ -980,6 +991,11 @@ function Handwritten() {
             </div>
           )}
           <p className="rounded-md bg-warning/20 p-3 text-sm">{t("hwOcrNote")}</p>
+          {ocrError ? (
+            <p role="alert" className="rounded-md bg-destructive/15 p-3 text-sm">
+              {ocrError}
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={runOcr}

@@ -255,8 +255,25 @@ async function callVisionOcr(
     const json = (await res.json()) as {
       choices?: { message?: { content?: string | unknown } }[];
     };
-    const content = json.choices?.[0]?.message?.content;
-    const rawText = typeof content === "string" ? content : "";
+    const content: unknown = json.choices?.[0]?.message?.content;
+    // Some OpenAI-compatible providers return message content as an array
+    // of parts (e.g. [{ type: "text", text: "..." }]) instead of a plain
+    // string — especially for multimodal models. Treating that as empty
+    // used to surface as a silent VISION_PARSE_FAILED, so join text parts.
+    let rawText = "";
+    if (typeof content === "string") {
+      rawText = content;
+    } else if (Array.isArray(content)) {
+      rawText = content
+        .map((part) => {
+          if (typeof part === "object" && part !== null && "text" in part) {
+            const text = (part as { text?: unknown }).text;
+            return typeof text === "string" ? text : "";
+          }
+          return "";
+        })
+        .join("");
+    }
     if (!rawText.trim()) {
       return {
         ok: false,
