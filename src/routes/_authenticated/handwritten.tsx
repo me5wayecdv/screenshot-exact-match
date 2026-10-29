@@ -317,7 +317,7 @@ function Handwritten() {
     return path;
   }
 
-  async function splitImageDataUrl(dataUrl: string): Promise<[string, string]> {
+  async function splitImageDataUrl(dataUrl: string): Promise<string[]> {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {
       const el = new Image();
       el.onload = () => resolve(el);
@@ -354,7 +354,9 @@ function Handwritten() {
         reader.readAsDataURL(blob);
       });
     };
-    return [await half(0, 0.55), await half(0.45, 1)];
+    // Four overlapping quarters: halves proved insufficient live
+    // (dense Arabic page still exceeded the provider budget).
+    return [await half(0, 0.3), await half(0.25, 0.55), await half(0.5, 0.8), await half(0.75, 1)];
   }
 
   function joinSplitTexts(a: string, b: string): string {
@@ -380,13 +382,18 @@ function Handwritten() {
     assessmentId: string | undefined,
   ): Promise<{ text: string; model: string } | null> {
     try {
-      const halves = await splitImageDataUrl(dataUrl);
-      const [r1, r2] = await Promise.all([
-        ocrHandwrittenImage({ data: { imageDataUrl: halves[0], accessToken, assessmentId } }),
-        ocrHandwrittenImage({ data: { imageDataUrl: halves[1], accessToken, assessmentId } }),
+      const quarters = await splitImageDataUrl(dataUrl);
+      const [r1, r2, r3, r4] = await Promise.all([
+        ocrHandwrittenImage({ data: { imageDataUrl: quarters[0], accessToken, assessmentId } }),
+        ocrHandwrittenImage({ data: { imageDataUrl: quarters[1], accessToken, assessmentId } }),
+        ocrHandwrittenImage({ data: { imageDataUrl: quarters[2], accessToken, assessmentId } }),
+        ocrHandwrittenImage({ data: { imageDataUrl: quarters[3], accessToken, assessmentId } }),
       ]);
-      if (!r1.ok || !r2.ok) return null;
-      return { text: joinSplitTexts(r1.text, r2.text), model: r1.model };
+      if (!r1.ok || !r2.ok || !r3.ok || !r4.ok) return null;
+      return {
+        text: joinSplitTexts(joinSplitTexts(joinSplitTexts(r1.text, r2.text), r3.text), r4.text),
+        model: r1.model,
+      };
     } catch {
       return null;
     }
@@ -610,8 +617,8 @@ function Handwritten() {
         // 408/timeout-only fallback: the provider enforces a ~120s
         // per-call budget that a dense page's transcription exceeds
         // (HTTP 408, code 3046 — unchangeable from the client).
-        // Transcribe overlapping halves (each ~half the output) and
-        // join them; normal pages never take this path.
+        // Transcribe overlapping quarters (each ~a third of the
+        // output) and join them; normal pages never take this path.
         let recovered = false;
         if (result.message.includes("408") || result.code === "VISION_TIMEOUT") {
           const split = await trySplitOcr(imageDataUrl, accessToken, assessmentId || undefined);

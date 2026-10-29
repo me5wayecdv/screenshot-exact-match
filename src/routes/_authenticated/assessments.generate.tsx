@@ -234,7 +234,7 @@ function Generate() {
     }
   }
 
-  async function splitImageBlob(blob: Blob): Promise<[Blob, Blob]> {
+  async function splitImageBlob(blob: Blob): Promise<Blob[]> {
     const bitmap = await createImageBitmap(blob);
     try {
       const half = async (y0: number, y1: number): Promise<Blob> => {
@@ -260,7 +260,14 @@ function Generate() {
         if (!out) throw new Error("Compression failed.");
         return out;
       };
-      return [await half(0, 0.55), await half(0.45, 1)];
+      // Four overlapping quarters: halves proved insufficient live
+      // (dense Arabic page still exceeded the provider budget).
+      return [
+        await half(0, 0.3),
+        await half(0.25, 0.55),
+        await half(0.5, 0.8),
+        await half(0.75, 1),
+      ];
     } finally {
       bitmap.close();
     }
@@ -311,28 +318,36 @@ function Generate() {
       });
       if (!res.ok) {
         // 408/timeout-only fallback (see handwritten.tsx): split each
-        // page into overlapping halves and transcribe those instead.
+        // page into overlapping quarters and transcribe those instead.
         // Per-file calls keep the batch within the 1–5 image limit.
         if (res.message.includes("408") || res.code === "VISION_TIMEOUT") {
           try {
             const perFile: string[] = [];
             for (let i = 0; i < files.length; i++) {
-              const halves = await splitImageBlob(blobs[i]);
-              const halfDataUrls: string[] = [];
-              for (const half of halves) {
+              const quarters = await splitImageBlob(blobs[i]);
+              const quarterDataUrls: string[] = [];
+              for (const quarter of quarters) {
                 try {
-                  await uploadSource(half, "jpg");
+                  await uploadSource(quarter, "jpg");
                 } catch {
-                  // Halves are derivatives of an already-persisted
-                  // original; a failed half upload must not block OCR.
+                  // Quarters are derivatives of an already-persisted
+                  // original; a failed quarter upload must not block OCR.
                 }
-                halfDataUrls.push(await blobToDataUrl(half));
+                quarterDataUrls.push(await blobToDataUrl(quarter));
               }
               const splitRes = await ocrSourceImages({
-                data: { imageDataUrls: halfDataUrls, accessToken: session?.access_token ?? "" },
+                data: { imageDataUrls: quarterDataUrls, accessToken: session?.access_token ?? "" },
               });
-              if (!splitRes.ok || splitRes.texts.length !== 2) throw new Error("split failed");
-              perFile.push(joinSplitTexts(splitRes.texts[0], splitRes.texts[1]));
+              if (!splitRes.ok || splitRes.texts.length !== 4) throw new Error("split failed");
+              perFile.push(
+                joinSplitTexts(
+                  joinSplitTexts(
+                    joinSplitTexts(splitRes.texts[0], splitRes.texts[1]),
+                    splitRes.texts[2],
+                  ),
+                  splitRes.texts[3],
+                ),
+              );
             }
             const joined = perFile.join("\n\n");
             if (joined.trim().length >= 50) {
