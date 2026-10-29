@@ -39,7 +39,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
-import { resolveVisionConfig, type OcrErrorCode } from "./handwritten";
+import { resolveVisionConfig, runImageToTextModel, type OcrErrorCode } from "./handwritten";
 import { resolveAiConfig } from "./ai-config";
 import { matchByNumber, parseQuestionNumber } from "@/lib/paper-match";
 
@@ -194,6 +194,27 @@ async function callVisionMatch(
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    // LLaVA (image-to-text) cannot take the chat-completions shape below:
+    // on Cloudflare it needs the native run endpoint with a byte-array
+    // image + text prompt. See runImageToTextModel in ./handwritten.
+    if (
+      baseUrl.includes("api.cloudflare.com/client/v4/accounts/") &&
+      /\/v1\/?$/.test(baseUrl) &&
+      model.includes("llava")
+    ) {
+      const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+      const llava = await runImageToTextModel(
+        runUrl,
+        headers,
+        controller.signal,
+        imageDataUrl,
+        "Transcribe the text in this image and identify the question number shown in it. " +
+          'Answer with JSON only: {"text": "...", "question_number": N}.',
+      );
+      if (!llava.ok) return llava;
+      const { text, questionNumber } = extractMatchReply(llava.text);
+      return { ok: true, text, questionNumber };
+    }
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,

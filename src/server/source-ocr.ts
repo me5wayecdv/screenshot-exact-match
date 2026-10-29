@@ -28,7 +28,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
-import { resolveVisionConfig, type OcrErrorCode } from "./handwritten";
+import { resolveVisionConfig, runImageToTextModel, type OcrErrorCode } from "./handwritten";
 
 export type SourceOcrResult =
   | { ok: true; texts: string[] }
@@ -130,6 +130,28 @@ async function callVisionOcr(
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    // LLaVA (image-to-text) cannot take the chat-completions shape below:
+    // on Cloudflare it needs the native run endpoint with a byte-array
+    // image + text prompt. See runImageToTextModel in ./handwritten.
+    if (
+      baseUrl.includes("api.cloudflare.com/client/v4/accounts/") &&
+      /\/v1\/?$/.test(baseUrl) &&
+      model.includes("llava")
+    ) {
+      const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+      const llava = await runImageToTextModel(
+        runUrl,
+        headers,
+        controller.signal,
+        imageDataUrl,
+        "Transcribe all text visible in this curriculum page image completely and literally, " +
+          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
+          "Parts that are unreadable, write [unclear] in their place. " +
+          'Answer with JSON only: {"text": "..."}.',
+      );
+      if (!llava.ok) return llava;
+      return { ok: true, text: extractTranscription(llava.text) };
+    }
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,

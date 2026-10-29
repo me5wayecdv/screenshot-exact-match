@@ -46,8 +46,15 @@ Any OpenAI-compatible provider works. Free/open options to point at:
     appends `/chat/completions`).
   - `AI_MODEL` to `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (text: grading
     suggestions + assessment generation).
-  - `AI_VISION_MODEL` to `@cf/meta/llama-3.2-11b-vision-instruct` (vision:
-    handwritten-paper OCR).
+  - `AI_VISION_MODEL` to `@cf/llava-hf/llava-1.5-7b-hf` (vision:
+    handwritten-paper OCR, curriculum-page OCR, paper matching).
+    Switched 2026-10-29: the Llama 3.2 vision model's Meta license
+    agreement could not be registered from this account's available
+    tokens (Playground chat messages and server chat messages both
+    failed; the documented `{"prompt": "agree"}` form needs a Workers
+    AI-scoped token, and the deploy token returned auth error 10000
+    on the AI endpoint). LLaVA needs no agreement. The Llama chat
+    path stays in code for a future switch-back via `AI_VISION_MODEL`.
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they
@@ -83,9 +90,14 @@ self-hosted model needs a machine with enough RAM/VRAM for the model size.
 
 ## Handwritten paper grading (OCR) — needs a vision-capable model
 
-The `/handwritten` page sends the paper photo to the same OpenAI-compatible
-endpoint as a multimodal chat completion (text + image). One extra
-server-side variable controls which model reads the photos:
+The `/handwritten` page sends the paper photo to the vision model
+through the native Workers AI run endpoint. Chat-capable vision
+models take a messages payload; image-to-text models (current:
+LLaVA) take a byte-array image + text prompt and answer in
+`result.description` — see `runImageToTextModel` in
+`src/server/handwritten.ts`, shared by handwritten OCR, source OCR,
+and paper matching. One extra server-side variable controls which
+model reads the photos:
 
 | Variable          | Required | Meaning |
 | ----------------- | -------- | ------- |

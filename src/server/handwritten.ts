@@ -224,6 +224,63 @@ function stripDataUris(text: string): string {
   return text.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, "[image data omitted]");
 }
 
+/** Image-to-text models (e.g. LLaVA) take a byte-array image + text
+ *  prompt on the native Workers AI run endpoint — not a chat-messages
+ *  payload — and answer in `result.description`. Shared by the three
+ *  vision call sites (handwritten, source OCR, paper matching) so the
+ *  model switch stays in one place. Returns the raw model text; the
+ *  caller parses it (JSON transcription or match reply). */
+export async function runImageToTextModel(
+  runUrl: string,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  imageDataUrl: string,
+  prompt: string,
+): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+  const base64 = imageDataUrl.split(",", 2)[1] ?? "";
+  const bytes = Buffer.from(base64, "base64");
+  const res = await fetch(runUrl, {
+    method: "POST",
+    signal,
+    headers,
+    body: JSON.stringify({
+      image: Array.from(bytes),
+      prompt,
+      max_tokens: 4000,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    return {
+      ok: false,
+      code: "VISION_UPSTREAM",
+      message: `Vision provider returned HTTP ${res.status}: ${stripDataUris(body).slice(0, 500)}`,
+    };
+  }
+  const json = (await res.json()) as {
+    success?: boolean;
+    result?: unknown;
+    errors?: unknown;
+  };
+  if (json.success === false) {
+    return {
+      ok: false,
+      code: "VISION_UPSTREAM",
+      message: `Vision provider rejected the request: ${stripDataUris(JSON.stringify(json.errors ?? "")).slice(0, 500)}`,
+    };
+  }
+  const result = json.result;
+  const description =
+    result && typeof result === "object" && "description" in result
+      ? (result as { description?: unknown }).description
+      : result;
+  const text = textFromContent(description);
+  if (!text.trim()) {
+    return { ok: false, code: "VISION_PARSE_FAILED", message: "Vision provider returned no text." };
+  }
+  return { ok: true, text };
+}
+
 async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
@@ -244,6 +301,25 @@ async function callVisionOcr(
     ) {
       const runBase = config.baseUrl.replace(/\/v1\/?$/, "");
       const runUrl = `${runBase}/run/${config.model}`;
+      // Image-to-text models (LLaVA) cannot take the chat-messages
+      // payload below. (2026-10-29: AI_VISION_MODEL was switched to
+      // LLaVA because the Llama 3.2 vision model's Meta license
+      // agreement could not be registered from this account's available
+      // tokens; the chat path stays for a future switch-back.)
+      if (config.model.includes("llava")) {
+        const llava = await runImageToTextModel(
+          runUrl,
+          headers,
+          controller.signal,
+          imageDataUrl,
+          "Transcribe all handwritten text visible in this image exactly, character for character. " +
+            "Do not correct spelling or grammar and do not add any words of your own. " +
+            "Keep line breaks. Parts that are completely unreadable, write [unclear] in their place. " +
+            'Answer with JSON only: {"text": "..."}.',
+        );
+        if (!llava.ok) return llava;
+        return { ok: true, text: extractTranscription(llava.text) };
+      }
       const visionInit = {
         method: "POST",
         signal: controller.signal,
