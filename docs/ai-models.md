@@ -70,6 +70,12 @@ Any OpenAI-compatible provider works. Free/open options to point at:
     handwritten instead of ending silently: live 2026-10-29 the
     single call returned "..." with no error and the fallback
     never engaged.
+  - Moondream A/B 2026-10-29: `@cf/moondream/moondream3.1-9B-A2B`
+    via a task payload (`task: "query"`, byte-array image,
+    `max_tokens: 4000` → `result.description`), no license
+    agreement required. Paid-plan requirement unverified — the
+    A/B test reveals it; revert is a one-var switch back to
+    Llama, no code removal.
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they

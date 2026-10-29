@@ -296,6 +296,66 @@ export async function runImageToTextModel(
   return { ok: true, text };
 }
 
+/** Moondream 3.1 on Workers AI takes a task-based payload — not chat
+ *  messages and not the LLaVA shape. `task: "query"` with a byte-array
+ *  image answers in `result.description` (falling back to `answer` /
+ *  raw text). No license agreement is required for this model.
+ *  Added for the 2026-10-29 A/B test against Llama 3.2 vision on the
+ *  dense Arabic page; the model switch stays in AI_VISION_MODEL. */
+export async function runMoondreamQuery(
+  runUrl: string,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  imageDataUrl: string,
+  prompt: string,
+): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+  const base64 = imageDataUrl.split(",", 2)[1] ?? "";
+  const bytes = Buffer.from(base64, "base64");
+  const res = await fetch(runUrl, {
+    method: "POST",
+    signal,
+    headers,
+    body: JSON.stringify({
+      task: "query",
+      image: Array.from(bytes),
+      prompt,
+      max_tokens: 4000,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    return {
+      ok: false,
+      code: "VISION_UPSTREAM",
+      message: `Vision provider returned HTTP ${res.status}: ${stripDataUris(body).slice(0, 500)}`,
+    };
+  }
+  const json = (await res.json()) as {
+    success?: boolean;
+    result?: unknown;
+    errors?: unknown;
+  };
+  if (json.success === false) {
+    return {
+      ok: false,
+      code: "VISION_UPSTREAM",
+      message: `Vision provider rejected the request: ${stripDataUris(JSON.stringify(json.errors ?? "")).slice(0, 500)}`,
+    };
+  }
+  const result = json.result;
+  const described =
+    result && typeof result === "object" && "description" in result
+      ? (result as { description?: unknown }).description
+      : result && typeof result === "object" && "answer" in result
+        ? (result as { answer?: unknown }).answer
+        : result;
+  const text = textFromContent(described);
+  if (!text.trim()) {
+    return { ok: false, code: "VISION_PARSE_FAILED", message: "Vision provider returned no text." };
+  }
+  return { ok: true, text };
+}
+
 async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
@@ -334,6 +394,22 @@ async function callVisionOcr(
         );
         if (!llava.ok) return llava;
         return { ok: true, text: extractTranscription(llava.text) };
+      }
+      // Moondream takes a task payload, not chat messages. A/B test
+      // 2026-10-29 against Llama vision on the dense Arabic page.
+      if (config.model.includes("moondream")) {
+        const moon = await runMoondreamQuery(
+          runUrl,
+          headers,
+          controller.signal,
+          imageDataUrl,
+          "Transcribe all text visible in this image completely and literally, " +
+            "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
+            "Parts that are unreadable, write [unclear] in their place. " +
+            "Return only the transcription, nothing else.",
+        );
+        if (!moon.ok) return moon;
+        return { ok: true, text: extractTranscription(moon.text) };
       }
       const visionInit = {
         method: "POST",

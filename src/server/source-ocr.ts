@@ -31,6 +31,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   resolveVisionConfig,
   runImageToTextModel,
+  runMoondreamQuery,
   stripDataUris,
   textFromContent,
   type OcrErrorCode,
@@ -169,6 +170,21 @@ async function callVisionOcr(
       );
       if (!llava.ok) return llava;
       return { ok: true, text: extractTranscription(llava.text) };
+    }
+    if (model.includes("moondream")) {
+      const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+      const moon = await runMoondreamQuery(
+        runUrl,
+        headers,
+        controller.signal,
+        imageDataUrl,
+        "Transcribe all text visible in this curriculum page image completely and literally, " +
+          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
+          "Parts that are unreadable, write [unclear] in their place. " +
+          "Return only the transcription, nothing else.",
+      );
+      if (!moon.ok) return moon;
+      return { ok: true, text: extractTranscription(moon.text) };
     }
     // Cloudflare vision models go through the native Workers AI run
     // endpoint (top-level `image` + text-only messages) — the

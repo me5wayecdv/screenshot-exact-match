@@ -42,6 +42,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   resolveVisionConfig,
   runImageToTextModel,
+  runMoondreamQuery,
   stripDataUris,
   textFromContent,
   type OcrErrorCode,
@@ -233,6 +234,21 @@ async function callVisionMatch(
       );
       if (!llava.ok) return llava;
       const { text, questionNumber } = extractMatchReply(llava.text);
+      return { ok: true, text, questionNumber };
+    }
+    if (model.includes("moondream")) {
+      const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+      const moon = await runMoondreamQuery(
+        runUrl,
+        headers,
+        controller.signal,
+        imageDataUrl,
+        "Transcribe the text in this image. If a question number is shown in the image, " +
+          "write it on the first line as: Question number: N. Then write the transcription. " +
+          "Return only that, nothing else.",
+      );
+      if (!moon.ok) return moon;
+      const { text, questionNumber } = extractMatchReply(moon.text);
       return { ok: true, text, questionNumber };
     }
     // Cloudflare vision models go through the native Workers AI run
