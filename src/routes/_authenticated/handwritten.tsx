@@ -376,6 +376,13 @@ function Handwritten() {
     return [...aLines, ...bLines.slice(overlap)].join("\n");
   }
 
+  // A transcription of only dots/whitespace is a degenerate model
+  // output, not text. Treat it as a failure so the split fallback
+  // runs instead of ending silently with an empty box.
+  function isUselessText(t: string): boolean {
+    return t.replace(/[\s.]+/g, "") === "";
+  }
+
   async function trySplitOcr(
     dataUrl: string,
     accessToken: string,
@@ -609,21 +616,28 @@ function Handwritten() {
       const result = await ocrHandwrittenImage({
         data: { imageDataUrl, accessToken, assessmentId: assessmentId || undefined },
       });
-      if (result.ok) {
+      const useless = result.ok && isUselessText(result.text);
+      const shouldSplit =
+        useless ||
+        (!result.ok && (result.message.includes("408") || result.code === "VISION_TIMEOUT"));
+      if (result.ok && !useless) {
         setExtractedText(result.text);
         setCorrectedText(result.text);
         setOcrModel(result.model);
         setSuggestion(null);
       } else {
-        // 408/timeout-only fallback: the provider enforces a ~120s
-        // per-call budget that a dense page's transcription exceeds
-        // (HTTP 408, code 3046 — unchangeable from the client).
-        // Transcribe overlapping quarters (each ~a third of the
-        // output) and join them; normal pages never take this path.
+        // Fallback: the provider enforces a ~120s per-call budget
+        // that a dense page's transcription exceeds (HTTP 408, code
+        // 3046 — unchangeable from the client), so transcribe
+        // overlapping quarters (each ~a third of the output) and
+        // join them. It also runs when the single call returns an
+        // ok-but-useless result, which used to end silently with
+        // an empty box and no error. Normal pages never take this
+        // path.
         let recovered = false;
-        if (result.message.includes("408") || result.code === "VISION_TIMEOUT") {
+        if (shouldSplit) {
           const split = await trySplitOcr(imageDataUrl, accessToken, assessmentId || undefined);
-          if (split) {
+          if (split && !isUselessText(split.text)) {
             setExtractedText(split.text);
             setCorrectedText(split.text);
             setOcrModel(split.model);
@@ -632,12 +646,21 @@ function Handwritten() {
           }
         }
         if (!recovered) {
-          if (result.code === "VISION_NOT_CONFIGURED") setVisionConfigured(false);
+          if (!result.ok && result.code === "VISION_NOT_CONFIGURED") setVisionConfigured(false);
           // Persistent panel: toasts auto-dismiss, so a failed extraction
           // used to leave no trace. Keep the mapped message plus the raw
-          // code and server detail for diagnosis.
-          setOcrError(`${t(ocrErrorKey(result.code) as never)} [${result.code}] ${result.message}`);
-          toast.error(t(ocrErrorKey(result.code) as never));
+          // code and server detail for diagnosis. An ok-but-useless
+          // result has no error code, so it gets the generic failure
+          // message instead of silence.
+          if (result.ok) {
+            setOcrError(t("hwOcrFailed"));
+            toast.error(t("hwOcrFailed"));
+          } else {
+            setOcrError(
+              `${t(ocrErrorKey(result.code) as never)} [${result.code}] ${result.message}`,
+            );
+            toast.error(t(ocrErrorKey(result.code) as never));
+          }
         }
       }
     } catch (err) {
