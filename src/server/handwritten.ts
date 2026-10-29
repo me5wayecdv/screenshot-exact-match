@@ -233,7 +233,8 @@ async function callVisionOcr(
     // providers keep the OpenAI-compatible path below.
     if (config.baseUrl.includes("api.cloudflare.com/client/v4/accounts/")) {
       const runBase = config.baseUrl.replace(/\/v1\/?$/, "");
-      const res = await fetch(`${runBase}/run/${config.model}`, {
+      const runUrl = `${runBase}/run/${config.model}`;
+      const visionInit = {
         method: "POST",
         signal: controller.signal,
         headers,
@@ -248,11 +249,42 @@ async function callVisionOcr(
           image: imageDataUrl,
           max_tokens: 4000,
         }),
-      });
+      };
+      let res = await fetch(runUrl, visionInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         const lowered = body.toLowerCase();
-        if (
+        if (lowered.includes("model agreement")) {
+          // One-time model license acceptance, user-approved 2026-10-29:
+          // Cloudflare requires submitting the prompt 'agree' once per
+          // model; submitting it accepts that model's Community License
+          // and Acceptable Use Policy for the account. Retry once after.
+          const agreeRes = await fetch(runUrl, {
+            method: "POST",
+            signal: controller.signal,
+            headers,
+            body: JSON.stringify({
+              messages: [{ role: "user", content: "agree" }],
+            }),
+          }).catch(() => null);
+          if (agreeRes && agreeRes.ok) {
+            res = await fetch(runUrl, visionInit);
+            if (!res.ok) {
+              const retryBody = await res.text().catch(() => "");
+              return {
+                ok: false,
+                code: "VISION_UPSTREAM",
+                message: `Vision provider returned HTTP ${res.status}: ${retryBody.slice(0, 500)}`,
+              };
+            }
+          } else {
+            return {
+              ok: false,
+              code: "VISION_UPSTREAM",
+              message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 500)}`,
+            };
+          }
+        } else if (
           res.status === 400 &&
           (lowered.includes("image") ||
             lowered.includes("vision") ||
@@ -264,12 +296,13 @@ async function callVisionOcr(
             code: "VISION_UNSUPPORTED",
             message: "The configured model does not support image input.",
           };
+        } else {
+          return {
+            ok: false,
+            code: "VISION_UPSTREAM",
+            message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 500)}`,
+          };
         }
-        return {
-          ok: false,
-          code: "VISION_UPSTREAM",
-          message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 300)}`,
-        };
       }
       const json = (await res.json()) as {
         success?: boolean;
@@ -280,7 +313,7 @@ async function callVisionOcr(
         return {
           ok: false,
           code: "VISION_UPSTREAM",
-          message: `Vision provider rejected the request: ${JSON.stringify(json.errors ?? "").slice(0, 300)}`,
+          message: `Vision provider rejected the request: ${JSON.stringify(json.errors ?? "").slice(0, 500)}`,
         };
       }
       const result = json.result;
@@ -339,7 +372,7 @@ async function callVisionOcr(
       return {
         ok: false,
         code: "VISION_UPSTREAM",
-        message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 300)}`,
+        message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 500)}`,
       };
     }
     const json = (await res.json()) as {
