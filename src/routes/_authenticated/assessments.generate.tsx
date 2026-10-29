@@ -168,6 +168,7 @@ function Generate() {
   const [genError, setGenError] = useState<string | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
   const [fileNote, setFileNote] = useState<string | null>(null);
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const [visionOk, setVisionOk] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -236,6 +237,7 @@ function Generate() {
   async function handleImageFiles(files: File[]) {
     if (files.length > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
     if (files.some((f) => f.size > MAX_IMAGE_BYTES)) return void toast.error(t("genFileTooBig"));
+    setOcrError(null);
     setFileBusy(true);
     try {
       const dataUrls: string[] = [];
@@ -244,6 +246,7 @@ function Generate() {
         try {
           await uploadSource(compressed, "jpg");
         } catch {
+          setOcrError("Upload to the generation-sources bucket failed.");
           toast.error(t("genUploadFailed"));
           return;
         }
@@ -256,6 +259,10 @@ function Generate() {
         data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
       });
       if (!res.ok) {
+        // Persistent panel (same pattern as the handwritten page): the
+        // generic toast alone hides which stage failed, and this path
+        // failed repeatedly with no diagnosable detail.
+        setOcrError(`[${res.code}] ${res.message}`);
         if (res.code === "VISION_NOT_CONFIGURED") return void toast.error(t("genVisionMissing"));
         if (res.code === "VISION_UNSUPPORTED") return void toast.error(t("genVisionUnsupported"));
         return void toast.error(t("genOcrFailed"));
@@ -268,6 +275,7 @@ function Generate() {
       setSourceText((prev) => appendSource(prev, text));
       noteExtracted(files.map((f) => f.name).join("، "), text);
     } catch {
+      setOcrError("Photo OCR request failed (network or server error).");
       toast.error(t("genOcrFailed"));
     } finally {
       setFileBusy(false);
@@ -442,6 +450,14 @@ function Generate() {
               </div>
               {fileBusy && <p className="text-sm text-muted-foreground">{t("genExtracting")}</p>}
               {fileNote && <p className="text-sm text-muted-foreground">{fileNote}</p>}
+              {ocrError && (
+                <div
+                  role="alert"
+                  className="rounded-md border border-destructive bg-destructive/10 p-3 text-sm"
+                >
+                  {ocrError}
+                </div>
+              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
