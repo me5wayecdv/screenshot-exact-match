@@ -39,7 +39,13 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
-import { resolveVisionConfig, runImageToTextModel, type OcrErrorCode } from "./handwritten";
+import {
+  resolveVisionConfig,
+  runImageToTextModel,
+  stripDataUris,
+  textFromContent,
+  type OcrErrorCode,
+} from "./handwritten";
 import { resolveAiConfig } from "./ai-config";
 import { matchByNumber, parseQuestionNumber } from "@/lib/paper-match";
 
@@ -229,6 +235,106 @@ async function callVisionMatch(
       const { text, questionNumber } = extractMatchReply(llava.text);
       return { ok: true, text, questionNumber };
     }
+    // Cloudflare vision models go through the native Workers AI run
+    // endpoint (top-level `image` + text-only messages) — the
+    // OpenAI-compatible endpoint refuses them (HTTP 400 observed live
+    // 2026-10-29 on /assessments/generate). This mirrors the
+    // handwritten path, which works first-click with this shape.
+    if (baseUrl.includes("api.cloudflare.com/client/v4/accounts/") && /\/v1\/?$/.test(baseUrl)) {
+      const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+      const nativeInit = {
+        method: "POST",
+        signal: controller.signal,
+        headers,
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: MATCH_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: "استخرج النص من هذه الصورة وحدد رقم السؤال الظاهر فيها.",
+            },
+          ],
+          image: imageDataUrl,
+          max_tokens: 4000,
+        }),
+      };
+      let res = await fetch(runUrl, nativeInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        const lowered = body.toLowerCase();
+        if (lowered.includes("model agreement") || lowered.includes("submit the prompt")) {
+          const agreeRes = await fetch(runUrl, {
+            method: "POST",
+            signal: controller.signal,
+            headers,
+            body: JSON.stringify({ prompt: "agree" }),
+          }).catch(() => null);
+          if (agreeRes && agreeRes.ok) {
+            res = await fetch(runUrl, nativeInit);
+            if (!res.ok) {
+              const retryBody = await res.text().catch(() => "");
+              return {
+                ok: false,
+                code: "VISION_UPSTREAM",
+                message: `Vision model license agreement required: submit the prompt 'agree' once for ${model} from the Cloudflare Workers AI Playground, then retry. Provider said: ${stripDataUris(retryBody).slice(0, 300)}`,
+              };
+            }
+          } else {
+            return {
+              ok: false,
+              code: "VISION_UPSTREAM",
+              message: `Vision model license agreement required: submit the prompt 'agree' once for ${model} from the Cloudflare Workers AI Playground, then retry. Provider said: ${stripDataUris(body).slice(0, 300)}`,
+            };
+          }
+        } else if (
+          res.status === 400 &&
+          (lowered.includes("image") ||
+            lowered.includes("vision") ||
+            lowered.includes("multimodal") ||
+            lowered.includes("unsupported"))
+        ) {
+          return {
+            ok: false,
+            code: "VISION_UNSUPPORTED",
+            message: "The configured model does not support image input.",
+          };
+        } else {
+          return {
+            ok: false,
+            code: "VISION_UPSTREAM",
+            message: `Vision provider returned HTTP ${res.status}: ${stripDataUris(body).slice(0, 500)}`,
+          };
+        }
+      }
+      const json = (await res.json()) as {
+        success?: boolean;
+        result?: unknown;
+        errors?: unknown;
+      };
+      if (json.success === false) {
+        return {
+          ok: false,
+          code: "VISION_UPSTREAM",
+          message: `Vision provider rejected the request: ${stripDataUris(JSON.stringify(json.errors ?? "")).slice(0, 500)}`,
+        };
+      }
+      const result = json.result;
+      const response =
+        result && typeof result === "object" && "response" in result
+          ? (result as { response?: unknown }).response
+          : result;
+      const rawText = textFromContent(response);
+      if (!rawText.trim()) {
+        return {
+          ok: false,
+          code: "VISION_PARSE_FAILED",
+          message: "Vision provider returned no text.",
+        };
+      }
+      const { text, questionNumber } = extractMatchReply(rawText);
+      return { ok: true, text, questionNumber };
+    }
+    // Non-Cloudflare providers keep the OpenAI-compatible path below.
     const compatInit = {
       method: "POST",
       signal: controller.signal,

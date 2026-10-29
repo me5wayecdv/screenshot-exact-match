@@ -213,7 +213,7 @@ const OCR_SYSTEM_PROMPT =
 
 /** Accept a plain string or an array of { text } parts (some providers
  *  return message content as parts instead of a string). */
-function textFromContent(content: unknown): string {
+export function textFromContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
@@ -232,7 +232,7 @@ function textFromContent(content: unknown): string {
 /** Strip any embedded base64 image data from a provider message before it
  *  reaches a teacher-facing panel (a provider could echo request fields
  *  in an error body). */
-function stripDataUris(text: string): string {
+export function stripDataUris(text: string): string {
   return text.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, "[image data omitted]");
 }
 
