@@ -258,16 +258,30 @@ async function callVisionOcr(
           // One-time model license acceptance, user-approved 2026-10-29:
           // Cloudflare requires submitting the prompt 'agree' once per
           // model; submitting it accepts that model's Community License
-          // and Acceptable Use Policy for the account. Retry once after.
-          const agreeRes = await fetch(runUrl, {
+          // and Acceptable Use Policy for the account. Try the native
+          // endpoint first, then the OpenAI-compatible endpoint (the
+          // agreement recording may be endpoint-specific). Retry once.
+          const agreeInit = {
             method: "POST",
             signal: controller.signal,
             headers,
             body: JSON.stringify({
               messages: [{ role: "user", content: "agree" }],
             }),
-          }).catch(() => null);
-          if (agreeRes && agreeRes.ok) {
+          };
+          const nativeAgree = await fetch(runUrl, agreeInit).catch(() => null);
+          let agreed = !!nativeAgree && nativeAgree.ok;
+          if (!agreed) {
+            const compatAgree = await fetch(`${config.baseUrl}/chat/completions`, {
+              ...agreeInit,
+              body: JSON.stringify({
+                model: config.model,
+                messages: [{ role: "user", content: "agree" }],
+              }),
+            }).catch(() => null);
+            agreed = !!compatAgree && compatAgree.ok;
+          }
+          if (agreed) {
             res = await fetch(runUrl, visionInit);
             if (!res.ok) {
               const retryBody = await res.text().catch(() => "");
