@@ -183,6 +183,18 @@ function extractTranscription(rawText: string): string {
               : null;
       if (text !== null) return text;
     } catch {
+      // Llama sometimes returns the JSON wrapper with literal newlines
+      // inside the string (invalid JSON, so the strict parse above
+      // fails). Tolerantly take the content between `"text": "` and
+      // the final `"` before the closing brace, then decode escapes.
+      const loose = candidate.match(/"text"\s*:\s*"([\s\S]*)"\s*}\s*$/);
+      if (loose) {
+        return loose[1]
+          .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+          .replace(/\\n/g, "\n")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\");
+      }
       // Fall through to raw-text handling below.
     }
   }

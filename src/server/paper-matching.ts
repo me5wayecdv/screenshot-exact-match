@@ -174,6 +174,19 @@ function extractMatchReply(rawText: string): { text: string; questionNumber: num
         return { text, questionNumber: parseQuestionNumber(parsed.question_number) };
       }
     } catch {
+      // Same tolerant fallback as the transcription extractors, plus
+      // an optional question_number after the text field.
+      const loose = candidate.match(
+        /"text"\s*:\s*"([\s\S]*?)"\s*(,\s*"question_number"\s*:\s*(\d+))?\s*}\s*$/,
+      );
+      if (loose) {
+        const decoded = loose[1]
+          .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+          .replace(/\\n/g, "\n")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\");
+        return { text: decoded, questionNumber: loose[3] ? parseInt(loose[3], 10) : null };
+      }
       // Fall through to raw-text handling below.
     }
   }
@@ -216,7 +229,7 @@ async function callVisionMatch(
       const { text, questionNumber } = extractMatchReply(llava.text);
       return { ok: true, text, questionNumber };
     }
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const compatInit = {
       method: "POST",
       signal: controller.signal,
       headers,
@@ -235,28 +248,52 @@ async function callVisionMatch(
           },
         ],
       }),
-    });
+    };
+    let res = await fetch(`${baseUrl}/chat/completions`, compatInit);
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      const lowered = body.toLowerCase();
+      let failBody = await res.text().catch(() => "");
+      // Same documented prompt-form agreement as the handwritten path
+      // (see source-ocr.ts): gated Llama needs {"prompt": "agree"}
+      // on the native run endpoint, then one retry.
       if (
-        res.status === 400 &&
-        (lowered.includes("image") ||
-          lowered.includes("vision") ||
-          lowered.includes("multimodal") ||
-          lowered.includes("unsupported"))
+        (failBody.toLowerCase().includes("model agreement") ||
+          failBody.toLowerCase().includes("submit the prompt")) &&
+        baseUrl.includes("api.cloudflare.com/client/v4/accounts/") &&
+        /\/v1\/?$/.test(baseUrl)
       ) {
+        const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+        const agreeRes = await fetch(runUrl, {
+          method: "POST",
+          signal: controller.signal,
+          headers,
+          body: JSON.stringify({ prompt: "agree" }),
+        }).catch(() => null);
+        if (agreeRes && agreeRes.ok) {
+          res = await fetch(`${baseUrl}/chat/completions`, compatInit);
+          if (!res.ok) failBody = await res.text().catch(() => "");
+        }
+      }
+      if (!res.ok) {
+        const lowered = failBody.toLowerCase();
+        if (
+          res.status === 400 &&
+          (lowered.includes("image") ||
+            lowered.includes("vision") ||
+            lowered.includes("multimodal") ||
+            lowered.includes("unsupported"))
+        ) {
+          return {
+            ok: false,
+            code: "VISION_UNSUPPORTED",
+            message: "The configured model does not support image input.",
+          };
+        }
         return {
           ok: false,
-          code: "VISION_UNSUPPORTED",
-          message: "The configured model does not support image input.",
+          code: "VISION_UPSTREAM",
+          message: `Vision provider returned HTTP ${res.status}.`,
         };
       }
-      return {
-        ok: false,
-        code: "VISION_UPSTREAM",
-        message: `Vision provider returned HTTP ${res.status}.`,
-      };
     }
     const json = (await res.json()) as {
       choices?: { message?: { content?: string | unknown } }[];

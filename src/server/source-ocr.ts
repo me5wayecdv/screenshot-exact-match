@@ -105,6 +105,18 @@ function extractTranscription(rawText: string): string {
               : null;
       if (text !== null) return text;
     } catch {
+      // Llama sometimes returns the JSON wrapper with literal newlines
+      // inside the string (invalid JSON, so the strict parse above
+      // fails). Tolerantly take the content between `"text": "` and
+      // the final `"` before the closing brace, then decode escapes.
+      const loose = candidate.match(/"text"\s*:\s*"([\s\S]*)"\s*}\s*$/);
+      if (loose) {
+        return loose[1]
+          .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
+          .replace(/\\n/g, "\n")
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, "\\");
+      }
       // Fall through to raw-text handling below.
     }
   }
@@ -152,7 +164,7 @@ async function callVisionOcr(
       if (!llava.ok) return llava;
       return { ok: true, text: extractTranscription(llava.text) };
     }
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const compatInit = {
       method: "POST",
       signal: controller.signal,
       headers,
@@ -171,30 +183,56 @@ async function callVisionOcr(
           },
         ],
       }),
-    });
+    };
+    let res = await fetch(`${baseUrl}/chat/completions`, compatInit);
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      const lowered = body.toLowerCase();
-      // A provider rejecting image content means the configured model is
-      // not vision-capable — a configuration error, not a transient one.
+      let failBody = await res.text().catch(() => "");
+      // Same documented prompt-form agreement as the handwritten path:
+      // a gated Llama vision model needs {"prompt": "agree"} on the
+      // native run endpoint (submitted with this same key), then one
+      // retry. Without this, the compat path stays gated while the
+      // native handwritten path works.
       if (
-        res.status === 400 &&
-        (lowered.includes("image") ||
-          lowered.includes("vision") ||
-          lowered.includes("multimodal") ||
-          lowered.includes("unsupported"))
+        (failBody.toLowerCase().includes("model agreement") ||
+          failBody.toLowerCase().includes("submit the prompt")) &&
+        baseUrl.includes("api.cloudflare.com/client/v4/accounts/") &&
+        /\/v1\/?$/.test(baseUrl)
       ) {
+        const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+        const agreeRes = await fetch(runUrl, {
+          method: "POST",
+          signal: controller.signal,
+          headers,
+          body: JSON.stringify({ prompt: "agree" }),
+        }).catch(() => null);
+        if (agreeRes && agreeRes.ok) {
+          res = await fetch(`${baseUrl}/chat/completions`, compatInit);
+          if (!res.ok) failBody = await res.text().catch(() => "");
+        }
+      }
+      if (!res.ok) {
+        const lowered = failBody.toLowerCase();
+        // A provider rejecting image content means the configured model is
+        // not vision-capable — a configuration error, not a transient one.
+        if (
+          res.status === 400 &&
+          (lowered.includes("image") ||
+            lowered.includes("vision") ||
+            lowered.includes("multimodal") ||
+            lowered.includes("unsupported"))
+        ) {
+          return {
+            ok: false,
+            code: "VISION_UNSUPPORTED",
+            message: "The configured model does not support image input.",
+          };
+        }
         return {
           ok: false,
-          code: "VISION_UNSUPPORTED",
-          message: "The configured model does not support image input.",
+          code: "VISION_UPSTREAM",
+          message: `Vision provider returned HTTP ${res.status}.`,
         };
       }
-      return {
-        ok: false,
-        code: "VISION_UPSTREAM",
-        message: `Vision provider returned HTTP ${res.status}.`,
-      };
     }
     const json = (await res.json()) as {
       choices?: { message?: { content?: string | unknown } }[];
