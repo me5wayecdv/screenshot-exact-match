@@ -46,15 +46,15 @@ Any OpenAI-compatible provider works. Free/open options to point at:
     appends `/chat/completions`).
   - `AI_MODEL` to `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (text: grading
     suggestions + assessment generation).
-  - `AI_VISION_MODEL` to `@cf/llava-hf/llava-1.5-7b-hf` (vision:
+  - `AI_VISION_MODEL` to `@cf/meta/llama-3.2-11b-vision-instruct` (vision:
     handwritten-paper OCR, curriculum-page OCR, paper matching).
-    Switched 2026-10-29: the Llama 3.2 vision model's Meta license
-    agreement could not be registered from this account's available
-    tokens (Playground chat messages and server chat messages both
-    failed; the documented `{"prompt": "agree"}` form needs a Workers
-    AI-scoped token, and the deploy token returned auth error 10000
-    on the AI endpoint). LLaVA needs no agreement. The Llama chat
-    path stays in code for a future switch-back via `AI_VISION_MODEL`.
+    Restored 2026-10-29: on an agreement error the server now
+    submits the documented `{"prompt": "agree"}` form with the
+    Worker's own Workers-AI-scoped key, then retries once (see
+    `src/server/handwritten.ts`). Earlier chat-message agrees
+    (Playground + server) all failed. LLaVA (the 2026-10-29 switch)
+    stays in code as the fallback — it answers but cannot read
+    handwriting (returned "..." then "[unclear]" live).
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they
@@ -92,8 +92,8 @@ self-hosted model needs a machine with enough RAM/VRAM for the model size.
 
 The `/handwritten` page sends the paper photo to the vision model
 through the native Workers AI run endpoint. Chat-capable vision
-models take a messages payload; image-to-text models (current:
-LLaVA) take a byte-array image + text prompt and answer in
+models take a messages payload; image-to-text models (LLaVA
+fallback) take a byte-array image + text prompt and answer in
 `result.description` — see `runImageToTextModel` in
 `src/server/handwritten.ts`, shared by handwritten OCR, source OCR,
 and paper matching. One extra server-side variable controls which

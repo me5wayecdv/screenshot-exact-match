@@ -339,22 +339,43 @@ async function callVisionOcr(
           max_tokens: 4000,
         }),
       };
-      const res = await fetch(runUrl, visionInit);
+      let res = await fetch(runUrl, visionInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         const lowered = body.toLowerCase();
         if (lowered.includes("model agreement") || lowered.includes("submit the prompt")) {
-          // The vision model requires a one-time license agreement that
-          // must be submitted from the Cloudflare dashboard (Workers AI
-          // Playground). Server-side 'agree' submissions were proven
-          // ineffective live on 2026-10-29 (identical 403 after native +
-          // compat agree attempts), so do not retry or re-submit here —
-          // return an actionable hint instead of burning extra calls.
-          return {
-            ok: false,
-            code: "VISION_UPSTREAM",
-            message: `Vision model license agreement required: submit the prompt 'agree' once for ${config.model} from the Cloudflare Workers AI Playground, then retry. Provider said: ${stripDataUris(body).slice(0, 300)}`,
-          };
+          // The documented agreement mechanism is a `prompt` (not a
+          // chat message) submission to the run endpoint, sent with the
+          // Worker's own Workers-AI-scoped key (config.apiKey). Every
+          // earlier attempt used the chat-message form (Playground +
+          // server native/compat agrees) and all failed; the prompt
+          // form with the right token is the one combination never
+          // tried. One attempt, then one vision retry; if the gate
+          // still holds, fall back to the dashboard hint below.
+          const agreeRes = await fetch(runUrl, {
+            method: "POST",
+            signal: controller.signal,
+            headers,
+            body: JSON.stringify({ prompt: "agree" }),
+          }).catch(() => null);
+          if (agreeRes && agreeRes.ok) {
+            res = await fetch(runUrl, visionInit);
+            if (!res.ok) {
+              const retryBody = await res.text().catch(() => "");
+              return {
+                ok: false,
+                code: "VISION_UPSTREAM",
+                message: `Vision model license agreement required: submit the prompt 'agree' once for ${config.model} from the Cloudflare Workers AI Playground, then retry. Provider said: ${stripDataUris(retryBody).slice(0, 300)}`,
+              };
+            }
+            // Retry succeeded: fall through to response parsing below.
+          } else {
+            return {
+              ok: false,
+              code: "VISION_UPSTREAM",
+              message: `Vision model license agreement required: submit the prompt 'agree' once for ${config.model} from the Cloudflare Workers AI Playground, then retry. Provider said: ${stripDataUris(body).slice(0, 300)}`,
+            };
+          }
         } else if (
           res.status === 400 &&
           (lowered.includes("image") ||

@@ -28,7 +28,7 @@
   "vars": {
     "AI_BASE_URL": "https://api.cloudflare.com/client/v4/accounts/d76701f3d4e154ceb13d36b94a30a209/ai/v1",
     "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    "AI_VISION_MODEL": "@cf/llava-hf/llava-1.5-7b-hf",
+    "AI_VISION_MODEL": "@cf/meta/llama-3.2-11b-vision-instruct",
     "SUPABASE_URL": "https://ugoxxbyvgptvrknuntmc.supabase.co",
     "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVnb3h4Ynl2Z3B0dnJrbnVudG1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwNDU3OTIsImV4cCI6MjEwODYyMTc5Mn0.GfJZC5ltaWs7eC6c-HHsSh3nL9FgIeJBI6VAiE-G1eo"
   }
