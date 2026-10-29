@@ -246,7 +246,10 @@ export async function runImageToTextModel(
     body: JSON.stringify({
       image: Array.from(bytes),
       prompt,
-      max_tokens: 4000,
+      // LLaVA's provider limit (observed live 2026-10-29: HTTP 400
+      // "max_tokens must be <= 1024"). Transcriptions longer than
+      // this are truncated by the provider, not by us.
+      max_tokens: 1024,
     }),
   });
   if (!res.ok) {
