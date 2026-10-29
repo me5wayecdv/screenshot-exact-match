@@ -383,17 +383,18 @@ function Handwritten() {
   ): Promise<{ text: string; model: string } | null> {
     try {
       const quarters = await splitImageDataUrl(dataUrl);
-      const [r1, r2, r3, r4] = await Promise.all([
-        ocrHandwrittenImage({ data: { imageDataUrl: quarters[0], accessToken, assessmentId } }),
-        ocrHandwrittenImage({ data: { imageDataUrl: quarters[1], accessToken, assessmentId } }),
-        ocrHandwrittenImage({ data: { imageDataUrl: quarters[2], accessToken, assessmentId } }),
-        ocrHandwrittenImage({ data: { imageDataUrl: quarters[3], accessToken, assessmentId } }),
-      ]);
-      if (!r1.ok || !r2.ok || !r3.ok || !r4.ok) return null;
-      return {
-        text: joinSplitTexts(joinSplitTexts(joinSplitTexts(r1.text, r2.text), r3.text), r4.text),
-        model: r1.model,
-      };
+      // Sequential on purpose: parallel quarter calls timed out on
+      // this path live 2026-10-29, while sequential quarters
+      // succeeded on the generate path the same evening.
+      let model = "";
+      const texts: string[] = [];
+      for (const imageDataUrl of quarters) {
+        const r = await ocrHandwrittenImage({ data: { imageDataUrl, accessToken, assessmentId } });
+        if (!r.ok) return null;
+        if (!model) model = r.model;
+        texts.push(r.text);
+      }
+      return { text: texts.reduce((acc, t) => joinSplitTexts(acc, t)), model };
     } catch {
       return null;
     }

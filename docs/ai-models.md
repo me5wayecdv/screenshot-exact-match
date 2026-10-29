@@ -63,6 +63,9 @@ Any OpenAI-compatible provider works. Free/open options to point at:
     is excluded (matching needs whole pages). Halves (0–55%,
     45–100%) were tried first and proved insufficient live
     2026-10-29: the dense Arabic page still exceeded the budget.
+    Quarters run sequentially on both paths: parallel quarters
+    timed out on handwritten the same evening while sequential
+    quarters succeeded on generate (1663 chars).
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they
