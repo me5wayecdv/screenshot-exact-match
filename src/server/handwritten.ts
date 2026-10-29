@@ -301,7 +301,7 @@ async function callVisionOcr(
   imageDataUrl: string,
 ): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90_000);
+  const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;

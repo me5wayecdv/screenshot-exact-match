@@ -209,7 +209,7 @@ async function callVisionMatch(
   | { ok: false; code: OcrErrorCode; message: string }
 > {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90_000);
+  const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
