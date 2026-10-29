@@ -147,7 +147,7 @@ async function callVisionOcr(
         "Transcribe all text visible in this curriculum page image completely and literally, " +
           "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
           "Parts that are unreadable, write [unclear] in their place. " +
-          'Answer with JSON only: {"text": "..."}.',
+          "Return only the transcription, nothing else.",
       );
       if (!llava.ok) return llava;
       return { ok: true, text: extractTranscription(llava.text) };

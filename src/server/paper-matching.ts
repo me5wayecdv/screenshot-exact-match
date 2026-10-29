@@ -208,8 +208,9 @@ async function callVisionMatch(
         headers,
         controller.signal,
         imageDataUrl,
-        "Transcribe the text in this image and identify the question number shown in it. " +
-          'Answer with JSON only: {"text": "...", "question_number": N}.',
+        "Transcribe the text in this image. If a question number is shown in the image, " +
+          "write it on the first line as: Question number: N. Then write the transcription. " +
+          "Return only that, nothing else.",
       );
       if (!llava.ok) return llava;
       const { text, questionNumber } = extractMatchReply(llava.text);

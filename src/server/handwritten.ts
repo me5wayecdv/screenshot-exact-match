@@ -318,7 +318,7 @@ async function callVisionOcr(
           "Transcribe all handwritten text visible in this image exactly, character for character. " +
             "Do not correct spelling or grammar and do not add any words of your own. " +
             "Keep line breaks. Parts that are completely unreadable, write [unclear] in their place. " +
-            'Answer with JSON only: {"text": "..."}.',
+            "Return only the transcription, nothing else.",
         );
         if (!llava.ok) return llava;
         return { ok: true, text: extractTranscription(llava.text) };
