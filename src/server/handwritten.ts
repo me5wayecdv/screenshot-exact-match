@@ -268,18 +268,19 @@ async function callVisionOcr(
         return {
           ok: false,
           code: "VISION_UPSTREAM",
-          message: `Vision provider returned HTTP ${res.status}.`,
+          message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 300)}`,
         };
       }
       const json = (await res.json()) as {
         success?: boolean;
         result?: unknown;
+        errors?: unknown;
       };
       if (json.success === false) {
         return {
           ok: false,
           code: "VISION_UPSTREAM",
-          message: "Vision provider rejected the request.",
+          message: `Vision provider rejected the request: ${JSON.stringify(json.errors ?? "").slice(0, 300)}`,
         };
       }
       const result = json.result;
@@ -338,7 +339,7 @@ async function callVisionOcr(
       return {
         ok: false,
         code: "VISION_UPSTREAM",
-        message: `Vision provider returned HTTP ${res.status}.`,
+        message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 300)}`,
       };
     }
     const json = (await res.json()) as {
