@@ -55,6 +55,12 @@ Any OpenAI-compatible provider works. Free/open options to point at:
     (Playground + server) all failed. LLaVA (the 2026-10-29 switch)
     stays in code as the fallback — it answers but cannot read
     handwriting (returned "..." then "[unclear]" live).
+  - Dense pages: the provider enforces a ~120s per-call budget
+    (HTTP 408, code 3046 — unchangeable from the client). Both the
+    handwritten and generate client flows fall back on 408/timeout
+    to transcribing overlapping halves (0–55%, 45–100%) and joining
+    them with overlap dedup; paper-matching is excluded (matching
+    needs whole pages).
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they

@@ -234,6 +234,55 @@ function Generate() {
     }
   }
 
+  async function splitImageBlob(blob: Blob): Promise<[Blob, Blob]> {
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const half = async (y0: number, y1: number): Promise<Blob> => {
+        const canvas = document.createElement("canvas");
+        canvas.width = bitmap.width;
+        canvas.height = Math.max(1, Math.round((y1 - y0) * bitmap.height));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas unavailable.");
+        ctx.drawImage(
+          bitmap,
+          0,
+          y0 * bitmap.height,
+          bitmap.width,
+          (y1 - y0) * bitmap.height,
+          0,
+          0,
+          canvas.width,
+          canvas.height,
+        );
+        const out = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.85),
+        );
+        if (!out) throw new Error("Compression failed.");
+        return out;
+      };
+      return [await half(0, 0.55), await half(0.45, 1)];
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  function joinSplitTexts(a: string, b: string): string {
+    const aLines = a.split("\n");
+    const bLines = b.split("\n");
+    const norm = (s: string) => s.trim().replace(/\s+/g, " ");
+    const max = Math.min(aLines.length, bLines.length, 10);
+    let overlap = 0;
+    for (let k = max; k > 0; k--) {
+      const aTail = aLines.slice(-k).map(norm);
+      const bHead = bLines.slice(0, k).map(norm);
+      if (aTail.every((line, i) => line !== "" && line === bHead[i])) {
+        overlap = k;
+        break;
+      }
+    }
+    return [...aLines, ...bLines.slice(overlap)].join("\n");
+  }
+
   async function handleImageFiles(files: File[]) {
     if (files.length > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
     if (files.some((f) => f.size > MAX_IMAGE_BYTES)) return void toast.error(t("genFileTooBig"));
@@ -241,8 +290,10 @@ function Generate() {
     setFileBusy(true);
     try {
       const dataUrls: string[] = [];
+      const blobs: Blob[] = [];
       for (const f of files) {
         const compressed = await compressImage(f);
+        blobs.push(compressed);
         try {
           await uploadSource(compressed, "jpg");
         } catch {
@@ -259,6 +310,40 @@ function Generate() {
         data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
       });
       if (!res.ok) {
+        // 408/timeout-only fallback (see handwritten.tsx): split each
+        // page into overlapping halves and transcribe those instead.
+        // Per-file calls keep the batch within the 1–5 image limit.
+        if (res.message.includes("408") || res.code === "VISION_TIMEOUT") {
+          try {
+            const perFile: string[] = [];
+            for (let i = 0; i < files.length; i++) {
+              const halves = await splitImageBlob(blobs[i]);
+              const halfDataUrls: string[] = [];
+              for (const half of halves) {
+                try {
+                  await uploadSource(half, "jpg");
+                } catch {
+                  // Halves are derivatives of an already-persisted
+                  // original; a failed half upload must not block OCR.
+                }
+                halfDataUrls.push(await blobToDataUrl(half));
+              }
+              const splitRes = await ocrSourceImages({
+                data: { imageDataUrls: halfDataUrls, accessToken: session?.access_token ?? "" },
+              });
+              if (!splitRes.ok || splitRes.texts.length !== 2) throw new Error("split failed");
+              perFile.push(joinSplitTexts(splitRes.texts[0], splitRes.texts[1]));
+            }
+            const joined = perFile.join("\n\n");
+            if (joined.trim().length >= 50) {
+              setSourceText((prev) => appendSource(prev, joined));
+              noteExtracted(files.map((f) => f.name).join("، "), joined);
+              return;
+            }
+          } catch {
+            // Fall through to the original error handling below.
+          }
+        }
         // Persistent panel (same pattern as the handwritten page): the
         // generic toast alone hides which stage failed, and this path
         // failed repeatedly with no diagnosable detail.

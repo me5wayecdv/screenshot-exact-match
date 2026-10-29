@@ -317,6 +317,81 @@ function Handwritten() {
     return path;
   }
 
+  async function splitImageDataUrl(dataUrl: string): Promise<[string, string]> {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("image load failed"));
+      el.src = dataUrl;
+    });
+    const half = async (y0: number, y1: number): Promise<string> => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = Math.max(1, Math.round((y1 - y0) * img.height));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(
+        img,
+        0,
+        y0 * img.height,
+        img.width,
+        (y1 - y0) * img.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.85),
+      );
+      if (!blob) throw new Error("canvas toBlob failed");
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.readAsDataURL(blob);
+      });
+    };
+    return [await half(0, 0.55), await half(0.45, 1)];
+  }
+
+  function joinSplitTexts(a: string, b: string): string {
+    const aLines = a.split("\n");
+    const bLines = b.split("\n");
+    const norm = (s: string) => s.trim().replace(/\s+/g, " ");
+    const max = Math.min(aLines.length, bLines.length, 10);
+    let overlap = 0;
+    for (let k = max; k > 0; k--) {
+      const aTail = aLines.slice(-k).map(norm);
+      const bHead = bLines.slice(0, k).map(norm);
+      if (aTail.every((line, i) => line !== "" && line === bHead[i])) {
+        overlap = k;
+        break;
+      }
+    }
+    return [...aLines, ...bLines.slice(overlap)].join("\n");
+  }
+
+  async function trySplitOcr(
+    dataUrl: string,
+    accessToken: string,
+    assessmentId: string | undefined,
+  ): Promise<{ text: string; model: string } | null> {
+    try {
+      const halves = await splitImageDataUrl(dataUrl);
+      const [r1, r2] = await Promise.all([
+        ocrHandwrittenImage({ data: { imageDataUrl: halves[0], accessToken, assessmentId } }),
+        ocrHandwrittenImage({ data: { imageDataUrl: halves[1], accessToken, assessmentId } }),
+      ]);
+      if (!r1.ok || !r2.ok) return null;
+      return { text: joinSplitTexts(r1.text, r2.text), model: r1.model };
+    } catch {
+      return null;
+    }
+  }
+
   async function onFileChange(file: File | undefined) {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
@@ -526,19 +601,37 @@ function Handwritten() {
       const result = await ocrHandwrittenImage({
         data: { imageDataUrl, accessToken, assessmentId: assessmentId || undefined },
       });
-      if (!result.ok) {
-        if (result.code === "VISION_NOT_CONFIGURED") setVisionConfigured(false);
-        // Persistent panel: toasts auto-dismiss, so a failed extraction
-        // used to leave no trace. Keep the mapped message plus the raw
-        // code and server detail for diagnosis.
-        setOcrError(`${t(ocrErrorKey(result.code) as never)} [${result.code}] ${result.message}`);
-        toast.error(t(ocrErrorKey(result.code) as never));
-        return;
+      if (result.ok) {
+        setExtractedText(result.text);
+        setCorrectedText(result.text);
+        setOcrModel(result.model);
+        setSuggestion(null);
+      } else {
+        // 408/timeout-only fallback: the provider enforces a ~120s
+        // per-call budget that a dense page's transcription exceeds
+        // (HTTP 408, code 3046 — unchangeable from the client).
+        // Transcribe overlapping halves (each ~half the output) and
+        // join them; normal pages never take this path.
+        let recovered = false;
+        if (result.message.includes("408") || result.code === "VISION_TIMEOUT") {
+          const split = await trySplitOcr(imageDataUrl, accessToken, assessmentId || undefined);
+          if (split) {
+            setExtractedText(split.text);
+            setCorrectedText(split.text);
+            setOcrModel(split.model);
+            setSuggestion(null);
+            recovered = true;
+          }
+        }
+        if (!recovered) {
+          if (result.code === "VISION_NOT_CONFIGURED") setVisionConfigured(false);
+          // Persistent panel: toasts auto-dismiss, so a failed extraction
+          // used to leave no trace. Keep the mapped message plus the raw
+          // code and server detail for diagnosis.
+          setOcrError(`${t(ocrErrorKey(result.code) as never)} [${result.code}] ${result.message}`);
+          toast.error(t(ocrErrorKey(result.code) as never));
+        }
       }
-      setExtractedText(result.text);
-      setCorrectedText(result.text);
-      setOcrModel(result.model);
-      setSuggestion(null);
     } catch (err) {
       setOcrError(translateError(err, lang));
       toast.error(translateError(err, lang));
