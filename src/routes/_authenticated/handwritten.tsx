@@ -500,6 +500,7 @@ function Handwritten() {
 
   /** Prefill the single-grade form from a matched page (same save path). */
   function applyMatchItem(item: MatchItem) {
+    setOcrError(null);
     if (item.questionId) setQuestionId(item.questionId);
     setImageDataUrl(item.dataUrl);
     setImageName(item.fileName);
@@ -752,6 +753,7 @@ function Handwritten() {
                   setAssessmentId(e.target.value);
                   setQuestionId("");
                   setSuggestion(null);
+                  setOcrError(null);
                 }}
               >
                 <option value="">{t("hwAdHoc")}</option>
@@ -772,6 +774,7 @@ function Handwritten() {
                   onChange={(e) => {
                     setQuestionId(e.target.value);
                     setSuggestion(null);
+                    setOcrError(null);
                   }}
                 >
                   <option value="">—</option>

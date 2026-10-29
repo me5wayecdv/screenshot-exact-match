@@ -217,6 +217,13 @@ function textFromContent(content: unknown): string {
   return "";
 }
 
+/** Strip any embedded base64 image data from a provider message before it
+ *  reaches a teacher-facing panel (a provider could echo request fields
+ *  in an error body). */
+function stripDataUris(text: string): string {
+  return text.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, "[image data omitted]");
+}
+
 async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
@@ -231,7 +238,10 @@ async function callVisionOcr(
     // (HTTP 403 observed live 2026-10-29). Vision models on Cloudflare
     // go through the native Workers AI run endpoint instead; other
     // providers keep the OpenAI-compatible path below.
-    if (config.baseUrl.includes("api.cloudflare.com/client/v4/accounts/")) {
+    if (
+      config.baseUrl.includes("api.cloudflare.com/client/v4/accounts/") &&
+      /\/v1\/?$/.test(config.baseUrl)
+    ) {
       const runBase = config.baseUrl.replace(/\/v1\/?$/, "");
       const runUrl = `${runBase}/run/${config.model}`;
       const visionInit = {
@@ -250,54 +260,22 @@ async function callVisionOcr(
           max_tokens: 4000,
         }),
       };
-      let res = await fetch(runUrl, visionInit);
+      const res = await fetch(runUrl, visionInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         const lowered = body.toLowerCase();
-        if (lowered.includes("model agreement")) {
-          // One-time model license acceptance, user-approved 2026-10-29:
-          // Cloudflare requires submitting the prompt 'agree' once per
-          // model; submitting it accepts that model's Community License
-          // and Acceptable Use Policy for the account. Try the native
-          // endpoint first, then the OpenAI-compatible endpoint (the
-          // agreement recording may be endpoint-specific). Retry once.
-          const agreeInit = {
-            method: "POST",
-            signal: controller.signal,
-            headers,
-            body: JSON.stringify({
-              messages: [{ role: "user", content: "agree" }],
-            }),
+        if (lowered.includes("model agreement") || lowered.includes("submit the prompt")) {
+          // The vision model requires a one-time license agreement that
+          // must be submitted from the Cloudflare dashboard (Workers AI
+          // Playground). Server-side 'agree' submissions were proven
+          // ineffective live on 2026-10-29 (identical 403 after native +
+          // compat agree attempts), so do not retry or re-submit here —
+          // return an actionable hint instead of burning extra calls.
+          return {
+            ok: false,
+            code: "VISION_UPSTREAM",
+            message: `Vision model license agreement required: submit the prompt 'agree' once for ${config.model} from the Cloudflare Workers AI Playground, then retry. Provider said: ${stripDataUris(body).slice(0, 300)}`,
           };
-          const nativeAgree = await fetch(runUrl, agreeInit).catch(() => null);
-          let agreed = !!nativeAgree && nativeAgree.ok;
-          if (!agreed) {
-            const compatAgree = await fetch(`${config.baseUrl}/chat/completions`, {
-              ...agreeInit,
-              body: JSON.stringify({
-                model: config.model,
-                messages: [{ role: "user", content: "agree" }],
-              }),
-            }).catch(() => null);
-            agreed = !!compatAgree && compatAgree.ok;
-          }
-          if (agreed) {
-            res = await fetch(runUrl, visionInit);
-            if (!res.ok) {
-              const retryBody = await res.text().catch(() => "");
-              return {
-                ok: false,
-                code: "VISION_UPSTREAM",
-                message: `Vision provider returned HTTP ${res.status}: ${retryBody.slice(0, 500)}`,
-              };
-            }
-          } else {
-            return {
-              ok: false,
-              code: "VISION_UPSTREAM",
-              message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 500)}`,
-            };
-          }
         } else if (
           res.status === 400 &&
           (lowered.includes("image") ||
@@ -314,7 +292,7 @@ async function callVisionOcr(
           return {
             ok: false,
             code: "VISION_UPSTREAM",
-            message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 500)}`,
+            message: `Vision provider returned HTTP ${res.status}: ${stripDataUris(body).slice(0, 500)}`,
           };
         }
       }
@@ -327,7 +305,7 @@ async function callVisionOcr(
         return {
           ok: false,
           code: "VISION_UPSTREAM",
-          message: `Vision provider rejected the request: ${JSON.stringify(json.errors ?? "").slice(0, 500)}`,
+          message: `Vision provider rejected the request: ${stripDataUris(JSON.stringify(json.errors ?? "")).slice(0, 500)}`,
         };
       }
       const result = json.result;
@@ -386,7 +364,7 @@ async function callVisionOcr(
       return {
         ok: false,
         code: "VISION_UPSTREAM",
-        message: `Vision provider returned HTTP ${res.status}: ${body.slice(0, 500)}`,
+        message: `Vision provider returned HTTP ${res.status}: ${stripDataUris(body).slice(0, 500)}`,
       };
     }
     const json = (await res.json()) as {
@@ -397,20 +375,8 @@ async function callVisionOcr(
     // of parts (e.g. [{ type: "text", text: "..." }]) instead of a plain
     // string — especially for multimodal models. Treating that as empty
     // used to surface as a silent VISION_PARSE_FAILED, so join text parts.
-    let rawText = "";
-    if (typeof content === "string") {
-      rawText = content;
-    } else if (Array.isArray(content)) {
-      rawText = content
-        .map((part) => {
-          if (typeof part === "object" && part !== null && "text" in part) {
-            const text = (part as { text?: unknown }).text;
-            return typeof text === "string" ? text : "";
-          }
-          return "";
-        })
-        .join("");
-    }
+    // Reuse the same string-or-parts joiner as the native branch.
+    const rawText = textFromContent(content);
     if (!rawText.trim()) {
       return {
         ok: false,
