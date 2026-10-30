@@ -41,6 +41,14 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { isLocalBaseUrl } from "./ai-config";
+import {
+  createUsageClient,
+  extractGeminiUsage,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+  type AiTokenUsage,
+} from "./ai-usage";
 
 export type VisionConfig = {
   baseUrl: string;
@@ -142,7 +150,7 @@ function validateRequest(data: unknown): OcrRequest | { error: string } {
 async function authorize(
   accessToken: string,
   assessmentId: string | undefined,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
   const env = serverSupabaseEnv();
   if (!env) {
     return { ok: false, message: "Server Supabase environment is not configured." };
@@ -175,7 +183,7 @@ async function authorize(
       return { ok: false, message: "This assessment does not belong to the caller." };
     }
   }
-  return { ok: true };
+  return { ok: true, userId: user.id };
 }
 
 /**
@@ -388,7 +396,10 @@ export async function runGeminiQuery(
   signal: AbortSignal,
   imageDataUrl: string,
   prompt: string,
-): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+): Promise<
+  | { ok: true; text: string; usage: AiTokenUsage }
+  | { ok: false; code: OcrErrorCode; message: string }
+> {
   const comma = imageDataUrl.indexOf(",");
   const mimeMatch = /^data:([^;]+);base64,/.exec(imageDataUrl);
   const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
@@ -420,19 +431,23 @@ export async function runGeminiQuery(
   }
   const json = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
+    usageMetadata?: unknown;
   };
   const parts = json.candidates?.[0]?.content?.parts ?? [];
   const text = parts.map((part) => (typeof part.text === "string" ? part.text : "")).join("");
   if (!text.trim()) {
     return { ok: false, code: "VISION_PARSE_FAILED", message: "Vision provider returned no text." };
   }
-  return { ok: true, text };
+  return { ok: true, text, usage: extractGeminiUsage(json) };
 }
 
 async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
-): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+): Promise<
+  | { ok: true; text: string; provider: string; model: string; usage: AiTokenUsage }
+  | { ok: false; code: OcrErrorCode; message: string }
+> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
@@ -454,7 +469,13 @@ async function callVisionOcr(
           "Return only the transcription, nothing else.",
       );
       if (!g.ok) return g;
-      return { ok: true, text: extractTranscription(g.text) };
+      return {
+        ok: true,
+        text: extractTranscription(g.text),
+        provider: "gemini",
+        model: gemini.model,
+        usage: g.usage,
+      };
     }
     // Cloudflare's OpenAI-compatible endpoint is documented for TEXT
     // generation only — a vision model called through it is refused
@@ -484,7 +505,13 @@ async function callVisionOcr(
             "Return only the transcription, nothing else.",
         );
         if (!llava.ok) return llava;
-        return { ok: true, text: extractTranscription(llava.text) };
+        return {
+          ok: true,
+          text: extractTranscription(llava.text),
+          provider: "cloudflare-native",
+          model: config.model,
+          usage: { inputTokens: null, outputTokens: null },
+        };
       }
       // Moondream takes a task payload, not chat messages. A/B test
       // 2026-10-29 against Llama vision on the dense Arabic page.
@@ -500,7 +527,13 @@ async function callVisionOcr(
             "Return only the transcription, nothing else.",
         );
         if (!moon.ok) return moon;
-        return { ok: true, text: extractTranscription(moon.text) };
+        return {
+          ok: true,
+          text: extractTranscription(moon.text),
+          provider: "cloudflare-native",
+          model: config.model,
+          usage: { inputTokens: null, outputTokens: null },
+        };
       }
       const visionInit = {
         method: "POST",
@@ -600,7 +633,13 @@ async function callVisionOcr(
           message: "Vision provider returned no text.",
         };
       }
-      return { ok: true, text: extractTranscription(rawText) };
+      return {
+        ok: true,
+        text: extractTranscription(rawText),
+        provider: "cloudflare-native",
+        model: config.model,
+        usage: { inputTokens: null, outputTokens: null },
+      };
     }
     const res = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
@@ -648,6 +687,7 @@ async function callVisionOcr(
     }
     const json = (await res.json()) as {
       choices?: { message?: { content?: string | unknown } }[];
+      usage?: unknown;
     };
     const content: unknown = json.choices?.[0]?.message?.content;
     // Some OpenAI-compatible providers return message content as an array
@@ -663,7 +703,13 @@ async function callVisionOcr(
         message: "Vision provider returned no text.",
       };
     }
-    return { ok: true, text: extractTranscription(rawText) };
+    return {
+      ok: true,
+      text: extractTranscription(rawText),
+      provider: openAiProvider(config.baseUrl),
+      model: config.model,
+      usage: extractOpenAiUsage(json),
+    };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       return { ok: false, code: "VISION_TIMEOUT", message: "Vision provider timed out." };
@@ -701,6 +747,16 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" }).handler(
     }
     const result = await callVisionOcr(config, request.imageDataUrl);
     if (!result.ok) return { ok: false, code: result.code, message: result.message };
+    // Pilot cost measurement (best-effort, never fails the OCR result).
+    const env = serverSupabaseEnv();
+    if (env) {
+      await logAiUsage(createUsageClient(env.url, env.anonKey, request.accessToken), auth.userId, {
+        kind: "ocr",
+        provider: result.provider,
+        model: result.model,
+        usage: result.usage,
+      });
+    }
     return { ok: true, text: result.text, model: config.model };
   },
 );

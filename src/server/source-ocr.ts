@@ -38,6 +38,13 @@ import {
   textFromContent,
   type OcrErrorCode,
 } from "./handwritten";
+import {
+  createUsageClient,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+  type AiTokenUsage,
+} from "./ai-usage";
 
 export type SourceOcrResult =
   | { ok: true; texts: string[] }
@@ -64,7 +71,7 @@ function serverSupabaseEnv(): { url: string; anonKey: string } | null {
 /** Verify the caller is a teacher/admin. No assessment ownership here. */
 async function authorizeTeacher(
   accessToken: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
   const env = serverSupabaseEnv();
   if (!env) {
     return { ok: false, message: "Server Supabase environment is not configured." };
@@ -87,7 +94,7 @@ async function authorizeTeacher(
   if (!role || !TEACHER_ROLES.has(role)) {
     return { ok: false, message: "Only teachers can extract source text." };
   }
-  return { ok: true };
+  return { ok: true, userId: user.id };
 }
 
 /**
@@ -145,7 +152,10 @@ async function callVisionOcr(
   model: string,
   apiKey: string,
   imageDataUrl: string,
-): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+): Promise<
+  | { ok: true; text: string; provider: string; model: string; usage: AiTokenUsage }
+  | { ok: false; code: OcrErrorCode; message: string }
+> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
@@ -167,7 +177,13 @@ async function callVisionOcr(
           "Return only the transcription, nothing else.",
       );
       if (!g.ok) return g;
-      return { ok: true, text: extractTranscription(g.text) };
+      return {
+        ok: true,
+        text: extractTranscription(g.text),
+        provider: "gemini",
+        model: gemini.model,
+        usage: g.usage,
+      };
     }
     // LLaVA (image-to-text) cannot take the chat-completions shape below:
     // on Cloudflare it needs the native run endpoint with a byte-array
@@ -189,7 +205,13 @@ async function callVisionOcr(
           "Return only the transcription, nothing else.",
       );
       if (!llava.ok) return llava;
-      return { ok: true, text: extractTranscription(llava.text) };
+      return {
+        ok: true,
+        text: extractTranscription(llava.text),
+        provider: "cloudflare-native",
+        model,
+        usage: { inputTokens: null, outputTokens: null },
+      };
     }
     if (model.includes("moondream")) {
       const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
@@ -204,7 +226,13 @@ async function callVisionOcr(
           "Return only the transcription, nothing else.",
       );
       if (!moon.ok) return moon;
-      return { ok: true, text: extractTranscription(moon.text) };
+      return {
+        ok: true,
+        text: extractTranscription(moon.text),
+        provider: "cloudflare-native",
+        model,
+        usage: { inputTokens: null, outputTokens: null },
+      };
     }
     // Cloudflare vision models go through the native Workers AI run
     // endpoint (top-level `image` + text-only messages) — the
@@ -302,7 +330,13 @@ async function callVisionOcr(
           message: "Vision provider returned no text.",
         };
       }
-      return { ok: true, text: extractTranscription(rawText) };
+      return {
+        ok: true,
+        text: extractTranscription(rawText),
+        provider: "cloudflare-native",
+        model,
+        usage: { inputTokens: null, outputTokens: null },
+      };
     }
     // Non-Cloudflare providers keep the OpenAI-compatible path below.
     const compatInit = {
@@ -377,6 +411,7 @@ async function callVisionOcr(
     }
     const json = (await res.json()) as {
       choices?: { message?: { content?: string | unknown } }[];
+      usage?: unknown;
     };
     const content = json.choices?.[0]?.message?.content;
     const rawText = typeof content === "string" ? content : "";
@@ -387,7 +422,13 @@ async function callVisionOcr(
         message: "Vision provider returned no text.",
       };
     }
-    return { ok: true, text: extractTranscription(rawText) };
+    return {
+      ok: true,
+      text: extractTranscription(rawText),
+      provider: openAiProvider(baseUrl),
+      model,
+      usage: extractOpenAiUsage(json),
+    };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       return { ok: false, code: "VISION_TIMEOUT", message: "Vision provider timed out." };
@@ -441,6 +482,11 @@ export const ocrSourceImages = createServerFn({ method: "POST" }).handler(
       };
     }
 
+    // Pilot cost measurement (best-effort, never fails the batch):
+    // one row per image, attributed to the teacher.
+    const env = serverSupabaseEnv();
+    const usageClient = env ? createUsageClient(env.url, env.anonKey, accessToken) : null;
+
     const texts: string[] = [];
     for (let i = 0; i < imageDataUrls.length; i++) {
       const result = await callVisionOcr(
@@ -451,6 +497,14 @@ export const ocrSourceImages = createServerFn({ method: "POST" }).handler(
       );
       if (!result.ok) {
         return { ok: false, code: result.code, message: result.message, imageIndex: i };
+      }
+      if (usageClient) {
+        await logAiUsage(usageClient, auth.userId, {
+          kind: "ocr",
+          provider: result.provider,
+          model: result.model,
+          usage: result.usage,
+        });
       }
       texts.push(result.text);
     }

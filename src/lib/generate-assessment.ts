@@ -38,6 +38,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { resolveAiConfig } from "@/server/ai-config";
+import { extractOpenAiUsage, logAiUsage, openAiProvider } from "@/server/ai-usage";
 import type { Database } from "@/integrations/supabase/types";
 import {
   buildGeneratePrompt,
@@ -126,7 +127,7 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
 
 type AiChatResponse = {
   choices?: { message?: { content?: string | null } }[];
-  usage?: { completion_tokens?: number; total_tokens?: number };
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 };
 
 /**
@@ -257,6 +258,14 @@ export const generateAssessment = createServerFn({ method: "POST" })
           ?.finish_reason;
         return fail("AI_EMPTY_REPLY", finish ? `finish_reason=${finish}` : "");
       }
+      // Pilot cost measurement (best-effort, never fails generation):
+      // one row per successful generation call, attributed to the teacher.
+      await logAiUsage(supabase, userId, {
+        kind: "generate",
+        provider: openAiProvider(baseUrl),
+        model,
+        usage: extractOpenAiUsage(json),
+      });
     } catch (e) {
       const name = e instanceof Error ? e.name : "";
       if (name === "TimeoutError" || name === "AbortError") return fail("AI_TIMEOUT");

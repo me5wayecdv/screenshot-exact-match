@@ -18,6 +18,8 @@
  * - Nothing is persisted: chat messages and practice attempts live in
  *   the student's browser session only. A future phase may add a
  *   practice-attempts table; until then the page says so plainly.
+ *   Exception (pilot cost measurement only): one ai_usage_events row
+ *   per tutor call — token counts + model, never chat content.
  *
  * Provider configuration (server env only, never VITE_): AI_BASE_URL,
  * AI_MODEL, AI_API_KEY — same semantics as src/server/ai-config.ts.
@@ -27,6 +29,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveAiConfig } from "./ai-config";
+import { extractOpenAiUsage, logAiUsage, openAiProvider, type AiUsageSink } from "./ai-usage";
 import {
   tutorExplainPrompt,
   tutorFeedbackPrompt,
@@ -155,6 +158,7 @@ async function hasReleasedSubmission(
 async function callChat(
   messages: { role: string; content: string }[],
   temperature: number,
+  usage?: AiUsageSink,
 ): Promise<
   { ok: true; reply: string; model: string } | { ok: false; code: TutorErrorCode; message: string }
 > {
@@ -186,6 +190,7 @@ async function callChat(
     }
     const payload = (await res.json()) as {
       choices?: Array<{ message?: { content?: string | null } }>;
+      usage?: unknown;
     };
     const reply = payload.choices?.[0]?.message?.content?.trim() ?? "";
     if (!reply) {
@@ -194,6 +199,14 @@ async function callChat(
         code: "TUTOR_UPSTREAM",
         message: "AI provider returned an empty response.",
       };
+    }
+    if (usage) {
+      await logAiUsage(usage.client, usage.teacherId, {
+        kind: "tutor",
+        provider: openAiProvider(config.baseUrl),
+        model: config.model,
+        usage: extractOpenAiUsage(payload),
+      });
     }
     return { ok: true, reply, model: config.model };
   } catch (error) {
@@ -326,6 +339,7 @@ export const askTutor = createServerFn({ method: "POST" }).handler(
         { role: "user", content: finalUser },
       ],
       0.3,
+      { client: auth.client, userId: auth.userId },
     );
   },
 );
@@ -359,6 +373,7 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" }).handler(
         },
       ],
       0.3,
+      { client: auth.client, userId: auth.userId },
     );
   },
 );
@@ -396,6 +411,7 @@ export const tutorStudyTips = createServerFn({ method: "POST" }).handler(
         { role: "user", content: tutorTipsPrompt(objectives, language) },
       ],
       0.3,
+      { client: auth.client, userId: auth.userId },
     );
     if (!result.ok) return result;
     const tips = extractTips(result.reply);

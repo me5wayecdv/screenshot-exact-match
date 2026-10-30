@@ -37,7 +37,11 @@ describe("runGeminiQuery request shape", () => {
       IMAGE_JPEG,
       PROMPT,
     );
-    expect(result).toEqual({ ok: true, text: "hello" });
+    expect(result).toEqual({
+      ok: true,
+      text: "hello",
+      usage: { inputTokens: null, outputTokens: null },
+    });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
@@ -87,7 +91,11 @@ describe("runGeminiQuery request shape", () => {
       IMAGE_JPEG,
       PROMPT,
     );
-    expect(result).toEqual({ ok: true, text: "first second" });
+    expect(result).toEqual({
+      ok: true,
+      text: "first second",
+      usage: { inputTokens: null, outputTokens: null },
+    });
   });
 
   it("maps a non-OK response to VISION_UPSTREAM", async () => {

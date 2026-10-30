@@ -50,6 +50,13 @@ import {
   type OcrErrorCode,
 } from "./handwritten";
 import { resolveAiConfig } from "./ai-config";
+import {
+  createUsageClient,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+  type AiTokenUsage,
+} from "./ai-usage";
 import { matchByNumber, parseQuestionNumber } from "@/lib/paper-match";
 
 export type MatchConfidence = "high" | "medium" | "low" | "none";
@@ -94,7 +101,7 @@ function serverSupabaseEnv(): { url: string; anonKey: string } | null {
 async function authorize(
   accessToken: string,
   assessmentId: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
   const env = serverSupabaseEnv();
   if (!env) {
     return { ok: false, message: "Server Supabase environment is not configured." };
@@ -127,7 +134,7 @@ async function authorize(
       return { ok: false, message: "This assessment does not belong to the caller." };
     }
   }
-  return { ok: true };
+  return { ok: true, userId: user.id };
 }
 
 type QuestionRow = { id: string; prompt: string; position: number };
@@ -208,7 +215,14 @@ async function callVisionMatch(
   apiKey: string,
   imageDataUrl: string,
 ): Promise<
-  | { ok: true; text: string; questionNumber: number | null }
+  | {
+      ok: true;
+      text: string;
+      questionNumber: number | null;
+      provider: string;
+      model: string;
+      usage: AiTokenUsage;
+    }
   | { ok: false; code: OcrErrorCode; message: string }
 > {
   const controller = new AbortController();
@@ -232,7 +246,14 @@ async function callVisionMatch(
       );
       if (!g.ok) return g;
       const { text, questionNumber } = extractMatchReply(g.text);
-      return { ok: true, text, questionNumber };
+      return {
+        ok: true,
+        text,
+        questionNumber,
+        provider: "gemini",
+        model: gemini.model,
+        usage: g.usage,
+      };
     }
     // LLaVA (image-to-text) cannot take the chat-completions shape below:
     // on Cloudflare it needs the native run endpoint with a byte-array
@@ -254,7 +275,14 @@ async function callVisionMatch(
       );
       if (!llava.ok) return llava;
       const { text, questionNumber } = extractMatchReply(llava.text);
-      return { ok: true, text, questionNumber };
+      return {
+        ok: true,
+        text,
+        questionNumber,
+        provider: "cloudflare-native",
+        model,
+        usage: { inputTokens: null, outputTokens: null },
+      };
     }
     if (model.includes("moondream")) {
       const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
@@ -269,7 +297,14 @@ async function callVisionMatch(
       );
       if (!moon.ok) return moon;
       const { text, questionNumber } = extractMatchReply(moon.text);
-      return { ok: true, text, questionNumber };
+      return {
+        ok: true,
+        text,
+        questionNumber,
+        provider: "cloudflare-native",
+        model,
+        usage: { inputTokens: null, outputTokens: null },
+      };
     }
     // Cloudflare vision models go through the native Workers AI run
     // endpoint (top-level `image` + text-only messages) — the
@@ -368,7 +403,14 @@ async function callVisionMatch(
         };
       }
       const { text, questionNumber } = extractMatchReply(rawText);
-      return { ok: true, text, questionNumber };
+      return {
+        ok: true,
+        text,
+        questionNumber,
+        provider: "cloudflare-native",
+        model,
+        usage: { inputTokens: null, outputTokens: null },
+      };
     }
     // Non-Cloudflare providers keep the OpenAI-compatible path below.
     const compatInit = {
@@ -439,6 +481,7 @@ async function callVisionMatch(
     }
     const json = (await res.json()) as {
       choices?: { message?: { content?: string | unknown } }[];
+      usage?: unknown;
     };
     const content = json.choices?.[0]?.message?.content;
     const rawText = typeof content === "string" ? content : "";
@@ -450,7 +493,14 @@ async function callVisionMatch(
       };
     }
     const { text, questionNumber } = extractMatchReply(rawText);
-    return { ok: true, text, questionNumber };
+    return {
+      ok: true,
+      text,
+      questionNumber,
+      provider: openAiProvider(baseUrl),
+      model,
+      usage: extractOpenAiUsage(json),
+    };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {
       return { ok: false, code: "VISION_TIMEOUT", message: "Vision provider timed out." };
@@ -578,6 +628,11 @@ export const matchPaperPages = createServerFn({ method: "POST" }).handler(
     const textConfig = resolveAiConfig();
     const questions = await loadQuestions(accessToken, assessmentId);
 
+    // Pilot cost measurement (best-effort, never fails the batch):
+    // one row per page vision call, attributed to the teacher.
+    const env = serverSupabaseEnv();
+    const usageClient = env ? createUsageClient(env.url, env.anonKey, accessToken) : null;
+
     const out: MatchedPage[] = [];
     for (let i = 0; i < pages.length; i++) {
       const page = pages[i] as { imageDataUrl: string; imagePath: string };
@@ -589,6 +644,14 @@ export const matchPaperPages = createServerFn({ method: "POST" }).handler(
       );
       if (!visionRes.ok) {
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
+      }
+      if (usageClient) {
+        await logAiUsage(usageClient, auth.userId, {
+          kind: "match",
+          provider: visionRes.provider,
+          model: visionRes.model,
+          usage: visionRes.usage,
+        });
       }
       const numberIdx =
         visionRes.questionNumber !== null

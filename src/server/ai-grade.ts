@@ -36,6 +36,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { isAiConfigured } from "./ai-config";
 import { suggestGradeWithAi, type AiGradeSuggestion } from "./ai-client";
+import { createUsageClient } from "./ai-usage";
 
 export type AiGradeRequest = {
   questionPrompt: string;
@@ -111,7 +112,7 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
 async function authorize(
   accessToken: string,
   assessmentId: string | undefined,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
   const env = serverSupabaseEnv();
   if (!env) {
     return {
@@ -147,7 +148,7 @@ async function authorize(
       return { ok: false, message: "This assessment does not belong to the caller." };
     }
   }
-  return { ok: true };
+  return { ok: true, userId: user.id };
 }
 
 /**
@@ -175,13 +176,26 @@ export const suggestGrade = createServerFn({ method: "POST" }).handler(
     const auth = await authorize(request.accessToken, request.assessmentId);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
 
-    const result = await suggestGradeWithAi({
-      questionPrompt: request.questionPrompt,
-      rubric: request.rubric,
-      acceptedAlternatives: request.acceptedAlternatives,
-      studentAnswer: request.studentAnswer,
-      maxMarks: request.maxMarks,
-    });
+    // Pilot cost measurement: the grading call is logged with the
+    // teacher's id. Logging is best-effort inside suggestGradeWithAi
+    // and never fails the suggestion; without Supabase env there is
+    // simply no sink to log to.
+    const env = serverSupabaseEnv();
+    const result = await suggestGradeWithAi(
+      {
+        questionPrompt: request.questionPrompt,
+        rubric: request.rubric,
+        acceptedAlternatives: request.acceptedAlternatives,
+        studentAnswer: request.studentAnswer,
+        maxMarks: request.maxMarks,
+      },
+      env
+        ? {
+            client: createUsageClient(env.url, env.anonKey, request.accessToken),
+            teacherId: auth.userId,
+          }
+        : undefined,
+    );
     if (!result.ok) {
       return { ok: false, code: result.error.code, message: result.error.message };
     }

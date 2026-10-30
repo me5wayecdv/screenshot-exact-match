@@ -28,6 +28,7 @@
 
 import { buildAiGradingPrompt, type AiGradingPromptInput } from "./ai-grading-prompt";
 import { resolveAiConfig } from "./ai-config";
+import { extractOpenAiUsage, logAiUsage, openAiProvider, type AiUsageSink } from "./ai-usage";
 
 export type AiConfidence = "high" | "medium" | "low";
 
@@ -89,9 +90,12 @@ function parseSuggestion(raw: unknown, maxMarks: number): AiGradeSuggestion {
  * Ask the provider for one grading suggestion. Returns a discriminated
  * result instead of throwing for expected failures, so the UI can show a
  * distinct "AI not configured" state rather than a generic error.
+ * When `usage` is supplied, a successful call is logged for pilot cost
+ * measurement (best-effort: logging never fails the suggestion).
  */
 export async function suggestGradeWithAi(
   input: AiGradingPromptInput,
+  usage?: AiUsageSink,
 ): Promise<{ ok: true; suggestion: AiGradeSuggestion } | { ok: false; error: AiClientError }> {
   const config = resolveAiConfig();
   if (!config) {
@@ -140,6 +144,7 @@ export async function suggestGradeWithAi(
     }
     const payload = (await res.json()) as {
       choices?: Array<{ message?: { content?: string | null } }>;
+      usage?: unknown;
     };
     const content = payload.choices?.[0]?.message?.content ?? "";
     if (!content) {
@@ -149,6 +154,14 @@ export async function suggestGradeWithAi(
       };
     }
     const suggestion = parseSuggestion(extractJson(content), input.maxMarks);
+    if (usage) {
+      await logAiUsage(usage.client, usage.teacherId, {
+        kind: "grade",
+        provider: openAiProvider(config.baseUrl),
+        model: config.model,
+        usage: extractOpenAiUsage(payload),
+      });
+    }
     return { ok: true, suggestion };
   } catch (error) {
     const message =
