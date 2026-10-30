@@ -79,13 +79,15 @@ export function Brand({
   /** Set on deep-teal surfaces so the mark uses its cream-tile variant. */
   onDark?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   return (
     <span
+      lang={lang}
+      dir={lang === "ar" ? "rtl" : "ltr"}
       className={`inline-flex items-center gap-2.5 font-display text-xl font-bold tracking-normal ${className}`}
     >
       <BrandMark onDark={onDark} />
-      {t("brand")}
+      <span>{t("brand")}</span>
     </span>
   );
 }

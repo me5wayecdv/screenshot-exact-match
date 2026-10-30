@@ -4,7 +4,7 @@ Arabic-first. Every rule below works right-to-left first and mirrors for English
 
 ## The idea
 
-The Arabic name is **قَيِّمني** (Qayyimni), with a fatha on ق. It means “evaluate me”: students ask it; teachers answer it. Use this spelling consistently; do not use the older **قِمّيني** form.
+The Arabic name is **قَيّمني** (Qayyimni), with a fatha on ق. It means “evaluate me”: students ask it; teachers answer it. Use this spelling consistently; do not use the older **قِمّيني** form.
 
 The product promise is one line: **الكلمة الأخيرة للمعلّم** — _the teacher has the last word_. AI suggests, the teacher decides, nothing is released until they approve.
 
@@ -27,7 +27,7 @@ That pair of dots is the signature. It appears in the logo, as a bullet (`<TwoDo
 | `favicon.svg`, `/favicon.ico`, `apple-touch-icon.png`, `icon-*.png` | Browser and device icons (heavier stroke at 16px)     |
 | `og-image.svg`, `og-image.png`                                      | Source SVG and social share image, 1200×630           |
 
-- Arabic lockups use the correctly vocalized live wordmark **قَيِّمني**; English uses **Qayyimni**. SVG wordmarks keep the text editable; the app uses `<Brand />` so language and direction stay in sync. In the Arabic lockup the mark sits on the **right**; in English, on the **left**.
+- Arabic lockups use the correctly vocalized live wordmark **قَيّمني**; English uses **Qayyimni**. SVG wordmarks keep the text editable; the app uses `<Brand />` so language and direction stay in sync. In the Arabic lockup the mark sits on the **right**; in English, on the **left**.
 - In the app use `<Brand />` and `<BrandMark />` from `src/components/Brand.tsx`. Pass `onDark` on deep-teal surfaces (sidebar, auth panel).
 - **Clear space:** at least the width of one dot (≈ 1/9 of the tile) on every side. **Minimum size:** 16 px for the mark, 96 px wide for a lockup.
 - **Don't:** recolour the dots, put the white-tile mark on Papyrus without a border, stretch, rotate, add shadows or outlines, place the saffron tile on Saffron, or letter-space the Arabic.
