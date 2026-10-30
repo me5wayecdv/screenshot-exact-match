@@ -100,7 +100,7 @@ type HwRow = {
 export const Route = createFileRoute("/_authenticated/handwritten")({
   head: () => ({
     meta: [
-      { title: "Handwritten grading · Qemmini" },
+      { title: "Handwritten grading · Qayyimni" },
       {
         name: "description",
         content:

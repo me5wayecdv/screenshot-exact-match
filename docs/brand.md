@@ -1,10 +1,10 @@
-# Qemmini brand guide · دليل الهوية
+# Qayyimni brand guide · دليل الهوية
 
 Arabic-first. Every rule below works right-to-left first and mirrors for English.
 
 ## The idea
 
-**قِمّيني** (_Qemmini_) sounds like "evaluate me". Students ask it; teachers answer it.
+The Arabic name is **قَيّمني** (Qayyimni), with a fatha on ق. It means “evaluate me”: students ask it; teachers answer it. Use this spelling consistently; do not use the older **قِمّيني** form.
 
 The product promise is one line: **الكلمة الأخيرة للمعلّم** — _the teacher has the last word_. AI suggests, the teacher decides, nothing is released until they approve.
 
@@ -23,11 +23,11 @@ That pair of dots is the signature. It appears in the logo, as a bullet (`<TwoDo
 | `logo-ar-on-dark.svg`, `logo-en-on-dark.svg`                        | On Deep Teal / photos darker than 40% luminance       |
 | `mark.svg`, `mark-on-dark.svg`, `mark-saffron.svg`                  | Mark only (app icons, avatars, small spaces)          |
 | `mark-glyph.svg`                                                    | One-colour glyph, no tile (stamps, watermarks, print) |
-| `wordmark-ar.svg`, `wordmark-en.svg`                                | Outlined wordmark, `currentColor`                     |
+| `wordmark-ar.svg`, `wordmark-en.svg`                                | Editable live-text wordmarks, `currentColor`          |
 | `favicon.svg`, `/favicon.ico`, `apple-touch-icon.png`, `icon-*.png` | Browser and device icons (heavier stroke at 16px)     |
-| `og-image.png`                                                      | Social share image, 1200×630                          |
+| `og-image.svg`, `og-image.png`                                      | Source SVG and social share image, 1200×630           |
 
-- Wordmarks are **outlined** (Readex Pro Bold, shaped with real Arabic joining): never retype them. In the Arabic lockup the mark sits on the **right**; in English, on the **left**.
+- Arabic lockups use the correctly vocalized live wordmark **قَيّمني**; English uses **Qayyimni**. SVG wordmarks keep the text editable; the app uses `<Brand />` so language and direction stay in sync. In the Arabic lockup the mark sits on the **right**; in English, on the **left**.
 - In the app use `<Brand />` and `<BrandMark />` from `src/components/Brand.tsx`. Pass `onDark` on deep-teal surfaces (sidebar, auth panel).
 - **Clear space:** at least the width of one dot (≈ 1/9 of the tile) on every side. **Minimum size:** 16 px for the mark, 96 px wide for a lockup.
 - **Don't:** recolour the dots, put the white-tile mark on Papyrus without a border, stretch, rotate, add shadows or outlines, place the saffron tile on Saffron, or letter-space the Arabic.
@@ -62,7 +62,7 @@ Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static asse
 
 - Arabic line-height **1.25** on headlines, **1.7** on body. Arabic needs more air than Latin.
 - **Never letter-space Arabic** (`:lang(ar)` resets tracking). Headlines use `text-wrap: balance`.
-- Wrap mixed-direction snippets (`© 2026 Qemmini`, numbers with units) in `dir="ltr"`.
+- Wrap mixed-direction snippets (`© 2026 Qayyimni`, numbers with units) in `dir="ltr"`.
 
 ## Shape and motion
 

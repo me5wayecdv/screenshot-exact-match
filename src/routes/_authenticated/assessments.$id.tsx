@@ -20,7 +20,7 @@ type Status = Database["public"]["Enums"]["assessment_status"];
 export const Route = createFileRoute("/_authenticated/assessments/$id")({
   head: () => ({
     meta: [
-      { title: "Assessment builder · Qemmini" },
+      { title: "Assessment builder · Qayyimni" },
       { name: "description", content: "Edit questions, answer keys and assignments." },
     ],
   }),

@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
     meta: [
-      { title: "Profile · Qemmini" },
+      { title: "Profile · Qayyimni" },
       { name: "description", content: "View and edit your profile." },
     ],
   }),

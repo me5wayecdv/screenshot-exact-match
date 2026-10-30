@@ -1,4 +1,4 @@
-# AI models for Qemmini (grading suggestions + assessment generation + handwritten OCR)
+# AI models for Qayyimni (grading suggestions + assessment generation + handwritten OCR)
 
 All AI features (grading suggestions on `/grading`, assessment generation on
 `/assessments/generate`, handwritten-paper OCR on `/handwritten`) are

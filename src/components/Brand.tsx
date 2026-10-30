@@ -1,7 +1,7 @@
 import { useI18n } from "@/lib/i18n";
 
 /**
- * The Qemmini mark: a geometric ق whose two dots tell the product story.
+ * The Qayyimni mark: a geometric ق whose two dots tell the product story.
  * The first dot (right, where Arabic reading starts) is the suggestion; the
  * second, saffron dot is the teacher's last word. See docs/brand.md.
  *
@@ -79,13 +79,15 @@ export function Brand({
   /** Set on deep-teal surfaces so the mark uses its cream-tile variant. */
   onDark?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   return (
     <span
+      lang={lang}
+      dir={lang === "ar" ? "rtl" : "ltr"}
       className={`inline-flex items-center gap-2.5 font-display text-xl font-bold tracking-normal ${className}`}
     >
       <BrandMark onDark={onDark} />
-      {t("brand")}
+      <span>{t("brand")}</span>
     </span>
   );
 }

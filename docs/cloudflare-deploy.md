@@ -1,4 +1,4 @@
-# Deploying Qemmini on Cloudflare Workers (pilot)
+# Deploying Qayyimni on Cloudflare Workers (pilot)
 
 Target: the TanStack Start app runs as a Cloudflare Worker (SSR + server
 functions on the edge); Supabase stays where it is (auth, Postgres, Storage)

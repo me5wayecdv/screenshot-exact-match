@@ -37,7 +37,7 @@ type Q = Database["public"]["Tables"]["questions"]["Row"];
 export const Route = createFileRoute("/_authenticated/analytics")({
   head: () => ({
     meta: [
-      { title: "Analytics · Qemmini" },
+      { title: "Analytics · Qayyimni" },
       {
         name: "description",
         content: "Strengths, weaknesses, most-missed questions and comparisons.",
