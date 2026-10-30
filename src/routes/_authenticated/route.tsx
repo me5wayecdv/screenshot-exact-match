@@ -12,6 +12,7 @@ import {
   TrendingUp,
   GraduationCap,
   MessageSquare,
+  User,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Brand, LangToggle } from "@/components/Brand";
@@ -42,6 +43,7 @@ function AppShell() {
           { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
           { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
           { to: "/students", label: t("students"), icon: Users },
+          { to: "/profile", label: t("profile"), icon: User },
         ]
       : me?.role === "tutor"
         ? [
@@ -51,17 +53,20 @@ function AppShell() {
             { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
             { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
             { to: "/students", label: t("students"), icon: Users },
+            { to: "/profile", label: t("profile"), icon: User },
           ]
         : me?.role === "admin"
           ? [
               { to: "/dashboard", label: t("dashboard"), icon: Home },
               { to: "/admin", label: t("admin"), icon: Shield },
               { to: "/audit", label: t("auditHistory"), icon: History },
+              { to: "/profile", label: t("profile"), icon: User },
             ]
           : [
               { to: "/dashboard", label: t("myAssessments"), icon: Home },
               { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
               { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
+              { to: "/profile", label: t("profile"), icon: User },
             ];
 
   async function signOut() {
@@ -75,7 +80,7 @@ function AppShell() {
     <div className="flex min-h-screen flex-col md:flex-row">
       <aside className="flex shrink-0 flex-col bg-sidebar text-sidebar-foreground md:min-h-screen md:w-60">
         <div className="flex items-center justify-between p-5">
-          <Brand onDark />
+          <Brand />
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 md:flex-col">
           {nav.map((n) => (

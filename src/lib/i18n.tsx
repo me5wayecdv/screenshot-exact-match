@@ -4,15 +4,8 @@ export type Lang = "ar" | "en";
 
 const dict = {
   ar: {
-    brand: "قِمّيني",
+    brand: "قَيِّمني",
     tagline: "منصة تقييم وتعلم ذكية للمعلم والطالب",
-    brandPromise: "الكلمة الأخيرة للمعلّم",
-    brandPromiseBody: "يقترح الذكاء الاصطناعي، ويعتمد المعلّم. لا تُنشر درجة قبل أن يوافق عليها.",
-    demoQuestion: "السؤال ٣ · ٥ درجات",
-    demoSuggest: "اقتراح الذكاء الاصطناعي",
-    demoSuggestNote: "تغطي الإجابة الفكرتين الأساسيتين وتنقصها الأمثلة.",
-    demoApproved: "اعتمده المعلّم",
-    demoScore: "٤/٥",
     heroTitle: "تقييم أدق، وقت أقل، وتعلّم يفهم كل طالب",
     heroBody:
       "أنشئ الاختبارات، صحّح الإجابات الموضوعية تلقائياً، واحصل على اقتراحات ذكية لتصحيح الإجابات المقالية — والقرار النهائي دائماً للمعلم.",
@@ -41,6 +34,10 @@ const dict = {
     assessments: "الاختبارات",
     grading: "التصحيح",
     students: "الطلاب",
+    profile: "الملف الشخصي",
+    profileSaved: "تم حفظ الاسم.",
+    memberSince: "عضو منذ",
+    accountType: "نوع الحساب",
     myAssessments: "اختباراتي",
     results: "النتائج",
     feature1: "منشئ اختبارات متكامل",
@@ -607,14 +604,6 @@ const dict = {
     genNotTeacher: "هذا الإجراء للمعلمين فقط.",
     genInvalidInput:
       "تحقق من المدخلات: نص لا يقل عن 50 حرفاً، ونوع سؤال واحد على الأقل، وعدد أسئلة بين 1 و 20.",
-    genAiAuth:
-      "الخادم وصل لمزوّد الذكاء الاصطناعي لكن المفتاح مرفوض (401/403). تحقق من صلاحية سر AI_API_KEY (Workers AI: Read).",
-    genRateLimit:
-      "تم الوصول لحد استخدام الذكاء الاصطناعي (429). انتظر قليلاً أو تحقق من حصة Workers AI اليومية في لوحة Cloudflare.",
-    genBadRequest:
-      "المزوّد رفض الطلب نفسه (400/404/422) — غالباً اسم الموديل في AI_MODEL غير صحيح أو غير متاح.",
-    genEmptyReply: "المزوّد رجع رداً فارغاً. أعد المحاولة بنص أقصر.",
-    genDbError: "تعذّر حفظ المسودة في قاعدة البيانات. أعد المحاولة أو أبلغ مسؤول المنصة.",
     genNeedSource: "الصق نص الدرس أولاً (50 حرفاً على الأقل).",
     genNeedType: "اختر نوع سؤال واحد على الأقل.",
     // USP slice 3 — integrity signals
@@ -656,14 +645,6 @@ const dict = {
   en: {
     brand: "Qemmini",
     tagline: "Intelligent assessment and learning for teachers and students",
-    brandPromise: "The teacher has the last word",
-    brandPromiseBody:
-      "AI suggests, the teacher decides. No grade is released until they approve it.",
-    demoQuestion: "Question 3 · 5 marks",
-    demoSuggest: "AI suggestion",
-    demoSuggestNote: "Covers both key ideas but lacks examples.",
-    demoApproved: "Approved by teacher",
-    demoScore: "4/5",
     heroTitle: "Sharper assessment, less time, learning that understands every student",
     heroBody:
       "Build tests, auto-grade objective answers, and get AI grading suggestions for written answers — the teacher always has the final word.",
@@ -692,6 +673,10 @@ const dict = {
     assessments: "Assessments",
     grading: "Grading",
     students: "Students",
+    profile: "Profile",
+    profileSaved: "Name saved.",
+    memberSince: "Member since",
+    accountType: "Account type",
     myAssessments: "My assessments",
     results: "Results",
     feature1: "Complete assessment builder",
@@ -1268,15 +1253,6 @@ const dict = {
     genNotTeacher: "This action is for teachers only.",
     genInvalidInput:
       "Check your inputs: text of at least 50 characters, at least one question type, and 1–20 questions.",
-    genAiAuth:
-      "The server reached the AI provider but the key was rejected (401/403). Check the AI_API_KEY secret permissions (Workers AI: Read).",
-    genRateLimit:
-      "AI usage limit reached (429). Wait a moment, or check the daily Workers AI quota in the Cloudflare dashboard.",
-    genBadRequest:
-      "The provider rejected the request itself (400/404/422) — usually an invalid or unavailable AI_MODEL id.",
-    genEmptyReply: "The provider returned an empty reply. Try again with shorter text.",
-    genDbError:
-      "The draft could not be saved to the database. Try again or tell the platform admin.",
     genNeedSource: "Paste the lesson text first (at least 50 characters).",
     genNeedType: "Select at least one question type.",
     // USP slice 3 — integrity signals
