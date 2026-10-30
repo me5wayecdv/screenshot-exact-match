@@ -56,12 +56,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * under OpenAI semantics) only when the arithmetic is sane.
  */
 export function extractOpenAiUsage(payload: unknown): AiTokenUsage {
-  const usage = asRecord(asRecord(payload)?.usage);
+  const usage = asRecord(asRecord(payload)?.["usage"]);
   if (!usage) return { ...NULL_USAGE };
-  const outputTokens = asTokenCount(usage.completion_tokens);
-  let inputTokens = asTokenCount(usage.prompt_tokens);
+  const outputTokens = asTokenCount(usage["completion_tokens"]);
+  let inputTokens = asTokenCount(usage["prompt_tokens"]);
   if (inputTokens === null) {
-    const total = asTokenCount(usage.total_tokens);
+    const total = asTokenCount(usage["total_tokens"]);
     if (total !== null && outputTokens !== null && total >= outputTokens) {
       inputTokens = total - outputTokens;
     }
@@ -74,11 +74,11 @@ export function extractOpenAiUsage(payload: unknown): AiTokenUsage {
  * candidatesTokenCount }. Absent fields stay NULL — never guessed.
  */
 export function extractGeminiUsage(payload: unknown): AiTokenUsage {
-  const meta = asRecord(asRecord(payload)?.usageMetadata);
+  const meta = asRecord(asRecord(payload)?.["usageMetadata"]);
   if (!meta) return { ...NULL_USAGE };
   return {
-    inputTokens: asTokenCount(meta.promptTokenCount),
-    outputTokens: asTokenCount(meta.candidatesTokenCount),
+    inputTokens: asTokenCount(meta["promptTokenCount"]),
+    outputTokens: asTokenCount(meta["candidatesTokenCount"]),
   };
 }
 

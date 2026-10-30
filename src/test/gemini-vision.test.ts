@@ -43,7 +43,7 @@ describe("runGeminiQuery request shape", () => {
       usage: { inputTokens: null, outputTokens: null },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
     expect(url).toBe(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
     );
@@ -56,9 +56,9 @@ describe("runGeminiQuery request shape", () => {
       }>;
       generationConfig: { maxOutputTokens: number; temperature: number };
     };
-    expect(body.contents[0].parts[0].text).toBe(PROMPT);
+    expect(body.contents[0]!.parts[0]!.text).toBe(PROMPT);
     // Base64 without the data-URL prefix, mime type from the prefix.
-    expect(body.contents[0].parts[1].inlineData).toEqual({
+    expect(body.contents[0]!.parts[1]!.inlineData).toEqual({
       mimeType: "image/jpeg",
       data: "/9j/abc123",
     });
@@ -70,11 +70,11 @@ describe("runGeminiQuery request shape", () => {
       candidates: [{ content: { parts: [{ text: "x" }] } }],
     });
     await runGeminiQuery("test-key", "gemini-2.5-flash", signal(), IMAGE_PNG, PROMPT);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
     const body = JSON.parse(init.body as string) as {
       contents: Array<{ parts: Array<{ inlineData?: { mimeType: string; data: string } }> }>;
     };
-    expect(body.contents[0].parts[1].inlineData).toEqual({
+    expect(body.contents[0]!.parts[1]!.inlineData).toEqual({
       mimeType: "image/png",
       data: "iVBORw0KGgo=",
     });
@@ -135,12 +135,12 @@ describe("resolveGeminiConfig gating", () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
-    saved.VISION_PROVIDER = process.env.VISION_PROVIDER;
-    saved.GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-    saved.GEMINI_MODEL = process.env.GEMINI_MODEL;
-    delete process.env.VISION_PROVIDER;
-    delete process.env.GEMINI_API_KEY;
-    delete process.env.GEMINI_MODEL;
+    saved["VISION_PROVIDER"] = process.env["VISION_PROVIDER"];
+    saved["GEMINI_API_KEY"] = process.env["GEMINI_API_KEY"];
+    saved["GEMINI_MODEL"] = process.env["GEMINI_MODEL"];
+    delete process.env["VISION_PROVIDER"];
+    delete process.env["GEMINI_API_KEY"];
+    delete process.env["GEMINI_MODEL"];
   });
 
   afterEach(() => {
@@ -152,18 +152,18 @@ describe("resolveGeminiConfig gating", () => {
 
   it("returns null without a key or without VISION_PROVIDER=gemini", () => {
     expect(resolveGeminiConfig()).toBeNull();
-    process.env.GEMINI_API_KEY = "test-key";
+    process.env["GEMINI_API_KEY"] = "test-key";
     expect(resolveGeminiConfig()).toBeNull();
-    delete process.env.GEMINI_API_KEY;
-    process.env.VISION_PROVIDER = "gemini";
+    delete process.env["GEMINI_API_KEY"];
+    process.env["VISION_PROVIDER"] = "gemini";
     expect(resolveGeminiConfig()).toBeNull();
   });
 
   it("defaults to gemini-2.5-flash and honors GEMINI_MODEL", () => {
-    process.env.VISION_PROVIDER = "gemini";
-    process.env.GEMINI_API_KEY = "test-key";
+    process.env["VISION_PROVIDER"] = "gemini";
+    process.env["GEMINI_API_KEY"] = "test-key";
     expect(resolveGeminiConfig()).toEqual({ apiKey: "test-key", model: "gemini-2.5-flash" });
-    process.env.GEMINI_MODEL = "gemini-2.5-pro";
+    process.env["GEMINI_MODEL"] = "gemini-2.5-pro";
     expect(resolveGeminiConfig()).toEqual({ apiKey: "test-key", model: "gemini-2.5-pro" });
   });
 });

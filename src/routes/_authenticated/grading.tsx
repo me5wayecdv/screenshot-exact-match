@@ -255,7 +255,7 @@ function Grading() {
   }
 
   async function release() {
-    if (!detail || !selected) return;
+    if (!me || !detail || !selected) return;
     // Teacher-final-word: every question needs an explicit teacher score
     // (auto scores alone never release a submission).
     for (const q of detail.questions) {

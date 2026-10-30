@@ -324,7 +324,9 @@ function Generate() {
           try {
             const perFile: string[] = [];
             for (let i = 0; i < files.length; i++) {
-              const quarters = await splitImageBlob(blobs[i]);
+              const originalBlob = blobs[i];
+              if (!originalBlob) throw new Error("Missing uploaded source image.");
+              const quarters = await splitImageBlob(originalBlob);
               const quarterDataUrls: string[] = [];
               for (const quarter of quarters) {
                 try {
@@ -342,10 +344,10 @@ function Generate() {
               perFile.push(
                 joinSplitTexts(
                   joinSplitTexts(
-                    joinSplitTexts(splitRes.texts[0], splitRes.texts[1]),
-                    splitRes.texts[2],
+                    joinSplitTexts(splitRes.texts[0]!, splitRes.texts[1]!),
+                    splitRes.texts[2]!,
                   ),
-                  splitRes.texts[3],
+                  splitRes.texts[3]!,
                 ),
               );
             }

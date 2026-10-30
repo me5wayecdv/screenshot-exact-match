@@ -58,9 +58,14 @@ preserves the old single-submission behaviour exactly.
   performance-over-time view), while the report counts only the
   latest. This is deliberate for now; unify only if teachers find it
   confusing.
-- The old direct client-side submission insert is retired; the
-  take/grading INSERT policy (`status = 'awaiting_review'`) remains
-  as a backstop but is no longer on the take-page path.
+- Direct student inserts into `submissions` and `answers` are revoked by
+  `20261030230000_harden_signup_and_exam_rls.sql`; draft writes are accepted
+  only through `save_draft`, and submission lifecycle changes only through
+  the attempt RPCs. The legacy `submit_assessment` RPC is revoked because it
+  predates the timer and attempt-limit controls.
+- Student reads of `answers` are limited to their own `in_progress` drafts
+  (resume support) and `released` answers; pending teacher review scores are
+  not readable.
 
 ## Pilot checks (add to the Cloudflare smoke tests)
 

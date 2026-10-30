@@ -69,18 +69,18 @@ function parseSuggestion(raw: unknown, maxMarks: number): AiGradeSuggestion {
     throw new Error("Model response was not a JSON object.");
   }
   const obj = raw as Record<string, unknown>;
-  const scoreRaw = obj.suggested_score ?? obj.score;
+  const scoreRaw = obj["suggested_score"] ?? obj["score"];
   const score = typeof scoreRaw === "number" ? scoreRaw : Number(scoreRaw);
   if (!Number.isFinite(score)) {
     throw new Error("Model response had no usable suggested_score.");
   }
   const feedback =
-    typeof obj.feedback === "string"
-      ? obj.feedback
-      : typeof obj.explanation === "string"
-        ? obj.explanation
+    typeof obj["feedback"] === "string"
+      ? obj["feedback"]
+      : typeof obj["explanation"] === "string"
+        ? obj["explanation"]
         : "";
-  const confidenceRaw = obj.confidence;
+  const confidenceRaw = obj["confidence"];
   const confidence: AiConfidence =
     confidenceRaw === "high" || confidenceRaw === "low" ? confidenceRaw : "medium";
   return { suggestedScore: clampScore(score, maxMarks), feedback, confidence };
@@ -118,7 +118,7 @@ export async function suggestGradeWithAi(
     // OpenAI-specific and would break other compatible endpoints; the
     // prompt demands JSON-only output and extractJson() tolerates fences.
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+    if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
     const res = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,

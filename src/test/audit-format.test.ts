@@ -42,7 +42,7 @@ describe("formatAuditDetails", () => {
     const lines = formatAuditDetails({ note: "x".repeat(300) }, labels);
 
     expect(lines).toHaveLength(1);
-    expect(lines[0].value).toHaveLength(201);
-    expect(lines[0].value.endsWith("…")).toBe(true);
+    expect(lines[0]!.value).toHaveLength(201);
+    expect(lines[0]!.value.endsWith("…")).toBe(true);
   });
 });

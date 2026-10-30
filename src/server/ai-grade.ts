@@ -36,6 +36,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { isAiConfigured } from "./ai-config";
 import { suggestGradeWithAi, type AiGradeSuggestion } from "./ai-client";
+export type { AiGradeSuggestion } from "./ai-client";
 import { createUsageClient } from "./ai-usage";
 
 export type AiGradeRequest = {
@@ -61,11 +62,11 @@ export type AiGradeResult =
 const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
+  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
   const anonKey =
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+    process.env["SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
   if (!url || !anonKey) return null;
   return { url, anonKey };
 }
@@ -74,15 +75,15 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
   if (typeof data !== "object" || data === null) return { error: "Request must be an object." };
   const d = data as Record<string, unknown>;
   const asString = (v: unknown) => (typeof v === "string" ? v : null);
-  const questionPrompt = asString(d.questionPrompt);
-  const rubric = asString(d.rubric) ?? "";
-  const studentAnswer = asString(d.studentAnswer);
-  const accessToken = asString(d.accessToken);
-  const maxMarks = typeof d.maxMarks === "number" ? d.maxMarks : Number(d.maxMarks);
-  const acceptedAlternatives = Array.isArray(d.acceptedAlternatives)
-    ? d.acceptedAlternatives.filter((a): a is string => typeof a === "string")
+  const questionPrompt = asString(d["questionPrompt"]);
+  const rubric = asString(d["rubric"]) ?? "";
+  const studentAnswer = asString(d["studentAnswer"]);
+  const accessToken = asString(d["accessToken"]);
+  const maxMarks = typeof d["maxMarks"] === "number" ? d["maxMarks"] : Number(d["maxMarks"]);
+  const acceptedAlternatives = Array.isArray(d["acceptedAlternatives"])
+    ? d["acceptedAlternatives"].filter((a): a is string => typeof a === "string")
     : [];
-  const assessmentId = asString(d.assessmentId) ?? undefined;
+  const assessmentId = asString(d["assessmentId"]) ?? undefined;
   if (!questionPrompt?.trim()) return { error: "questionPrompt is required." };
   if (studentAnswer === null) return { error: "studentAnswer is required." };
   if (!accessToken?.trim()) return { error: "accessToken is required." };
@@ -103,7 +104,7 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
     acceptedAlternatives,
     studentAnswer,
     maxMarks,
-    assessmentId,
+    ...(assessmentId ? { assessmentId } : {}),
     accessToken,
   };
 }
@@ -157,8 +158,9 @@ async function authorize(
  * Returns a discriminated result; it never throws for expected failures, so
  * the UI can distinguish "AI not configured" from other errors.
  */
-export const suggestGrade = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<AiGradeResult> => {
+export const suggestGrade = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<AiGradeResult> => {
     const request = validateRequest(data);
     if ("error" in request) {
       return { ok: false, code: "INVALID_INPUT", message: request.error };
@@ -200,8 +202,7 @@ export const suggestGrade = createServerFn({ method: "POST" }).handler(
       return { ok: false, code: result.error.code, message: result.error.message };
     }
     return { ok: true, suggestion: result.suggestion };
-  },
-);
+  });
 
 /**
  * getAiGradingStatus — server function.
@@ -209,11 +210,11 @@ export const suggestGrade = createServerFn({ method: "POST" }).handler(
  * Returns only a boolean. It never reveals the key, the model, or the base
  * URL, so the grading UI can show the "AI not configured" state up front.
  */
-export const getAiGradingStatus = createServerFn({ method: "POST" }).handler(
-  async (): Promise<{ configured: boolean }> => {
+export const getAiGradingStatus = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async (): Promise<{ configured: boolean }> => {
     return { configured: isAiConfigured() };
-  },
-);
+  });
 
 /**
  * FUTURE FINE-TUNING DATASET — logAiTrainingExample.
@@ -260,16 +261,16 @@ function validateTrainingInput(data: unknown): AiTrainingExampleInput | { error:
   if (typeof data !== "object" || data === null) return { error: "Request must be an object." };
   const d = data as Record<string, unknown>;
   const asString = (v: unknown) => (typeof v === "string" ? v : null);
-  const questionPrompt = asString(d.questionPrompt);
-  const rubric = asString(d.rubric) ?? "";
-  const studentAnswer = asString(d.studentAnswer);
-  const aiFeedback = asString(d.aiFeedback) ?? "";
-  const teacherFeedback = asString(d.teacherFeedback) ?? "";
-  const accessToken = asString(d.accessToken);
-  const aiSuggestedScore = Number(d.aiSuggestedScore);
-  const teacherFinalScore = Number(d.teacherFinalScore);
-  const maxMarks = Number(d.maxMarks);
-  const assessmentId = asString(d.assessmentId) ?? undefined;
+  const questionPrompt = asString(d["questionPrompt"]);
+  const rubric = asString(d["rubric"]) ?? "";
+  const studentAnswer = asString(d["studentAnswer"]);
+  const aiFeedback = asString(d["aiFeedback"]) ?? "";
+  const teacherFeedback = asString(d["teacherFeedback"]) ?? "";
+  const accessToken = asString(d["accessToken"]);
+  const aiSuggestedScore = Number(d["aiSuggestedScore"]);
+  const teacherFinalScore = Number(d["teacherFinalScore"]);
+  const maxMarks = Number(d["maxMarks"]);
+  const assessmentId = asString(d["assessmentId"]) ?? undefined;
   if (!questionPrompt?.trim()) return { error: "questionPrompt is required." };
   if (studentAnswer === null) return { error: "studentAnswer is required." };
   if (!accessToken?.trim()) return { error: "accessToken is required." };
@@ -301,13 +302,14 @@ function validateTrainingInput(data: unknown): AiTrainingExampleInput | { error:
     teacherFinalScore,
     teacherFeedback,
     maxMarks,
-    assessmentId,
+    ...(assessmentId ? { assessmentId } : {}),
     accessToken,
   };
 }
 
-export const logAiTrainingExample = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<{ ok: boolean }> => {
+export const logAiTrainingExample = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<{ ok: boolean }> => {
     const input = validateTrainingInput(data);
     if ("error" in input) return { ok: false };
 
@@ -329,8 +331,7 @@ export const logAiTrainingExample = createServerFn({ method: "POST" }).handler(
       ai_feedback: input.aiFeedback || null,
       teacher_final_score: input.teacherFinalScore,
       teacher_feedback: input.teacherFeedback.trim() ? input.teacherFeedback : null,
-      model_name: process.env.AI_MODEL?.trim() || null,
+      model_name: process.env["AI_MODEL"]?.trim() || null,
     });
     return { ok: !error };
-  },
-);
+  });
