@@ -9,6 +9,13 @@ const dict = {
     heroTitle: "تقييم أدق، وقت أقل، وتعلّم يفهم كل طالب",
     heroBody:
       "أنشئ الاختبارات، صحّح الإجابات الموضوعية تلقائياً، واحصل على اقتراحات ذكية لتصحيح الإجابات المقالية — والقرار النهائي دائماً للمعلم.",
+    brandPromise: "الذكاء الاصطناعي يساعد، والمعلم يقرر",
+    brandPromiseBody: "كل اقتراح قابل للمراجعة والتعديل قبل اعتماد الدرجة ونشرها للطالب.",
+    demoQuestion: "إجابة الطالب",
+    demoSuggest: "اقتراح الذكاء الاصطناعي",
+    demoScore: "٨ / ١٠",
+    demoSuggestNote: "اقتراح مبني على معايير التصحيح — يحتاج اعتماد المعلم.",
+    demoApproved: "اعتمدها المعلم",
     getStarted: "ابدأ الآن",
     signIn: "تسجيل الدخول",
     signUp: "إنشاء حساب",
@@ -648,6 +655,14 @@ const dict = {
     heroTitle: "Sharper assessment, less time, learning that understands every student",
     heroBody:
       "Build tests, auto-grade objective answers, and get AI grading suggestions for written answers — the teacher always has the final word.",
+    brandPromise: "AI assists; teachers decide",
+    brandPromiseBody:
+      "Every suggestion can be reviewed and edited before a grade is approved and released.",
+    demoQuestion: "Student response",
+    demoSuggest: "AI suggestion",
+    demoScore: "8 / 10",
+    demoSuggestNote: "Suggested against the rubric — awaiting teacher approval.",
+    demoApproved: "Teacher approved",
     getStarted: "Get started",
     signIn: "Sign in",
     signUp: "Create account",

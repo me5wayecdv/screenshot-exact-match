@@ -26,6 +26,7 @@ export type Database = {
           response: string
           review_status: Database["public"]["Enums"]["review_status"]
           submission_id: string
+          time_spent_seconds: number
         }
         Insert: {
           ai_suggestion?: Json | null
@@ -38,6 +39,7 @@ export type Database = {
           response?: string
           review_status?: Database["public"]["Enums"]["review_status"]
           submission_id: string
+          time_spent_seconds?: number
         }
         Update: {
           ai_suggestion?: Json | null
@@ -50,6 +52,7 @@ export type Database = {
           response?: string
           review_status?: Database["public"]["Enums"]["review_status"]
           submission_id?: string
+          time_spent_seconds?: number
         }
         Relationships: [
           {
@@ -94,6 +97,7 @@ export type Database = {
       assessments: {
         Row: {
           created_at: string
+          auto_whatsapp_send: boolean
           due_at: string | null
           duration_minutes: number | null
           starts_at: string | null
@@ -108,6 +112,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_whatsapp_send?: boolean
           created_at?: string
           due_at?: string | null
           duration_minutes?: number | null
@@ -123,6 +128,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_whatsapp_send?: boolean
           created_at?: string
           due_at?: string | null
           duration_minutes?: number | null
@@ -240,18 +246,24 @@ export type Database = {
           full_name: string
           id: string
           join_code: string | null
+          parent_phone: string | null
+          whatsapp_consent: boolean
         }
         Insert: {
           created_at?: string
           full_name?: string
           id: string
           join_code?: string | null
+          parent_phone?: string | null
+          whatsapp_consent?: boolean
         }
         Update: {
           created_at?: string
           full_name?: string
           id?: string
           join_code?: string | null
+          parent_phone?: string | null
+          whatsapp_consent?: boolean
         }
         Relationships: []
       }
@@ -535,7 +547,7 @@ export type Database = {
           attempt_number: number
           started_at: string | null
           expires_at: string | null
-          question_order: string[] | null
+          question_order: Json | null
           teacher_feedback: string
           total_possible: number
         }
@@ -550,7 +562,7 @@ export type Database = {
           attempt_number?: number
           started_at?: string | null
           expires_at?: string | null
-          question_order?: string[] | null
+          question_order?: Json | null
           teacher_feedback?: string
           total_possible?: number
         }
@@ -565,7 +577,7 @@ export type Database = {
           attempt_number?: number
           started_at?: string | null
           expires_at?: string | null
-          question_order?: string[] | null
+          question_order?: Json | null
           teacher_feedback?: string
           total_possible?: number
         }
@@ -617,6 +629,209 @@ export type Database = {
           teacher_id?: string
         }
         Relationships: []
+      }
+      ai_training_examples: {
+        Row: {
+          ai_feedback: string | null
+          ai_suggested_score: number
+          created_at: string
+          id: string
+          model_name: string | null
+          question_text: string
+          rubric_text: string | null
+          student_answer_text: string
+          teacher_feedback: string | null
+          teacher_final_score: number
+        }
+        Insert: {
+          ai_feedback?: string | null
+          ai_suggested_score: number
+          created_at?: string
+          id?: string
+          model_name?: string | null
+          question_text: string
+          rubric_text?: string | null
+          student_answer_text: string
+          teacher_feedback?: string | null
+          teacher_final_score: number
+        }
+        Update: {
+          ai_feedback?: string | null
+          ai_suggested_score?: number
+          created_at?: string
+          id?: string
+          model_name?: string | null
+          question_text?: string
+          rubric_text?: string | null
+          student_answer_text?: string
+          teacher_feedback?: string | null
+          teacher_final_score?: number
+        }
+        Relationships: []
+      }
+      ai_usage_events: {
+        Row: {
+          created_at: string
+          id: string
+          input_tokens: number | null
+          kind: string
+          model: string
+          output_tokens: number | null
+          provider: string
+          teacher_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          input_tokens?: number | null
+          kind: string
+          model: string
+          output_tokens?: number | null
+          provider: string
+          teacher_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          input_tokens?: number | null
+          kind?: string
+          model?: string
+          output_tokens?: number | null
+          provider?: string
+          teacher_id?: string
+        }
+        Relationships: []
+      }
+      handwritten_grades: {
+        Row: {
+          ai_feedback: string | null
+          ai_model: string | null
+          ai_suggested_score: number | null
+          assessment_id: string | null
+          corrected_text: string
+          created_at: string
+          extracted_text: string
+          final_score: number
+          id: string
+          image_path: string | null
+          max_marks: number
+          question_id: string | null
+          student_name: string
+          teacher_feedback: string
+          teacher_id: string
+        }
+        Insert: {
+          ai_feedback?: string | null
+          ai_model?: string | null
+          ai_suggested_score?: number | null
+          assessment_id?: string | null
+          corrected_text: string
+          created_at?: string
+          extracted_text?: string
+          final_score: number
+          id?: string
+          image_path?: string | null
+          max_marks: number
+          question_id?: string | null
+          student_name?: string
+          teacher_feedback?: string
+          teacher_id: string
+        }
+        Update: {
+          ai_feedback?: string | null
+          ai_model?: string | null
+          ai_suggested_score?: number | null
+          assessment_id?: string | null
+          corrected_text?: string
+          created_at?: string
+          extracted_text?: string
+          final_score?: number
+          id?: string
+          image_path?: string | null
+          max_marks?: number
+          question_id?: string | null
+          student_name?: string
+          teacher_feedback?: string
+          teacher_id?: string
+        }
+        Relationships: []
+      }
+      integrity_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          id: string
+          question_id: string | null
+          submission_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          id?: string
+          question_id?: string | null
+          submission_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          id?: string
+          question_id?: string | null
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integrity_events_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "integrity_events_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_sends: {
+        Row: {
+          error: string | null
+          id: string
+          message_id: string | null
+          sent_at: string
+          status: string
+          submission_id: string
+          trigger: string
+        }
+        Insert: {
+          error?: string | null
+          id?: string
+          message_id?: string | null
+          sent_at?: string
+          status: string
+          submission_id: string
+          trigger: string
+        }
+        Update: {
+          error?: string | null
+          id?: string
+          message_id?: string | null
+          sent_at?: string
+          status?: string
+          submission_id?: string
+          trigger?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_sends_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "submissions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -704,6 +919,10 @@ export type Database = {
         Args: { _a: string; _answers: Json }
         Returns: string
       }
+      start_attempt: { Args: { _assessment: string; _question_order: Json }; Returns: string }
+      save_draft: { Args: { _answers: Json; _submission: string }; Returns: boolean }
+      submit_attempt: { Args: { _submission: string }; Returns: boolean }
+      resolve_review_request: { Args: { _id: string; _response: string }; Returns: boolean }
     }
     Enums: {
       app_role: "teacher" | "student" | "school_teacher" | "tutor" | "admin"

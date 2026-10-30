@@ -56,11 +56,11 @@ export type TutorTipsResult =
   | { ok: false; code: TutorErrorCode; message: string };
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
+  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
   const anonKey =
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+    process.env["SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
   if (!url || !anonKey) return null;
   return { url, anonKey };
 }
@@ -174,7 +174,7 @@ async function callChat(
   const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+    if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
     const res = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
@@ -237,8 +237,8 @@ function extractTips(raw: string): { objective: string; tip: string }[] | null {
         (item): item is { objective: string; tip: string } =>
           typeof item === "object" &&
           item !== null &&
-          typeof (item as Record<string, unknown>).objective === "string" &&
-          typeof (item as Record<string, unknown>).tip === "string",
+          typeof (item as Record<string, unknown>)["objective"] === "string" &&
+          typeof (item as Record<string, unknown>)["tip"] === "string",
       )
       .map((item) => ({ objective: item.objective, tip: item.tip }));
     return tips.length > 0 ? tips : null;
@@ -258,29 +258,32 @@ function validateHistory(raw: unknown): ChatMessage[] | null {
   for (const item of raw) {
     if (typeof item !== "object" || item === null) return null;
     const rec = item as Record<string, unknown>;
-    if (rec.role !== "user" && rec.role !== "assistant") return null;
-    if (typeof rec.content !== "string" || rec.content.length > 2000) return null;
-    out.push({ role: rec.role, content: rec.content });
+    if (rec["role"] !== "user" && rec["role"] !== "assistant") return null;
+    if (typeof rec["content"] !== "string" || rec["content"].length > 2000) return null;
+    out.push({ role: rec["role"], content: rec["content"] });
   }
   return out;
 }
 
-export const getTutorStatus = createServerFn({ method: "POST" }).handler(async () => {
-  return { configured: resolveAiConfig() !== null };
-});
+export const getTutorStatus = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async () => {
+    return { configured: resolveAiConfig() !== null };
+  });
 
-export const askTutor = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<TutorResult> => {
+export const askTutor = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<TutorResult> => {
     const d = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
-    const accessToken = asString(d.accessToken);
-    const language = isLang(d.language) ? d.language : "ar";
-    const questionId = asString(d.questionId) ?? undefined;
-    const topic = asString(d.topic)?.trim() || undefined;
-    const studentAnswer = asString(d.studentAnswer) ?? "";
-    const teacherFeedback = asString(d.teacherFeedback) ?? "";
-    const mode = d.mode === "hint" ? "hint" : "explain";
-    const customText = asString(d.customText)?.trim() || undefined;
-    const history = validateHistory(d.messages);
+    const accessToken = asString(d["accessToken"]);
+    const language = isLang(d["language"]) ? d["language"] : "ar";
+    const questionId = asString(d["questionId"]) ?? undefined;
+    const topic = asString(d["topic"])?.trim() || undefined;
+    const studentAnswer = asString(d["studentAnswer"]) ?? "";
+    const teacherFeedback = asString(d["teacherFeedback"]) ?? "";
+    const mode = d["mode"] === "hint" ? "hint" : "explain";
+    const customText = asString(d["customText"])?.trim() || undefined;
+    const history = validateHistory(d["messages"]);
     if (!accessToken?.trim() || history === null) {
       return { ok: false, code: "INVALID_INPUT", message: "Invalid request." };
     }
@@ -339,18 +342,18 @@ export const askTutor = createServerFn({ method: "POST" }).handler(
         { role: "user", content: finalUser },
       ],
       0.3,
-      { client: auth.client, userId: auth.userId },
+      { client: auth.client, teacherId: auth.userId },
     );
-  },
-);
+  });
 
-export const tutorPracticeFeedback = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<TutorResult> => {
+export const tutorPracticeFeedback = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<TutorResult> => {
     const d = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
-    const accessToken = asString(d.accessToken);
-    const language = isLang(d.language) ? d.language : "ar";
-    const questionId = asString(d.questionId);
-    const newAnswer = asString(d.newAnswer)?.trim() ?? "";
+    const accessToken = asString(d["accessToken"]);
+    const language = isLang(d["language"]) ? d["language"] : "ar";
+    const questionId = asString(d["questionId"]);
+    const newAnswer = asString(d["newAnswer"])?.trim() ?? "";
     if (!accessToken?.trim() || !questionId || !newAnswer || newAnswer.length > 5000) {
       return { ok: false, code: "INVALID_INPUT", message: "Invalid request." };
     }
@@ -373,18 +376,18 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" }).handler(
         },
       ],
       0.3,
-      { client: auth.client, userId: auth.userId },
+      { client: auth.client, teacherId: auth.userId },
     );
-  },
-);
+  });
 
-export const tutorStudyTips = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<TutorTipsResult> => {
+export const tutorStudyTips = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<TutorTipsResult> => {
     const d = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
-    const accessToken = asString(d.accessToken);
-    const language = isLang(d.language) ? d.language : "ar";
-    const assessmentId = asString(d.assessmentId);
-    const objectivesRaw = d.objectives;
+    const accessToken = asString(d["accessToken"]);
+    const language = isLang(d["language"]) ? d["language"] : "ar";
+    const assessmentId = asString(d["assessmentId"]);
+    const objectivesRaw = d["objectives"];
     if (
       !accessToken?.trim() ||
       !assessmentId ||
@@ -411,7 +414,7 @@ export const tutorStudyTips = createServerFn({ method: "POST" }).handler(
         { role: "user", content: tutorTipsPrompt(objectives, language) },
       ],
       0.3,
-      { client: auth.client, userId: auth.userId },
+      { client: auth.client, teacherId: auth.userId },
     );
     if (!result.ok) return result;
     const tips = extractTips(result.reply);
@@ -419,5 +422,4 @@ export const tutorStudyTips = createServerFn({ method: "POST" }).handler(
       return { ok: false, code: "TUTOR_PARSE_FAILED", message: "Could not parse study tips." };
     }
     return { ok: true, tips, model: result.model };
-  },
-);
+  });

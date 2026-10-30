@@ -59,10 +59,10 @@ export type VisionConfig = {
 };
 
 export function resolveVisionConfig(): VisionConfig | null {
-  const baseUrl = process.env.AI_BASE_URL?.trim().replace(/\/+$/, "");
-  const visionModel = process.env.AI_VISION_MODEL?.trim();
-  const model = visionModel || process.env.AI_MODEL?.trim();
-  const apiKey = process.env.AI_API_KEY?.trim() ?? "";
+  const baseUrl = process.env["AI_BASE_URL"]?.trim().replace(/\/+$/, "");
+  const visionModel = process.env["AI_VISION_MODEL"]?.trim();
+  const model = visionModel || process.env["AI_MODEL"]?.trim();
+  const apiKey = process.env["AI_API_KEY"]?.trim() ?? "";
   if (!baseUrl || !model) return null;
   if (!apiKey && !isLocalBaseUrl(baseUrl)) return null;
   return { baseUrl, model, apiKey, visionModelExplicit: !!visionModel };
@@ -85,10 +85,10 @@ export type GeminiConfig = {
  *  against Llama vision on the dense Arabic page; the key itself is
  *  never stored in code (Worker secret GEMINI_API_KEY). */
 export function resolveGeminiConfig(): GeminiConfig | null {
-  if (process.env.VISION_PROVIDER?.trim() !== "gemini") return null;
-  const apiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+  if (process.env["VISION_PROVIDER"]?.trim() !== "gemini") return null;
+  const apiKey = process.env["GEMINI_API_KEY"]?.trim() ?? "";
   if (!apiKey) return null;
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+  const model = process.env["GEMINI_MODEL"]?.trim() || "gemini-2.5-flash";
   return { apiKey, model };
 }
 
@@ -120,11 +120,11 @@ const MAX_DATA_URL_CHARS = 8_000_000;
 const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
+  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
   const anonKey =
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+    process.env["SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
   if (!url || !anonKey) return null;
   return { url, anonKey };
 }
@@ -133,9 +133,9 @@ function validateRequest(data: unknown): OcrRequest | { error: string } {
   if (typeof data !== "object" || data === null) return { error: "Request must be an object." };
   const d = data as Record<string, unknown>;
   const asString = (v: unknown) => (typeof v === "string" ? v : null);
-  const imageDataUrl = asString(d.imageDataUrl);
-  const accessToken = asString(d.accessToken);
-  const assessmentId = asString(d.assessmentId) ?? undefined;
+  const imageDataUrl = asString(d["imageDataUrl"]);
+  const accessToken = asString(d["accessToken"]);
+  const assessmentId = asString(d["assessmentId"]) ?? undefined;
   if (!imageDataUrl || !DATA_URL_RE.test(imageDataUrl)) {
     return { error: "imageDataUrl must be a jpeg/png/webp data URL." };
   }
@@ -143,7 +143,7 @@ function validateRequest(data: unknown): OcrRequest | { error: string } {
     return { error: "Image is too large. Compress it before uploading." };
   }
   if (!accessToken?.trim()) return { error: "accessToken is required." };
-  return { imageDataUrl, accessToken, assessmentId };
+  return { imageDataUrl, accessToken, ...(assessmentId ? { assessmentId } : {}) };
 }
 
 /** Verify the caller is a teacher/admin and (when given) owns the assessment. */
@@ -202,12 +202,12 @@ function extractTranscription(rawText: string): string {
     try {
       const parsed = JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
       const text =
-        typeof parsed.text === "string"
-          ? parsed.text
-          : typeof parsed.transcription === "string"
-            ? parsed.transcription
-            : typeof parsed.extracted_text === "string"
-              ? parsed.extracted_text
+        typeof parsed["text"] === "string"
+          ? parsed["text"]
+          : typeof parsed["transcription"] === "string"
+            ? parsed["transcription"]
+            : typeof parsed["extracted_text"] === "string"
+              ? parsed["extracted_text"]
               : null;
       if (text !== null) return text;
     } catch {
@@ -216,7 +216,7 @@ function extractTranscription(rawText: string): string {
       // fails). Tolerantly take the content between `"text": "` and
       // the final `"` before the closing brace, then decode escapes.
       const loose = candidate.match(/"text"\s*:\s*"([\s\S]*)"\s*}\s*$/);
-      if (loose) {
+      if (loose?.[1] !== undefined) {
         return loose[1]
           .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
           .replace(/\\n/g, "\n")
@@ -452,7 +452,7 @@ async function callVisionOcr(
   const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+    if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
     // Gemini vision (dormant): only when VISION_PROVIDER=gemini and
     // GEMINI_API_KEY are set; otherwise falls through to Cloudflare.
     // A/B preparation 2026-10-30 — live behavior unchanged by default.
@@ -727,8 +727,9 @@ async function callVisionOcr(
  * so the UI can distinguish "not configured" / "model can't read images"
  * from transient errors.
  */
-export const ocrHandwrittenImage = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<OcrResult> => {
+export const ocrHandwrittenImage = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<OcrResult> => {
     const request = validateRequest(data);
     if ("error" in request) {
       return { ok: false, code: "INVALID_INPUT", message: request.error };
@@ -758,8 +759,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" }).handler(
       });
     }
     return { ok: true, text: result.text, model: config.model };
-  },
-);
+  });
 
 /**
  * getHandwritingStatus — server function.
@@ -767,12 +767,12 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" }).handler(
  * Returns only booleans. It never reveals the key, the model, or the
  * base URL, so the page can show the "not configured" state up front.
  */
-export const getHandwritingStatus = createServerFn({ method: "POST" }).handler(
-  async (): Promise<{ configured: boolean; visionModelExplicit: boolean }> => {
+export const getHandwritingStatus = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async (): Promise<{ configured: boolean; visionModelExplicit: boolean }> => {
     const config = resolveVisionConfig();
     return {
       configured: config !== null,
       visionModelExplicit: config?.visionModelExplicit ?? false,
     };
-  },
-);
+  });

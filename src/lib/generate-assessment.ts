@@ -108,20 +108,22 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
     throw new Error("VALIDATION");
   }
   const d = data as Record<string, unknown>;
-  const sourceText = typeof d.sourceText === "string" ? d.sourceText.trim() : "";
+  const sourceText = typeof d["sourceText"] === "string" ? d["sourceText"].trim() : "";
   if (sourceText.length < SOURCE_MIN_CHARS) throw new Error("VALIDATION");
-  const types = Array.isArray(d.types) ? [...new Set(d.types.filter(isGenerateQuestionType))] : [];
+  const types = Array.isArray(d["types"])
+    ? [...new Set(d["types"].filter(isGenerateQuestionType))]
+    : [];
   if (types.length === 0) throw new Error("VALIDATION");
-  const rawCount = typeof d.questionCount === "number" ? d.questionCount : NaN;
+  const rawCount = typeof d["questionCount"] === "number" ? d["questionCount"] : NaN;
   if (!Number.isFinite(rawCount)) throw new Error("VALIDATION");
   return {
-    title: typeof d.title === "string" ? d.title.trim().slice(0, 200) : "",
-    subjectId: typeof d.subjectId === "string" && d.subjectId ? d.subjectId : null,
-    gradeLevel: typeof d.gradeLevel === "string" ? d.gradeLevel.trim().slice(0, 60) : "",
+    title: typeof d["title"] === "string" ? d["title"].trim().slice(0, 200) : "",
+    subjectId: typeof d["subjectId"] === "string" && d["subjectId"] ? d["subjectId"] : null,
+    gradeLevel: typeof d["gradeLevel"] === "string" ? d["gradeLevel"].trim().slice(0, 60) : "",
     sourceText: sourceText.slice(0, SOURCE_MAX_CHARS),
     questionCount: Math.min(20, Math.max(1, Math.floor(rawCount))),
     types,
-    difficulty: isGenerateDifficulty(d.difficulty) ? d.difficulty : "mixed",
+    difficulty: isGenerateDifficulty(d["difficulty"]) ? d["difficulty"] : "mixed",
   };
 }
 
@@ -145,6 +147,7 @@ const FALLBACK_TITLE = "اختبار مولَّد";
 
 export const generateAssessment = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
+  .validator((data: unknown) => data)
   .handler(async ({ data, context }): Promise<GenerateAssessmentResult> => {
     // Failures are RETURNED, never thrown: a thrown error is re-serialised
     // by the framework in production and the teacher sees a dead button
@@ -218,7 +221,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
       // No Authorization header when the key is empty (local endpoints
       // without auth, e.g. Ollama).
       const headers: Record<string, string> = { "content-type": "application/json" };
-      if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+      if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers,

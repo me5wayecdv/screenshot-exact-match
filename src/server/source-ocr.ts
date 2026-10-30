@@ -59,11 +59,11 @@ const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 const MAX_IMAGES = 5;
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
+  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
   const anonKey =
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+    process.env["SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
   if (!url || !anonKey) return null;
   return { url, anonKey };
 }
@@ -112,12 +112,12 @@ function extractTranscription(rawText: string): string {
     try {
       const parsed = JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
       const text =
-        typeof parsed.text === "string"
-          ? parsed.text
-          : typeof parsed.transcription === "string"
-            ? parsed.transcription
-            : typeof parsed.extracted_text === "string"
-              ? parsed.extracted_text
+        typeof parsed["text"] === "string"
+          ? parsed["text"]
+          : typeof parsed["transcription"] === "string"
+            ? parsed["transcription"]
+            : typeof parsed["extracted_text"] === "string"
+              ? parsed["extracted_text"]
               : null;
       if (text !== null) return text;
     } catch {
@@ -126,7 +126,7 @@ function extractTranscription(rawText: string): string {
       // fails). Tolerantly take the content between `"text": "` and
       // the final `"` before the closing brace, then decode escapes.
       const loose = candidate.match(/"text"\s*:\s*"([\s\S]*)"\s*}\s*$/);
-      if (loose) {
+      if (loose?.[1] !== undefined) {
         return loose[1]
           .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
           .replace(/\\n/g, "\n")
@@ -160,7 +160,7 @@ async function callVisionOcr(
   const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
     // Gemini vision (dormant): only when VISION_PROVIDER=gemini and
     // GEMINI_API_KEY are set; otherwise falls through to Cloudflare.
     // A/B preparation 2026-10-30 — live behavior unchanged by default.
@@ -447,11 +447,12 @@ async function callVisionOcr(
  * from transient errors. Images are processed sequentially and the
  * first failure stops the batch (imageIndex names the failing image).
  */
-export const ocrSourceImages = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<SourceOcrResult> => {
+export const ocrSourceImages = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<SourceOcrResult> => {
     const d = (data ?? {}) as Record<string, unknown>;
-    const imageDataUrls = Array.isArray(d.imageDataUrls) ? d.imageDataUrls : [];
-    const accessToken = typeof d.accessToken === "string" ? d.accessToken : "";
+    const imageDataUrls = Array.isArray(d["imageDataUrls"]) ? d["imageDataUrls"] : [];
+    const accessToken = typeof d["accessToken"] === "string" ? d["accessToken"] : "";
     if (
       imageDataUrls.length === 0 ||
       imageDataUrls.length > MAX_IMAGES ||
@@ -509,5 +510,4 @@ export const ocrSourceImages = createServerFn({ method: "POST" }).handler(
       texts.push(result.text);
     }
     return { ok: true, texts };
-  },
-);
+  });

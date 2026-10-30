@@ -719,6 +719,7 @@ function Handwritten() {
   }
 
   async function save() {
+    if (!me) return;
     if (!questionPrompt.trim() || !correctedText.trim()) {
       toast.error(t("hwNeedText"));
       return;
@@ -820,6 +821,7 @@ function Handwritten() {
   }
 
   async function removeRow(row: HwRow) {
+    if (!me) return;
     const { error } = await supabase.from("handwritten_grades").delete().eq("id", row.id);
     if (error) {
       toast.error(translateError(error, lang));

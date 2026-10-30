@@ -22,14 +22,19 @@ export function shuffleIds(ids: string[]): string[] {
     try {
       const buf = new Uint32Array(1);
       crypto.getRandomValues(buf);
-      return buf[0] / 2 ** 32;
+      return (buf[0] ?? 0) / 2 ** 32;
     } catch {
       return Math.random();
     }
   };
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    const left = arr[i];
+    const right = arr[j];
+    if (left !== undefined && right !== undefined) {
+      arr[i] = right;
+      arr[j] = left;
+    }
   }
   return arr;
 }

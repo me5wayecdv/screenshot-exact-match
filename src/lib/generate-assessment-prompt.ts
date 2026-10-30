@@ -201,24 +201,24 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
   // title (or a neutral one). Only the questions decide if a reply is
   // usable — failing here used to throw away a perfectly good set of
   // questions just because the model skipped the title line.
-  const title = cleanStr(raw.title, 200);
-  if (!Array.isArray(raw.questions)) throw new Error("AI_PARSE_FAILED");
+  const title = cleanStr(raw["title"], 200);
+  if (!Array.isArray(raw["questions"])) throw new Error("AI_PARSE_FAILED");
 
   const questions: GeneratedQuestion[] = [];
-  for (const item of raw.questions) {
+  for (const item of raw["questions"]) {
     if (questions.length >= maxQuestions) break;
     if (!isRecord(item)) continue;
-    if (!isGenerateQuestionType(item.type)) continue;
-    const prompt = cleanStr(item.prompt, 4000);
+    if (!isGenerateQuestionType(item["type"])) continue;
+    const prompt = cleanStr(item["prompt"], 4000);
     if (!prompt) continue;
-    const marks = cleanMarks(item.marks);
-    const objective = cleanStr(item.objective, 300);
-    const explanation = cleanStr(item.explanation, 1000);
-    const type = item.type;
+    const marks = cleanMarks(item["marks"]);
+    const objective = cleanStr(item["objective"], 300);
+    const explanation = cleanStr(item["explanation"], 1000);
+    const type = item["type"];
 
     if (type === "mcq") {
-      const options = cleanStrArray(item.options, 500, 6);
-      const correct = cleanStr(item.correct_answer, 500);
+      const options = cleanStrArray(item["options"], 500, 6);
+      const correct = cleanStr(item["correct_answer"], 500);
       if (options.length < 2 || !correct || !options.includes(correct)) continue;
       questions.push({
         type,
@@ -230,10 +230,10 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     } else if (type === "true_false") {
-      const correct = cleanStr(item.correct_answer, 10);
+      const correct = cleanStr(item["correct_answer"], 10);
       if (correct !== "true" && correct !== "false") continue;
       questions.push({
         type,
@@ -245,27 +245,27 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     } else if (type === "short_answer") {
-      const correct = cleanStr(item.correct_answer, 500);
+      const correct = cleanStr(item["correct_answer"], 500);
       if (!correct) continue;
       questions.push({
         type,
         prompt,
         options: [],
         correct_answer: correct,
-        accepted_alternatives: cleanStrArray(item.accepted_alternatives, 500, 10),
+        accepted_alternatives: cleanStrArray(item["accepted_alternatives"], 500, 10),
         rubric: "",
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     } else {
       // written: the rubric is the key; a written question without one is
       // unusable for grading, so drop it rather than saving a blank rubric.
-      const rubric = cleanStr(item.rubric, 4000);
+      const rubric = cleanStr(item["rubric"], 4000);
       if (!rubric) continue;
       questions.push({
         type,
@@ -277,7 +277,7 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     }
   }

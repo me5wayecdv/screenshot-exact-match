@@ -88,11 +88,11 @@ const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 const MAX_PAGES = 10;
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env.SUPABASE_URL?.trim() || process.env.VITE_SUPABASE_URL?.trim();
+  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
   const anonKey =
-    process.env.SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_ANON_KEY?.trim() ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+    process.env["SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
+    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
   if (!url || !anonKey) return null;
   return { url, anonKey };
 }
@@ -179,15 +179,15 @@ function extractMatchReply(rawText: string): { text: string; questionNumber: num
     try {
       const parsed = JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
       const text =
-        typeof parsed.text === "string"
-          ? parsed.text
-          : typeof parsed.transcription === "string"
-            ? parsed.transcription
-            : typeof parsed.extracted_text === "string"
-              ? parsed.extracted_text
+        typeof parsed["text"] === "string"
+          ? parsed["text"]
+          : typeof parsed["transcription"] === "string"
+            ? parsed["transcription"]
+            : typeof parsed["extracted_text"] === "string"
+              ? parsed["extracted_text"]
               : null;
       if (text !== null) {
-        return { text, questionNumber: parseQuestionNumber(parsed.question_number) };
+        return { text, questionNumber: parseQuestionNumber(parsed["question_number"]) };
       }
     } catch {
       // Same tolerant fallback as the transcription extractors, plus
@@ -195,7 +195,7 @@ function extractMatchReply(rawText: string): { text: string; questionNumber: num
       const loose = candidate.match(
         /"text"\s*:\s*"([\s\S]*?)"\s*(,\s*"question_number"\s*:\s*(\d+))?\s*}\s*$/,
       );
-      if (loose) {
+      if (loose?.[1] !== undefined) {
         const decoded = loose[1]
           .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
           .replace(/\\n/g, "\n")
@@ -229,7 +229,7 @@ async function callVisionMatch(
   const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
     // Gemini vision (dormant): only when VISION_PROVIDER=gemini and
     // GEMINI_API_KEY are set; otherwise falls through to Cloudflare.
     // A/B preparation 2026-10-30 — live behavior unchanged by default.
@@ -534,7 +534,7 @@ async function callTextMatch(
   const timeout = setTimeout(() => controller.abort(), 60_000);
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
@@ -556,10 +556,10 @@ async function callTextMatch(
     if (start === -1 || end === -1 || end <= start) return { index: null, confidence: "low" };
     const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
     const idx =
-      typeof parsed.question_index === "number" && Number.isInteger(parsed.question_index)
-        ? parsed.question_index
+      typeof parsed["question_index"] === "number" && Number.isInteger(parsed["question_index"])
+        ? parsed["question_index"]
         : null;
-    const conf = parsed.confidence;
+    const conf = parsed["confidence"];
     const confidence: "high" | "medium" | "low" =
       conf === "high" || conf === "medium" || conf === "low" ? conf : "low";
     if (idx === null || idx < 1 || idx > questions.length) {
@@ -581,21 +581,22 @@ async function callTextMatch(
  * Returns a discriminated result; vision failures stop the batch with
  * pageIndex, text-match failures degrade to method "none" per page.
  */
-export const matchPaperPages = createServerFn({ method: "POST" }).handler(
-  async ({ data }): Promise<MatchResult> => {
+export const matchPaperPages = createServerFn({ method: "POST" })
+  .validator((data: unknown) => data)
+  .handler(async ({ data }): Promise<MatchResult> => {
     const d = (data ?? {}) as Record<string, unknown>;
-    const assessmentId = typeof d.assessmentId === "string" ? d.assessmentId : "";
-    const accessToken = typeof d.accessToken === "string" ? d.accessToken : "";
-    const pages = Array.isArray(d.pages) ? d.pages : [];
+    const assessmentId = typeof d["assessmentId"] === "string" ? d["assessmentId"] : "";
+    const accessToken = typeof d["accessToken"] === "string" ? d["accessToken"] : "";
+    const pages = Array.isArray(d["pages"]) ? d["pages"] : [];
     const validPage = (p: unknown): p is { imageDataUrl: string; imagePath: string } => {
       if (typeof p !== "object" || p === null) return false;
       const r = p as Record<string, unknown>;
       return (
-        typeof r.imageDataUrl === "string" &&
-        DATA_URL_RE.test(r.imageDataUrl) &&
-        r.imageDataUrl.length <= MAX_DATA_URL_CHARS &&
-        typeof r.imagePath === "string" &&
-        r.imagePath.length <= 500
+        typeof r["imageDataUrl"] === "string" &&
+        DATA_URL_RE.test(r["imageDataUrl"]) &&
+        r["imageDataUrl"].length <= MAX_DATA_URL_CHARS &&
+        typeof r["imagePath"] === "string" &&
+        r["imagePath"].length <= 500
       );
     };
     if (!assessmentId || !accessToken.trim() || pages.length === 0 || pages.length > MAX_PAGES) {
@@ -701,5 +702,4 @@ export const matchPaperPages = createServerFn({ method: "POST" }).handler(
       });
     }
     return { ok: true, pages: out };
-  },
-);
+  });

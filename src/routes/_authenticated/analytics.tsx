@@ -271,6 +271,7 @@ function Analytics() {
   const num = (v: number | null) => (v === null ? "" : Math.round(v * 10) / 10);
 
   async function createPractice() {
+    if (!me) return;
     if (!selected || missed.length === 0) {
       toast.error(t("anNoPractice"));
       return;

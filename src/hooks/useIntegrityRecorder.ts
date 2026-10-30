@@ -141,7 +141,7 @@ export function useIntegrityRecorder(opts: {
   const registerPanel = useCallback((questionId: string) => {
     return (el: HTMLElement | null) => {
       if (el) {
-        el.dataset.integrityQuestion = questionId;
+        el.dataset["integrityQuestion"] = questionId;
         panelsRef.current.set(questionId, el);
         observerRef.current?.observe(el);
       } else {
@@ -263,7 +263,7 @@ export function useIntegrityRecorder(opts: {
           let best: { id: string; ratio: number } | null = null;
           for (const entry of entries) {
             if (!entry.isIntersecting) continue;
-            const id = (entry.target as HTMLElement).dataset.integrityQuestion;
+            const id = (entry.target as HTMLElement).dataset["integrityQuestion"];
             if (!id) continue;
             if (!best || entry.intersectionRatio > best.ratio)
               best = { id, ratio: entry.intersectionRatio };

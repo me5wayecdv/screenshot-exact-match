@@ -45,9 +45,9 @@ export function isLocalBaseUrl(rawUrl: string): boolean {
 }
 
 export function resolveAiConfig(): AiConfig | null {
-  const baseUrl = process.env.AI_BASE_URL?.trim().replace(/\/+$/, "");
-  const model = process.env.AI_MODEL?.trim();
-  const apiKey = process.env.AI_API_KEY?.trim() ?? "";
+  const baseUrl = process.env["AI_BASE_URL"]?.trim().replace(/\/+$/, "");
+  const model = process.env["AI_MODEL"]?.trim();
+  const apiKey = process.env["AI_API_KEY"]?.trim() ?? "";
   if (!baseUrl || !model) return null;
   if (!apiKey && !isLocalBaseUrl(baseUrl)) return null;
   return { baseUrl, model, apiKey };
