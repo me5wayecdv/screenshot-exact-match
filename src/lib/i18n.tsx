@@ -6,6 +6,13 @@ const dict = {
   ar: {
     brand: "قِمّيني",
     tagline: "منصة تقييم وتعلم ذكية للمعلم والطالب",
+    brandPromise: "الكلمة الأخيرة للمعلّم",
+    brandPromiseBody: "يقترح الذكاء الاصطناعي، ويعتمد المعلّم. لا تُنشر درجة قبل أن يوافق عليها.",
+    demoQuestion: "السؤال ٣ · ٥ درجات",
+    demoSuggest: "اقتراح الذكاء الاصطناعي",
+    demoSuggestNote: "تغطي الإجابة الفكرتين الأساسيتين وتنقصها الأمثلة.",
+    demoApproved: "اعتمده المعلّم",
+    demoScore: "٤/٥",
     heroTitle: "تقييم أدق، وقت أقل، وتعلّم يفهم كل طالب",
     heroBody:
       "أنشئ الاختبارات، صحّح الإجابات الموضوعية تلقائياً، واحصل على اقتراحات ذكية لتصحيح الإجابات المقالية — والقرار النهائي دائماً للمعلم.",
@@ -649,6 +656,14 @@ const dict = {
   en: {
     brand: "Qemmini",
     tagline: "Intelligent assessment and learning for teachers and students",
+    brandPromise: "The teacher has the last word",
+    brandPromiseBody:
+      "AI suggests, the teacher decides. No grade is released until they approve it.",
+    demoQuestion: "Question 3 · 5 marks",
+    demoSuggest: "AI suggestion",
+    demoSuggestNote: "Covers both key ideas but lacks examples.",
+    demoApproved: "Approved by teacher",
+    demoScore: "4/5",
     heroTitle: "Sharper assessment, less time, learning that understands every student",
     heroBody:
       "Build tests, auto-grade objective answers, and get AI grading suggestions for written answers — the teacher always has the final word.",

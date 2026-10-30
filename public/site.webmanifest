@@ -1,0 +1,21 @@
+{
+  "name": "Qemmini · قِمّيني",
+  "short_name": "Qemmini",
+  "description": "Arabic-first assessment and learning platform. The teacher has the last word.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fcf9f3",
+  "theme_color": "#00595a",
+  "icons": [
+    { "src": "/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/brand/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    {
+      "src": "/brand/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
