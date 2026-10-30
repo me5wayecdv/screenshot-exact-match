@@ -29,7 +29,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import {
+  resolveGeminiConfig,
   resolveVisionConfig,
+  runGeminiQuery,
   runImageToTextModel,
   runMoondreamQuery,
   stripDataUris,
@@ -149,6 +151,24 @@ async function callVisionOcr(
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    // Gemini vision (dormant): only when VISION_PROVIDER=gemini and
+    // GEMINI_API_KEY are set; otherwise falls through to Cloudflare.
+    // A/B preparation 2026-10-30 — live behavior unchanged by default.
+    const gemini = resolveGeminiConfig();
+    if (gemini) {
+      const g = await runGeminiQuery(
+        gemini.apiKey,
+        gemini.model,
+        controller.signal,
+        imageDataUrl,
+        "Transcribe all text visible in this curriculum page image completely and literally, " +
+          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
+          "Parts that are unreadable, write [unclear] in their place. " +
+          "Return only the transcription, nothing else.",
+      );
+      if (!g.ok) return g;
+      return { ok: true, text: extractTranscription(g.text) };
+    }
     // LLaVA (image-to-text) cannot take the chat-completions shape below:
     // on Cloudflare it needs the native run endpoint with a byte-array
     // image + text prompt. See runImageToTextModel in ./handwritten.

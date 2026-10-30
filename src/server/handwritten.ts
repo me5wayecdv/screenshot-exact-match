@@ -64,6 +64,26 @@ export function isVisionConfigured(): boolean {
   return resolveVisionConfig() !== null;
 }
 
+export type GeminiConfig = {
+  apiKey: string;
+  model: string;
+};
+
+/** Gemini vision, dormant unless explicitly switched on. The live
+ *  Worker keeps the Cloudflare path unless VISION_PROVIDER is exactly
+ *  "gemini" AND a GEMINI_API_KEY is present; with either missing this
+ *  returns null and every call site falls through to Cloudflare.
+ *  Added 2026-10-30 as code-only preparation for a later A/B test
+ *  against Llama vision on the dense Arabic page; the key itself is
+ *  never stored in code (Worker secret GEMINI_API_KEY). */
+export function resolveGeminiConfig(): GeminiConfig | null {
+  if (process.env.VISION_PROVIDER?.trim() !== "gemini") return null;
+  const apiKey = process.env.GEMINI_API_KEY?.trim() ?? "";
+  if (!apiKey) return null;
+  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+  return { apiKey, model };
+}
+
 export type OcrRequest = {
   /** data:image/jpeg|png|webp;base64,... — client-compressed, one photo. */
   imageDataUrl: string;
@@ -356,6 +376,59 @@ export async function runMoondreamQuery(
   return { ok: true, text };
 }
 
+/** Gemini vision via the Developer API generateContent endpoint.
+ *  Unlike the Cloudflare paths, the image travels as base64 inline
+ *  data (not a byte array) alongside the text prompt. Response text
+ *  comes from candidates[0].content.parts[].text, joined. Error
+ *  conventions mirror the sibling helpers. Dormant: only called
+ *  when resolveGeminiConfig() returns non-null. */
+export async function runGeminiQuery(
+  apiKey: string,
+  model: string,
+  signal: AbortSignal,
+  imageDataUrl: string,
+  prompt: string,
+): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+  const comma = imageDataUrl.indexOf(",");
+  const mimeMatch = /^data:([^;]+);base64,/.exec(imageDataUrl);
+  const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+  const data = comma >= 0 ? imageDataUrl.slice(comma + 1) : "";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const res = await fetch(url, {
+    method: "POST",
+    signal,
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": apiKey,
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [{ text: prompt }, { inlineData: { mimeType, data } }],
+        },
+      ],
+      generationConfig: { maxOutputTokens: 8192, temperature: 0 },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    return {
+      ok: false,
+      code: "VISION_UPSTREAM",
+      message: `Vision provider returned HTTP ${res.status}: ${stripDataUris(body).slice(0, 500)}`,
+    };
+  }
+  const json = (await res.json()) as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
+  };
+  const parts = json.candidates?.[0]?.content?.parts ?? [];
+  const text = parts.map((part) => (typeof part.text === "string" ? part.text : "")).join("");
+  if (!text.trim()) {
+    return { ok: false, code: "VISION_PARSE_FAILED", message: "Vision provider returned no text." };
+  }
+  return { ok: true, text };
+}
+
 async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
@@ -365,6 +438,24 @@ async function callVisionOcr(
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+    // Gemini vision (dormant): only when VISION_PROVIDER=gemini and
+    // GEMINI_API_KEY are set; otherwise falls through to Cloudflare.
+    // A/B preparation 2026-10-30 — live behavior unchanged by default.
+    const gemini = resolveGeminiConfig();
+    if (gemini) {
+      const g = await runGeminiQuery(
+        gemini.apiKey,
+        gemini.model,
+        controller.signal,
+        imageDataUrl,
+        "Transcribe all text visible in this image completely and literally, " +
+          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
+          "Parts that are unreadable, write [unclear] in their place. " +
+          "Return only the transcription, nothing else.",
+      );
+      if (!g.ok) return g;
+      return { ok: true, text: extractTranscription(g.text) };
+    }
     // Cloudflare's OpenAI-compatible endpoint is documented for TEXT
     // generation only — a vision model called through it is refused
     // (HTTP 403 observed live 2026-10-29). Vision models on Cloudflare

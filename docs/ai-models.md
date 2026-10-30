@@ -70,12 +70,35 @@ Any OpenAI-compatible provider works. Free/open options to point at:
     handwritten instead of ending silently: live 2026-10-29 the
     single call returned "..." with no error and the fallback
     never engaged.
-  - Moondream A/B 2026-10-29: `@cf/moondream/moondream3.1-9B-A2B`
+  - Moondream A/B 2026-10-29/30: `@cf/moondream/moondream3.1-9B-A2B`
     via a task payload (`task: "query"`, byte-array image,
     `max_tokens: 4000` → `result.description`), no license
-    agreement required. Paid-plan requirement unverified — the
-    A/B test reveals it; revert is a one-var switch back to
-    Llama, no code removal.
+    agreement required. VERDICT 30 Oct: FAILED — identical
+    provider HTTP 400 (`/image` string-not-in-array-binary) on
+    both paths across two runs (Worker 7b8fe479 and fresh
+    rebuild/redeploy 0b81e65a), so the REST task shape does not
+    work from this Worker despite correct-looking code; root
+    cause of the mismatch unexplained. REVERTED to Llama
+    (main f204a042, Worker b39ec2d9, verified live 00:59 by a
+    successful English extraction). Moondream branches stay in
+    code, gated by the model var; do not retry without a new
+    theory (binding-based call or chat-completions vision
+    shape). Revert remains a one-var switch, no code removal.
+  - Gemini vision branch 2026-10-30 (DORMANT, not yet live-tested):
+    `runGeminiQuery` in handwritten.ts calls the Developer API
+    generateContent endpoint (base64 inlineData + text prompt,
+    `maxOutputTokens: 8192`, temperature 0; response text from
+    candidates[0].content.parts). All three call sites check
+    `resolveGeminiConfig()` FIRST: it returns non-null only when
+    VISION_PROVIDER=gemini AND GEMINI_API_KEY are set (model
+    from GEMINI_MODEL, default gemini-2.5-flash). With either
+    unset, behavior is exactly the Cloudflare/Llama path —
+    verified by build + tests with no live change. The key is a
+    Worker secret (GEMINI_API_KEY), never in code. Direction
+    note: on 2026-10-30 the user waived the free-open-source
+    model direction for Gemini ("results over direction");
+    test on the dense Arabic + English photos before any live
+    switch.
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they
