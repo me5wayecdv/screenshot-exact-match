@@ -1,4 +1,4 @@
-# Qayyimni · قَيِّمني
+# Qayyimni · قَيّمني
 
 Arabic-first, RTL assessment and learning platform for teachers and students.
 

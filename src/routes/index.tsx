@@ -8,13 +8,13 @@ import { useI18n } from "@/lib/i18n";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Qayyimni · قَيِّمني — AI assessment for teachers & students" },
+      { title: "Qayyimni · قَيّمني — AI assessment for teachers & students" },
       {
         name: "description",
         content:
           "Build assessments, auto-grade objective questions and review AI grading suggestions for written answers. Arabic-first.",
       },
-      { property: "og:title", content: "Qayyimni · قَيِّمني" },
+      { property: "og:title", content: "Qayyimni · قَيّمني" },
       {
         property: "og:description",
         content:
