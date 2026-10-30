@@ -4,7 +4,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Qemmini design system — warm paper, deep ink-teal, saffron accent. Arabic-first. */
+/*
+ * Qemmini design system — Arabic-first. See docs/brand.md for the full guide.
+ *
+ *   Papyrus   --background   warm paper, the canvas
+ *   Ink       --foreground   near-black teal for text
+ *   Ink Teal  --primary      the brand colour (the "pen")
+ *   Deep Teal --sidebar      dark surfaces
+ *   Saffron   --accent       the teacher's mark. Fill only, never text on paper (1.8:1).
+ *
+ * Signature motif: two dots (the dots of ق). The first suggests, the saffron
+ * one is the teacher's last word.
+ */
 
 @theme inline {
   --font-sans: "IBM Plex Sans Arabic", "IBM Plex Sans", system-ui, sans-serif;
@@ -27,6 +38,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-soft: var(--accent-soft);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
@@ -67,6 +79,7 @@
   --muted-foreground: oklch(0.5 0.02 200);
   --accent: oklch(0.8 0.14 75);
   --accent-foreground: oklch(0.27 0.05 60);
+  --accent-soft: oklch(0.955 0.05 85);
   --destructive: oklch(0.56 0.19 28);
   --destructive-foreground: oklch(0.98 0.01 85);
   --success: oklch(0.55 0.12 155);
@@ -111,6 +124,15 @@
     font-family: var(--font-display);
     letter-spacing: -0.01em;
   }
+  /* Balanced lines read far better in Arabic headlines than ragged ones. */
+  h1,
+  h2 {
+    text-wrap: balance;
+  }
+  /* Arabic joins letters: tracking would break the script, so never add it. */
+  :lang(ar) {
+    letter-spacing: 0;
+  }
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
@@ -122,4 +144,37 @@
     linear-gradient(to right, oklch(0.42 0.075 195 / 6%) 1px, transparent 1px),
     linear-gradient(to bottom, oklch(0.42 0.075 195 / 6%) 1px, transparent 1px);
   background-size: 28px 28px;
+}
+
+/* Brand pattern: pairs of dots (the dots of ق) on a staggered lattice. */
+@utility dots-pattern {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%2300595a' fill-opacity='.08'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 72px 72px;
+}
+/* Same pattern for deep-teal surfaces. */
+@utility dots-pattern-light {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%23fcf9f3' fill-opacity='.075'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 72px 72px;
+}
+
+/* The teacher's approval lands like a stamp. Disabled for reduced motion. */
+@keyframes stamp {
+  0% {
+    opacity: 0;
+    transform: scale(1.6) rotate(-8deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(0.94) rotate(-2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(-2deg);
+  }
+}
+@utility animate-stamp {
+  animation: stamp 520ms cubic-bezier(0.2, 0.9, 0.3, 1.1) 700ms both;
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 }

@@ -75,7 +75,7 @@ function AppShell() {
     <div className="flex min-h-screen flex-col md:flex-row">
       <aside className="flex shrink-0 flex-col bg-sidebar text-sidebar-foreground md:min-h-screen md:w-60">
         <div className="flex items-center justify-between p-5">
-          <Brand />
+          <Brand onDark />
         </div>
         <nav className="flex gap-1 overflow-x-auto px-3 md:flex-col">
           {nav.map((n) => (

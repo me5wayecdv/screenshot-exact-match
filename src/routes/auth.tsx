@@ -86,13 +86,20 @@ function AuthPage() {
 
   return (
     <div className="grid min-h-screen md:grid-cols-2">
-      <aside className="paper-grid hidden flex-col justify-between bg-sidebar p-10 text-sidebar-foreground md:flex">
-        <Brand />
+      <aside className="dots-pattern-light hidden flex-col justify-between bg-sidebar p-10 text-sidebar-foreground md:flex">
+        <Brand onDark />
         <div>
           <h2 className="text-3xl font-bold leading-snug">{t("heroTitle")}</h2>
           <p className="mt-4 opacity-80">{t("tagline")}</p>
+          <p className="mt-8 inline-flex items-center gap-2.5 rounded-full bg-sidebar-accent px-4 py-2 text-sm font-medium">
+            <i className="size-2 rounded-full bg-sidebar-foreground" />
+            <i className="-ms-1 size-2 rounded-full bg-accent" />
+            {t("brandPromise")}
+          </p>
         </div>
-        <span className="text-sm opacity-60">© Qemmini</span>
+        <span dir="ltr" className="text-sm opacity-60">
+          © Qemmini
+        </span>
       </aside>
       <main className="flex flex-col p-6">
         <div className="flex justify-between">
