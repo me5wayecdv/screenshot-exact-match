@@ -11,10 +11,10 @@ import { useI18n, translateError } from "@/lib/i18n";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Sign in · Qemmini" },
-      { name: "description", content: "Sign in or create a Qemmini account." },
-      { property: "og:title", content: "Sign in · Qemmini" },
-      { property: "og:description", content: "Access your Qemmini account." },
+      { title: "Sign in · Qayyimni" },
+      { name: "description", content: "Sign in or create a Qayyimni account." },
+      { property: "og:title", content: "Sign in · Qayyimni" },
+      { property: "og:description", content: "Access your Qayyimni account." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -98,7 +98,7 @@ function AuthPage() {
           </p>
         </div>
         <span dir="ltr" className="text-sm opacity-60">
-          © Qemmini
+          © Qayyimni
         </span>
       </aside>
       <main className="flex flex-col p-6">

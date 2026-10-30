@@ -5,12 +5,12 @@ import { useI18n } from "@/lib/i18n";
 export const Route = createFileRoute("/terms")({
   head: () => ({
     meta: [
-      { title: "Terms · Qemmini" },
+      { title: "Terms · Qayyimni" },
       {
         name: "description",
-        content: "Terms of use for the Qemmini assessment and learning platform.",
+        content: "Terms of use for the Qayyimni assessment and learning platform.",
       },
-      { property: "og:title", content: "Terms · Qemmini" },
+      { property: "og:title", content: "Terms · Qayyimni" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -47,7 +47,7 @@ function TermsPage() {
         ))}
       </main>
       <footer className="border-t py-8 text-center text-sm text-muted-foreground">
-        <p>© {new Date().getFullYear()} Qemmini</p>
+        <p>© {new Date().getFullYear()} Qayyimni</p>
         <nav className="mt-2 flex justify-center gap-4">
           <Link to="/" className="hover:underline">
             {t("backHome")}

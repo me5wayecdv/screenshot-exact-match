@@ -8,13 +8,13 @@ import { useI18n } from "@/lib/i18n";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Qemmini · قِمّيني — AI assessment for teachers & students" },
+      { title: "Qayyimni · قَيِّمني — AI assessment for teachers & students" },
       {
         name: "description",
         content:
           "Build assessments, auto-grade objective questions and review AI grading suggestions for written answers. Arabic-first.",
       },
-      { property: "og:title", content: "Qemmini · قِمّيني" },
+      { property: "og:title", content: "Qayyimni · قَيِّمني" },
       {
         property: "og:description",
         content:
@@ -105,7 +105,7 @@ function Landing() {
       </section>
 
       <footer className="border-t py-8 text-center text-sm text-muted-foreground">
-        <p dir="ltr">© {new Date().getFullYear()} Qemmini</p>
+        <p dir="ltr">© {new Date().getFullYear()} Qayyimni</p>
         <nav className="mt-2 flex justify-center gap-4">
           <Link to="/terms" className="hover:underline">
             {t("terms")}

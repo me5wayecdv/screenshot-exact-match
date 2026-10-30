@@ -1,7 +1,7 @@
 import { useI18n } from "@/lib/i18n";
 
 /**
- * The Qemmini mark: a geometric ق whose two dots tell the product story.
+ * The Qayyimni mark: a geometric ق whose two dots tell the product story.
  * The first dot (right, where Arabic reading starts) is the suggestion; the
  * second, saffron dot is the teacher's last word. See docs/brand.md.
  *

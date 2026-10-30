@@ -36,7 +36,7 @@ type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
 export const Route = createFileRoute("/_authenticated/assessments/take/$id")({
   head: () => ({
     meta: [
-      { title: "Take assessment · Qemmini" },
+      { title: "Take assessment · Qayyimni" },
       { name: "description", content: "Answer a published assessment assigned to you." },
     ],
   }),

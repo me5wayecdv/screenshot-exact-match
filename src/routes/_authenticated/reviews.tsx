@@ -36,7 +36,7 @@ type ReviewRow = {
 export const Route = createFileRoute("/_authenticated/reviews")({
   head: () => ({
     meta: [
-      { title: "Grade reviews · Qemmini" },
+      { title: "Grade reviews · Qayyimni" },
       { name: "description", content: "Students request grade reviews; teachers resolve them." },
     ],
   }),

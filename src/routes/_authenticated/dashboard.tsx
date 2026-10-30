@@ -13,8 +13,8 @@ import { Input } from "@/components/ui/input";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard · Qemmini" },
-      { name: "description", content: "Your Qemmini dashboard." },
+      { title: "Dashboard · Qayyimni" },
+      { name: "description", content: "Your Qayyimni dashboard." },
     ],
   }),
   component: Dashboard,

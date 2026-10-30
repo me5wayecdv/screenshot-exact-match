@@ -28,7 +28,7 @@ type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
 export const Route = createFileRoute("/_authenticated/grading")({
   head: () => ({
     meta: [
-      { title: "Grading · Qemmini" },
+      { title: "Grading · Qayyimni" },
       { name: "description", content: "Review submissions awaiting grading." },
     ],
   }),

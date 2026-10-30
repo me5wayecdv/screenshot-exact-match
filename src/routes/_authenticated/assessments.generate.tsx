@@ -43,7 +43,7 @@ import { ocrSourceImages } from "@/server/source-ocr";
 export const Route = createFileRoute("/_authenticated/assessments/generate")({
   head: () => ({
     meta: [
-      { title: "Generate assessment · Qemmini" },
+      { title: "Generate assessment · Qayyimni" },
       { name: "description", content: "Generate a draft assessment from pasted curriculum text." },
     ],
   }),

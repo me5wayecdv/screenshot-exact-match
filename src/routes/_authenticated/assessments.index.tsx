@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/_authenticated/assessments/")({
   head: () => ({
     meta: [
-      { title: "Assessments · Qemmini" },
+      { title: "Assessments · Qayyimni" },
       { name: "description", content: "Create and manage assessments." },
     ],
   }),
