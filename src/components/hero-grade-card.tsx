@@ -15,7 +15,7 @@ export function HeroGradeCard() {
   ];
 
   return (
-    <div className="relative mx-auto w-full max-w-md pb-8" aria-hidden>
+    <div className="relative mx-auto w-full max-w-md pb-8">
       <div className="absolute inset-x-3 top-4 bottom-5 rotate-[2deg] rounded-lg border border-primary/10 bg-secondary/60" />
       <article className="relative overflow-hidden rounded-lg border bg-card shadow-lift">
         <header className="flex items-center justify-between gap-4 border-b px-5 py-4">

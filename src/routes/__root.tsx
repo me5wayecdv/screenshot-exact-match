@@ -64,10 +64,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Qemmini · قَيِّمني" },
+      { title: "Qayyimni · قَيّمني" },
       {
         name: "description",
-        content: "AI-powered assessment and learning platform for teachers and students in Egypt.",
+        content:
+          "Classroom assessments, teacher-reviewed grading suggestions, and results approved before release.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

@@ -77,48 +77,76 @@ function AppShell() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col bg-sidebar text-sidebar-foreground md:min-h-screen md:w-60">
-        <div className="flex items-center justify-between p-5">
-          <Brand />
+    <div className="app-shell flex min-h-screen flex-col md:flex-row">
+      <aside className="app-sidebar z-20 flex shrink-0 flex-col border-b border-sidebar-border text-sidebar-foreground md:min-h-screen md:w-[17rem] md:border-b-0 md:border-e">
+        <div className="flex items-center justify-between border-b border-sidebar-border px-4 py-3.5 md:px-5 md:py-5">
+          <Link to="/dashboard" className="rounded-sm">
+            <Brand onDark />
+          </Link>
+          <span className="md:hidden">
+            <LangToggle className="hover:bg-sidebar-accent" />
+          </span>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 md:flex-col">
-          {nav.map((n) => (
+
+        <nav
+          aria-label={t("brand")}
+          className="app-nav flex gap-1 overflow-x-auto px-3 py-3 md:flex-col md:px-3 md:py-5"
+        >
+          {nav.map((item) => (
             <Link
-              key={n.to}
-              to={n.to}
-              className="flex items-center gap-3 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent"
+              key={item.to}
+              to={item.to}
+              className="app-nav-link flex min-h-10 items-center gap-3 whitespace-nowrap rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
               activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
             >
-              <n.icon className="h-4 w-4" aria-hidden /> {n.label}
+              <item.icon className="size-4 shrink-0" aria-hidden />
+              <span>{item.label}</span>
             </Link>
           ))}
         </nav>
-        <div className="mt-auto hidden space-y-2 border-t border-sidebar-border p-4 md:block">
-          <p className="truncate text-sm font-medium">{me?.fullName}</p>
-          <p className="text-xs opacity-70">{me ? t(me.role) : ""}</p>
-          <div className="flex items-center gap-1">
+
+        <div className="hidden flex-1 md:block" />
+        <div className="hidden border-t border-sidebar-border p-4 md:block">
+          <div className="flex items-center gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-full border border-sidebar-border bg-sidebar-accent font-display text-sm font-bold text-sidebar-primary">
+              {me?.fullName?.trim().slice(0, 1) || "·"}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">{me?.fullName}</p>
+              <p className="mt-0.5 truncate text-xs text-sidebar-foreground/60">
+                {me ? t(me.role) : ""}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between">
             <LangToggle className="hover:bg-sidebar-accent" />
             <button
+              type="button"
               onClick={signOut}
-              className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-sidebar-accent"
+              className="flex items-center gap-2 rounded-sm px-3 py-2 text-sm text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
             >
-              <LogOut className="h-4 w-4 rtl:rotate-180" aria-hidden /> {t("signOut")}
+              <LogOut className="size-4 rtl:rotate-180" aria-hidden />
+              {t("signOut")}
             </button>
           </div>
         </div>
-        <div className="flex justify-end gap-1 px-3 pb-3 md:hidden">
-          <LangToggle className="hover:bg-sidebar-accent" />
+
+        <div className="flex justify-end border-t border-sidebar-border px-3 py-2 md:hidden">
           <button
+            type="button"
             onClick={signOut}
-            className="rounded-md px-3 py-1.5 text-sm hover:bg-sidebar-accent"
+            className="flex items-center gap-2 rounded-sm px-3 py-2 text-sm text-sidebar-foreground/75 hover:bg-sidebar-accent"
           >
+            <LogOut className="size-4 rtl:rotate-180" aria-hidden />
             {t("signOut")}
           </button>
         </div>
       </aside>
-      <main className="flex-1 p-5 md:p-10">
-        <Outlet />
+
+      <main className="app-main min-h-0 flex-1 px-4 py-6 sm:px-6 md:min-h-screen md:px-8 md:py-9 xl:px-12">
+        <div className="mx-auto w-full max-w-[90rem]">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
