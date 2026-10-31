@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
+import { uploadKind } from "@/lib/uploads";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -214,12 +215,9 @@ function textToPageFiles(text: string, baseName: string): File[] {
  * Returns [] for unsupported types so the caller can show the error toast.
  */
 async function fileToPageFiles(file: File): Promise<File[]> {
-  if (file.type.startsWith("image/")) return [file];
-  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
-  const isDocx =
-    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    /\.docx$/i.test(file.name);
-  if (isPdf) {
+  const kind = uploadKind(file);
+  if (kind === "image") return [file];
+  if (kind === "pdf") {
     const pdfjs = await import("pdfjs-dist");
     const { default: workerUrl } = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
     pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -245,7 +243,7 @@ async function fileToPageFiles(file: File): Promise<File[]> {
     }
     return pages;
   }
-  if (isDocx) {
+  if (kind === "docx") {
     const mammoth = await import("mammoth");
     const { value } = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
     const text = value.trim();
@@ -521,8 +519,17 @@ function Handwritten() {
     }
     try {
       const pages = await fileToPageFiles(file);
-      // The single-paper panel grades one page: use the first page of a
-      // PDF/Word file. Multi-page papers belong to the match panel above.
+      if (pages.length === 0) {
+        toast.error(t("hwNeedImage"));
+        return;
+      }
+      // The single-paper panel grades exactly one page. Reject multi-page
+      // files so no answers are silently dropped; the match panel above
+      // handles multi-page papers page by page.
+      if (pages.length > 1) {
+        toast.error(t("hwSinglePageOnly"));
+        return;
+      }
       const page = pages[0];
       if (!page) {
         toast.error(t("hwNeedImage"));
