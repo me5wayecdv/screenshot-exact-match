@@ -4,31 +4,11 @@ export type Lang = "ar" | "en";
 
 const dict = {
   ar: {
-    brand: "قَيّمني",
+    brand: "قَيِّمني",
     tagline: "منصة تقييم وتعلم ذكية للمعلم والطالب",
     heroTitle: "تقييم أدق، وقت أقل، وتعلّم يفهم كل طالب",
     heroBody:
       "أنشئ الاختبارات، صحّح الإجابات الموضوعية تلقائياً، واحصل على اقتراحات ذكية لتصحيح الإجابات المقالية — والقرار النهائي دائماً للمعلم.",
-    brandPromise: "الذكاء الاصطناعي يساعد، والمعلم يقرر",
-    brandPromiseBody: "كل اقتراح قابل للمراجعة والتعديل قبل اعتماد الدرجة ونشرها للطالب.",
-    demoAssessment: "اختبار قصير · علوم · الصف الخامس",
-    demoQuestion: "كيف يصنع النبات غذاءه؟",
-    demoQuestionNumber: "١ / ٥",
-    demoAnswerTitle: "إجابة الطالبة",
-    demoAnswerText: "يصنع النبات غذاءه في الأوراق باستخدام ضوء الشمس والماء وثاني أكسيد الكربون.",
-    demoEvidence: "الدليل ظاهر في الإجابة",
-    demoRubric: "سُلّم التصحيح",
-    demoTotal: "المجموع",
-    demoCriterion1: "الفكرة العلمية",
-    demoCriterion1Score: "٤ / ٤",
-    demoCriterion2: "المصطلحات",
-    demoCriterion2Score: "٢ / ٣",
-    demoCriterion3: "وضوح الإجابة",
-    demoCriterion3Score: "٢ / ٣",
-    demoSuggest: "مراجعة مقترحة",
-    demoScore: "٨ / ١٠",
-    demoSuggestNote: "المعلّم يراجع الدليل ويعتمد الدرجة — لا تُنشر تلقائياً.",
-    demoApproved: "اعتمدها المعلّم",
     getStarted: "ابدأ الآن",
     signIn: "تسجيل الدخول",
     signUp: "إنشاء حساب",
@@ -507,7 +487,7 @@ const dict = {
       "نجمع المعلومات التي تقدمها عند إنشاء حسابك، مثل الاسم والبريد الإلكتروني ودورك كمعلم أو طالب، إضافة إلى البيانات الناتجة عن استخدامك للمنصة مثل الاختبارات والإجابات والدرجات والملاحظات.",
     privacyCollectTitle: "البيانات التي نجمعها",
     privacyIntro:
-      "توضح هذه السياسة البيانات التي تجمعها قَيّمني وكيف نستخدمها ونحميها. المنصة مصممة للتعامل مع بيانات الطلاب بحذر، ولا تُعرض النتائج للطالب إلا بعد اعتماد معلمه لها.",
+      "توضح هذه السياسة البيانات التي تجمعها قَيِّمني وكيف نستخدمها ونحميها. المنصة مصممة للتعامل مع بيانات الطلاب بحذر، ولا تُعرض النتائج للطالب إلا بعد اعتماد معلمه لها.",
     privacyRetentionBody:
       "نحتفظ بالبيانات فقط طالما كانت لازمة لتقديم الخدمة أو للوفاء بالتزامات قانونية، ثم تُحذف أو تُجهَّل هويتها.",
     privacyRetentionTitle: "الاحتفاظ بالبيانات",
@@ -541,13 +521,13 @@ const dict = {
       "قد نحدّث هذه الشروط من وقت لآخر، ويعني استمرارك في استخدام المنصة بعد أي تحديث موافقتك على الشروط المحدّثة.",
     termsChangesTitle: "تغيير الشروط",
     termsContentBody:
-      "يحتفظ المعلمون بملكية المحتوى الذي ينشئونه، ويمنحون قَيّمني ترخيصاً لاستضافته وعرضه على طلابهم لغرض تقديم الخدمة فقط. تظل إجابات الطلاب أعمالهم الخاصة، ويطّلع عليها معلموهم لغرض التقييم.",
+      "يحتفظ المعلمون بملكية المحتوى الذي ينشئونه، ويمنحون قَيِّمني ترخيصاً لاستضافته وعرضه على طلابهم لغرض تقديم الخدمة فقط. تظل إجابات الطلاب أعمالهم الخاصة، ويطّلع عليها معلموهم لغرض التقييم.",
     termsContentTitle: "محتوى المعلمين وإجابات الطلاب",
     termsFairUseBody:
       "لا يجوز إساءة استخدام المنصة أو محاولة الوصول إلى بيانات مستخدمين آخرين أو تعطيل الخدمة أو استخدامها لأي غرض غير قانوني.",
     termsFairUseTitle: "الاستخدام المقبول",
     termsIntro:
-      "تنظّم هذه الشروط استخدامك لمنصة قَيّمني، وهي منصة تقييم وتعلّم للمعلمين والطلاب. باستخدامك المنصة فأنت توافق على هذه الشروط.",
+      "تنظّم هذه الشروط استخدامك لمنصة قَيِّمني، وهي منصة تقييم وتعلّم للمعلمين والطلاب. باستخدامك المنصة فأنت توافق على هذه الشروط.",
     termsRolesBody:
       "ينشئ المعلمون الاختبارات ويديرونها ويعتمدون الدرجات، ويجيب الطلاب على الاختبارات المسندة إليهم فقط. القرار النهائي في أي درجة أو نتيجة هو دائماً للمعلم.",
     termsRolesTitle: "الأدوار والمسؤوليات",
@@ -663,34 +643,11 @@ const dict = {
     termsTitle: "شروط الاستخدام",
   },
   en: {
-    brand: "Qayyimni",
+    brand: "Qemmini",
     tagline: "Intelligent assessment and learning for teachers and students",
     heroTitle: "Sharper assessment, less time, learning that understands every student",
     heroBody:
       "Build tests, auto-grade objective answers, and get AI grading suggestions for written answers — the teacher always has the final word.",
-    brandPromise: "AI assists; teachers decide",
-    brandPromiseBody:
-      "Every suggestion can be reviewed and edited before a grade is approved and released.",
-    demoAssessment: "Short science quiz · Grade 5",
-    demoQuestion: "How does a plant make its food?",
-    demoQuestionNumber: "1 / 5",
-    demoAnswerTitle: "Student answer",
-    demoAnswerText:
-      "Plants make their food in the leaves using sunlight, water and carbon dioxide.",
-    demoEvidence: "Evidence appears in the answer",
-    demoRubric: "Marking guide",
-    demoTotal: "Total",
-    demoCriterion1: "Scientific idea",
-    demoCriterion1Score: "4 / 4",
-    demoCriterion2: "Key terms",
-    demoCriterion2Score: "2 / 3",
-    demoCriterion3: "Clear explanation",
-    demoCriterion3Score: "2 / 3",
-    demoSuggest: "Suggested review",
-    demoScore: "8 / 10",
-    demoSuggestNote:
-      "The teacher checks the evidence and approves the score — never auto-released.",
-    demoApproved: "Teacher approved",
     getStarted: "Get started",
     signIn: "Sign in",
     signUp: "Create account",
@@ -1177,7 +1134,7 @@ const dict = {
       "We collect information you provide when creating an account, such as your name, email address, and role as teacher or student, plus data generated by your use of the platform, such as assessments, answers, grades, and feedback.",
     privacyCollectTitle: "Data we collect",
     privacyIntro:
-      "This policy explains what data Qayyimni collects, how we use it, and how we protect it. The platform is designed to handle student data carefully, and results are shown to a student only after their teacher approves them.",
+      "This policy explains what data Qemmini collects, how we use it, and how we protect it. The platform is designed to handle student data carefully, and results are shown to a student only after their teacher approves them.",
     privacyRetentionBody:
       "We keep data only as long as needed to provide the service or meet legal obligations, after which it is deleted or anonymised.",
     privacyRetentionTitle: "Data retention",
@@ -1211,13 +1168,13 @@ const dict = {
       "We may update these terms from time to time; continuing to use the platform after an update means you accept the updated terms.",
     termsChangesTitle: "Changes to these terms",
     termsContentBody:
-      "Teachers keep ownership of the content they create and grant Qayyimni a licence to host and show it to their students solely to provide the service. Student answers remain the students' own work, viewed by their teachers for assessment purposes.",
+      "Teachers keep ownership of the content they create and grant Qemmini a licence to host and show it to their students solely to provide the service. Student answers remain the students' own work, viewed by their teachers for assessment purposes.",
     termsContentTitle: "Teacher content and student answers",
     termsFairUseBody:
       "You must not misuse the platform, attempt to access other users' data, disrupt the service, or use it for any unlawful purpose.",
     termsFairUseTitle: "Acceptable use",
     termsIntro:
-      "These terms govern your use of Qayyimni, an assessment and learning platform for teachers and students. By using the platform, you agree to these terms.",
+      "These terms govern your use of Qemmini, an assessment and learning platform for teachers and students. By using the platform, you agree to these terms.",
     termsRolesBody:
       "Teachers create and manage assessments and approve grades; students answer only the assessments assigned to them. The final decision on any grade or result always belongs to the teacher.",
     termsRolesTitle: "Roles and responsibilities",

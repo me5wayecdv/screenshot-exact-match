@@ -13,15 +13,13 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { I18nProvider } from "@/lib/i18n";
 import { Toaster } from "@/components/ui/sonner";
-import { BrandMark } from "@/components/Brand";
 import { supabase } from "@/integrations/supabase/client";
 
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="flex max-w-md flex-col items-center text-center">
-        <BrandMark className="mb-6 size-14" />
-        <h1 className="text-7xl font-bold text-primary">404</h1>
+      <div className="max-w-md text-center">
+        <h1 className="text-7xl font-bold text-foreground">404</h1>
         <p className="mt-2 text-sm text-muted-foreground">الصفحة غير موجودة · Page not found</p>
         <div className="mt-6">
           <Link
@@ -41,8 +39,7 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="flex max-w-md flex-col items-center text-center">
-        <BrandMark className="mb-6 size-14" />
+      <div className="max-w-md text-center">
         <h1 className="text-xl font-semibold text-foreground">
           تعذّر تحميل الصفحة · This page didn't load
         </h1>
@@ -67,20 +64,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Qayyimni · قَيّمني" },
+      { title: "Qemmini · قَيِّمني" },
       {
         name: "description",
         content: "AI-powered assessment and learning platform for teachers and students in Egypt.",
       },
-      { name: "theme-color", content: "#00595a" },
       { property: "og:type", content: "website" },
-      { property: "og:site_name", content: "Qayyimni · قَيّمني" },
-      { property: "og:image", content: "/brand/og-image.png" },
-      { property: "og:image:width", content: "1200" },
-      { property: "og:image:height", content: "630" },
-      { property: "og:image:alt", content: "Qayyimni · قَيّمني — الكلمة الأخيرة للمعلّم" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: "/brand/og-image.png" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -90,10 +80,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         href: "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Readex+Pro:wght@500;600;700&display=swap",
       },
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/brand/favicon.svg", type: "image/svg+xml" },
-      { rel: "icon", href: "/favicon.ico", sizes: "48x48", type: "image/x-icon" },
-      { rel: "apple-touch-icon", href: "/brand/apple-touch-icon.png" },
-      { rel: "manifest", href: "/site.webmanifest" },
+      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,
