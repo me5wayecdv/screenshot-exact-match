@@ -12,6 +12,7 @@ import {
   TrendingUp,
   GraduationCap,
   MessageSquare,
+  MessageSquareText,
   User,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -39,6 +40,7 @@ function AppShell() {
           { to: "/dashboard", label: t("dashboard"), icon: Home },
           { to: "/assessments", label: t("assessments"), icon: ClipboardList },
           { to: "/grading", label: t("grading"), icon: CheckSquare },
+          { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
           { to: "/audit", label: t("auditHistory"), icon: History },
           { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
           { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
@@ -49,6 +51,7 @@ function AppShell() {
         ? [
             { to: "/dashboard", label: t("dashboard"), icon: Home },
             { to: "/lessons", label: t("lessons"), icon: BookOpen },
+            { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
             { to: "/audit", label: t("auditHistory"), icon: History },
             { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
             { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },

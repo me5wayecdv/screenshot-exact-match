@@ -36,22 +36,22 @@ Gemini or WhatsApp secrets in `wrangler.jsonc` or any `VITE_` variable.
 
 Vars (dashboard > Worker > Settings > Variables, or `[vars]`):
 
-| Variable | Value (Workers AI path) |
-| -------- | ----------------------- |
-| `AI_BASE_URL` | `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1` |
-| `AI_MODEL` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
-| `AI_VISION_MODEL` | `@cf/meta/llama-3.2-11b-vision-instruct` |
-| `VISION_PROVIDER` | `gemini` only when `GEMINI_API_KEY` is configured; otherwise omit/unset it to use the configured Workers AI vision path |
-| `SUPABASE_URL` | `https://ugoxxbyvgptvrknuntmc.supabase.co` |
-| `SUPABASE_ANON_KEY` | The project's anon public key (dashboard: Project Settings → API) |
-| `WHATSAPP_PHONE_NUMBER_ID` | Meta WhatsApp phone number id (only when WhatsApp is enabled) |
+| Variable                   | Value (Workers AI path)                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `AI_BASE_URL`              | `https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/ai/v1`                                                      |
+| `AI_MODEL`                 | `@cf/meta/llama-3.3-70b-instruct-fp8-fast`                                                                              |
+| `AI_VISION_MODEL`          | `@cf/meta/llama-3.2-11b-vision-instruct`                                                                                |
+| `VISION_PROVIDER`          | `gemini` only when `GEMINI_API_KEY` is configured; otherwise omit/unset it to use the configured Workers AI vision path |
+| `SUPABASE_URL`             | `https://ugoxxbyvgptvrknuntmc.supabase.co`                                                                              |
+| `SUPABASE_ANON_KEY`        | The project's anon public key (dashboard: Project Settings → API)                                                       |
+| `WHATSAPP_PHONE_NUMBER_ID` | Meta WhatsApp phone number id (only when WhatsApp is enabled)                                                           |
 
 Secrets (`wrangler secret put <NAME>`, encrypted, never in the repo):
 
-| Secret | Meaning |
-| ------ | ------- |
-| `AI_API_KEY` | Cloudflare API token (Workers AI Read) for the Workers AI path |
-| `WHATSAPP_TOKEN` | Meta WhatsApp token (only when WhatsApp is enabled) |
+| Secret                      | Meaning                                                          |
+| --------------------------- | ---------------------------------------------------------------- |
+| `AI_API_KEY`                | Cloudflare API token (Workers AI Read) for the Workers AI path   |
+| `WHATSAPP_TOKEN`            | Meta WhatsApp token (only when WhatsApp is enabled)              |
 | `SUPABASE_SERVICE_ROLE_KEY` | Only if a deployed server path needs it; otherwise do not set it |
 
 Client-side Supabase keys (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`)
@@ -65,7 +65,10 @@ Create/verify the Supabase migration history first: apply the base
 `20261030230000_harden_signup_and_exam_rls.sql`; it removes public signup
 admin assignment and retires the legacy exam write paths. Verify it is marked
 applied in the target project's migration history before enabling real student
-accounts. Do not rely on the abbreviated legacy list in older notes.
+accounts. The teacher assistant also requires
+`20261031044544_add_teacher_assistant_usage_kind.sql`, which allows assistant
+usage events while recording model/token counts only (never chat content). Do
+not rely on the abbreviated legacy list in older notes.
 
 ## Deploy
 
