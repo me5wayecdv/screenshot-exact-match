@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ClipboardList, Sparkles, LineChart } from "lucide-react";
+import { ClipboardCheck, ClipboardList, LineChart } from "lucide-react";
 import { Brand, BrandMark, LangToggle, TwoDots } from "@/components/Brand";
 import { HeroGradeCard } from "@/components/hero-grade-card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ function Landing() {
   const { t } = useI18n();
   const features = [
     { icon: ClipboardList, title: t("feature1"), body: t("feature1b") },
-    { icon: Sparkles, title: t("feature2"), body: t("feature2b") },
+    { icon: ClipboardCheck, title: t("feature2"), body: t("feature2b") },
     { icon: LineChart, title: t("feature3"), body: t("feature3b") },
   ];
   return (
