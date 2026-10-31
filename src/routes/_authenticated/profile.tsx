@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
     meta: [
-      { title: "Profile · Qayyimni" },
+      { title: "Profile · Qemmini" },
       { name: "description", content: "View and edit your profile." },
     ],
   }),
@@ -39,6 +39,37 @@ function Profile() {
     },
   });
   const isTeacher = me?.role === "school_teacher" || me?.role === "tutor";
+
+  // Teacher subject lives on the teacher_profiles row the signup trigger
+  // already creates (subjects_text, default ''). The owner-only RLS
+  // policy ("owner manages own teacher profile") permits this read and
+  // upsert with no migration and no policy change.
+  const { data: subjectRow } = useQuery({
+    queryKey: ["my-teacher-subject"],
+    enabled: !!me && isTeacher,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("teacher_profiles")
+        .select("subjects_text")
+        .eq("user_id", me!.id)
+        .maybeSingle();
+      return (data?.subjects_text as string | null) ?? null;
+    },
+  });
+  const [subjectDraft, setSubjectDraft] = useState<string | null>(null);
+  const subjectValue = subjectDraft ?? subjectRow ?? "";
+
+  async function saveSubject(e: FormEvent) {
+    e.preventDefault();
+    if (!me) return;
+    const trimmed = subjectValue.trim();
+    const { error } = await supabase
+      .from("teacher_profiles")
+      .upsert({ user_id: me.id, type: me.role, subjects_text: trimmed }, { onConflict: "user_id" });
+    if (error) return void toast.error(translateError(error, lang));
+    toast.success(t("profileSaved"));
+    qc.invalidateQueries({ queryKey: ["my-teacher-subject"] });
+  }
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -72,6 +103,25 @@ function Profile() {
           </Button>
         </form>
       </Panel>
+      {isTeacher && (
+        <Panel className="mb-8">
+          <form onSubmit={saveSubject} className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="profile-subject">{t("profileSubject")}</Label>
+              <Input
+                id="profile-subject"
+                value={subjectValue}
+                onChange={(e) => setSubjectDraft(e.target.value)}
+                placeholder={t("profileSubjectPlaceholder")}
+                maxLength={100}
+              />
+            </div>
+            <Button type="submit" disabled={subjectValue.trim() === (subjectRow ?? "").trim()}>
+              {t("save")}
+            </Button>
+          </form>
+        </Panel>
+      )}
       <Panel>
         <dl className="space-y-3 text-sm">
           <div className="flex items-center justify-between gap-4">

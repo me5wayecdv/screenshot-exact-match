@@ -10,15 +10,20 @@ import {
   RotateCcw,
   Send,
   TrendingUp,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Empty, PageHeader, Panel } from "@/components/ui-kit";
+import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import type { AssistantChatMessage } from "@/lib/teacher-assistant";
+import { explainLesson } from "@/server/lesson-explain";
+import { ocrSourceImages } from "@/server/source-ocr";
 import { askTeacherAssistant, getTeacherAssistantOverview } from "@/server/teacher-assistant";
 
 export const Route = createFileRoute("/_authenticated/assistant")({
@@ -42,12 +47,86 @@ const starterPromptKeys = [
   "assistantPromptResults",
 ] as const;
 
+/** File limits mirror assessment generation (same bucket, same pipeline). */
+const MAX_DOC_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/** Compress an image to a ≤1600px JPEG (same bound as generation sources). */
+async function compressExplainImage(file: File): Promise<Blob> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const w = Math.max(1, Math.round(bitmap.width * scale));
+  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable.");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.85),
+  );
+  if (!blob) throw new Error("Compression failed.");
+  return blob;
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Read failed."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/** Platform rule: every uploaded file is persisted server-side first. */
+async function uploadExplainSource(blob: Blob, ext: string): Promise<void> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("No session.");
+  const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from("generation-sources").upload(path, blob);
+  if (error) throw error;
+}
+
+/** PDF text extraction (pdfjs-dist, dynamically imported). */
+async function extractExplainPdfText(arrayBuffer: ArrayBuffer): Promise<string> {
+  const pdfjs = await import("pdfjs-dist");
+  const { default: workerUrl } = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+  const doc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    pages.push(content.items.map((it) => ("str" in it ? it.str : "")).join(" "));
+  }
+  return pages.join("\n\n").trim();
+}
+
+/** Word (.docx) text extraction (mammoth, dynamically imported). */
+async function extractExplainDocxText(arrayBuffer: ArrayBuffer): Promise<string> {
+  const mammoth = await import("mammoth");
+  const { value } = await mammoth.extractRawText({ arrayBuffer });
+  return value.trim();
+}
+
 function TeacherAssistantPage() {
   const { t, lang } = useI18n();
   const { data: me, isLoading: meLoading } = useMe();
   const [messages, setMessages] = useState<AssistantChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [explainFile, setExplainFile] = useState<File | null>(null);
+  const [explainBusy, setExplainBusy] = useState(false);
+  const [explanation, setExplanation] = useState<{
+    text: string;
+    truncated: boolean;
+    originalChars: number;
+    cappedChars: number;
+  } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const teacher = me?.role === "school_teacher" || me?.role === "tutor";
 
@@ -112,6 +191,116 @@ function TeacherAssistantPage() {
       toast.success(t("assistantCopied"));
     } catch {
       toast.error(t("assistantCopyFailed"));
+    }
+  }
+
+  async function copyExplanation(content: string) {
+    try {
+      await navigator.clipboard.writeText(content);
+      toast.success(t("lessonExplainCopied"));
+    } catch {
+      toast.error(t("assistantCopyFailed"));
+    }
+  }
+
+  /**
+   * Explain a lesson from an uploaded file. This path is separate from the
+   * 1,500-char chat input: the file is persisted to the private
+   * generation-sources bucket first (same pattern as assessment
+   * generation), text is extracted (browser parsing for PDF/Word,
+   * source-ocr for photos), and the server caps at 30,000 chars and
+   * explains the capped text. Nothing is saved — the explanation lives
+   * in this panel only, so the copy button is mandatory.
+   */
+  async function explainFromFile() {
+    if (!explainFile || explainBusy || !configured) return;
+    const lower = explainFile.name.toLowerCase();
+    const isPdf = lower.endsWith(".pdf");
+    const isDocx = lower.endsWith(".docx");
+    const isImage = /\.(jpg|jpeg|png|webp)$/.test(lower);
+    if (!isPdf && !isDocx && !isImage) {
+      toast.error(t("lessonExplainUnsupported"));
+      return;
+    }
+    if ((isPdf || isDocx) && explainFile.size > MAX_DOC_BYTES) {
+      toast.error(t("lessonExplainFileTooBig"));
+      return;
+    }
+    if (isImage && explainFile.size > MAX_IMAGE_BYTES) {
+      toast.error(t("lessonExplainFileTooBig"));
+      return;
+    }
+    setExplainBusy(true);
+    setExplanation(null);
+    try {
+      let text = "";
+      if (isPdf || isDocx) {
+        try {
+          await uploadExplainSource(explainFile, isPdf ? "pdf" : "docx");
+        } catch {
+          toast.error(t("lessonExplainUploadFailed"));
+          return;
+        }
+        const buf = await explainFile.arrayBuffer();
+        text = isPdf ? await extractExplainPdfText(buf) : await extractExplainDocxText(buf);
+      } else {
+        const compressed = await compressExplainImage(explainFile);
+        try {
+          await uploadExplainSource(compressed, "jpg");
+        } catch {
+          toast.error(t("lessonExplainUploadFailed"));
+          return;
+        }
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const res = await ocrSourceImages({
+          data: {
+            imageDataUrls: [await blobToDataUrl(compressed)],
+            accessToken: session?.access_token ?? "",
+          },
+        });
+        if (!res.ok) {
+          toast.error(t("lessonExplainExtractFailed"));
+          return;
+        }
+        text = res.texts[0] ?? "";
+      }
+      if (text.trim().length < 50) {
+        toast.error(t("lessonExplainTooShort"));
+        return;
+      }
+      toast.success(
+        t("genExtracted", {
+          name: explainFile.name,
+          count: String(text.trim().length),
+        }) as string,
+      );
+      const result = await explainLesson({ data: { language: lang, sourceText: text } });
+      if (!result.ok) {
+        const key =
+          result.code === "AI_NOT_CONFIGURED"
+            ? "assistantNotConfigured"
+            : result.code === "AI_RATE_LIMIT"
+              ? "assistantRateLimit"
+              : result.code === "AI_TIMEOUT"
+                ? "assistantTimeout"
+                : result.code === "UNAUTHORIZED"
+                  ? "assistantTeacherOnly"
+                  : "assistantError";
+        toast.error(t(key as Parameters<typeof t>[0]));
+        return;
+      }
+      setExplanation({
+        text: result.explanation,
+        truncated: result.truncated,
+        originalChars: result.originalChars,
+        cappedChars: result.cappedChars,
+      });
+    } catch {
+      toast.error(t("lessonExplainExtractFailed"));
+    } finally {
+      setExplainBusy(false);
     }
   }
 
@@ -191,6 +380,67 @@ function TeacherAssistantPage() {
           {t("assistantDataError")}
         </div>
       ) : null}
+
+      <Panel className="mb-5 p-4 sm:p-5">
+        <h2 className="font-semibold">{t("lessonExplainTitle")}</h2>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          {t("lessonExplainDescription")}
+        </p>
+        <div className="mt-4 space-y-2">
+          <Label htmlFor="lesson-explain-file">{t("lessonExplainChooseFile")}</Label>
+          <Input
+            id="lesson-explain-file"
+            type="file"
+            accept=".pdf,.docx,.jpg,.jpeg,.png,.webp"
+            disabled={explainBusy}
+            onChange={(event) => setExplainFile(event.target.files?.[0] ?? null)}
+          />
+          <p className="text-xs text-muted-foreground">{t("lessonExplainFileHint")}</p>
+          <Button
+            type="button"
+            disabled={!explainFile || explainBusy || !configured}
+            onClick={() => void explainFromFile()}
+          >
+            <Upload aria-hidden />
+            {explainBusy ? t("lessonExplainExplaining") : t("lessonExplainExplain")}
+          </Button>
+          {explainBusy && (
+            <p className="text-sm text-muted-foreground" role="status">
+              {t("lessonExplainExplaining")}
+            </p>
+          )}
+        </div>
+        {explanation && (
+          <div className="mt-5 border-t pt-4">
+            {explanation.truncated && (
+              <p
+                role="status"
+                className="mb-3 rounded-md border border-warning/50 bg-warning/15 p-3 text-sm leading-6 text-warning-foreground"
+              >
+                {t("lessonExplainTruncated", {
+                  original: String(explanation.originalChars),
+                  capped: String(explanation.cappedChars),
+                })}
+              </p>
+            )}
+            <p className="whitespace-pre-wrap text-sm leading-7">{explanation.text}</p>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void copyExplanation(explanation.text)}
+              >
+                <ClipboardCopy aria-hidden />
+                {t("lessonExplainCopy")}
+              </Button>
+              <p className="max-w-xl text-xs leading-5 text-muted-foreground">
+                {t("lessonExplainSafety")}
+              </p>
+            </div>
+          </div>
+        )}
+      </Panel>
 
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <Panel className="overflow-hidden p-0">
