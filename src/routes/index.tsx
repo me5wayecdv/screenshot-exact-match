@@ -97,6 +97,27 @@ function Landing() {
           </div>
         </section>
 
+        <section className="mx-auto max-w-7xl px-5 pb-4 md:px-8">
+          <div className="rounded-lg border bg-card px-6 py-6 md:px-10">
+            <h2 className="text-xl font-bold md:text-2xl">{t("journeyTitle")}</h2>
+            <ol className="mt-5 grid gap-5 md:grid-cols-3">
+              {[
+                { title: t("journey1Title"), body: t("journey1Body") },
+                { title: t("journey2Title"), body: t("journey2Body") },
+                { title: t("journey3Title"), body: t("journey3Body") },
+              ].map((step, index) => (
+                <li key={step.title} className="flex gap-3">
+                  <span className="font-display text-sm font-bold text-primary">0{index + 1}</span>
+                  <div>
+                    <p className="font-semibold">{step.title}</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{step.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
         <section
           id="workflow"
           className="mx-auto max-w-7xl scroll-mt-8 px-5 py-12 md:px-8 md:py-16"
