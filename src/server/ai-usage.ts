@@ -17,7 +17,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-export type AiUsageKind = "grade" | "generate" | "ocr" | "match" | "tutor";
+export type AiUsageKind = "grade" | "generate" | "ocr" | "match" | "tutor" | "assistant";
 
 export type AiTokenUsage = {
   inputTokens: number | null;

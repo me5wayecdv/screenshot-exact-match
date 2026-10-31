@@ -72,9 +72,14 @@ function SchoolTeacherHome({ name }: { name: string }) {
       <PageHeader
         title={`${t("welcome")}، ${name}`}
         actions={
-          <Button asChild>
-            <Link to="/assessments">{t("newAssessment")}</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link to="/assistant">{t("assistantTitle")}</Link>
+            </Button>
+            <Button asChild>
+              <Link to="/assessments">{t("newAssessment")}</Link>
+            </Button>
+          </>
         }
       />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -141,9 +146,14 @@ function TutorHome({ name }: { name: string }) {
       <PageHeader
         title={`${t("welcome")}، ${name}`}
         actions={
-          <Button asChild>
-            <Link to="/lessons">{t("createLesson")}</Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link to="/assistant">{t("assistantTitle")}</Link>
+            </Button>
+            <Button asChild>
+              <Link to="/lessons">{t("createLesson")}</Link>
+            </Button>
+          </>
         }
       />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

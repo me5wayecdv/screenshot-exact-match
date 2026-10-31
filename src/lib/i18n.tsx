@@ -16,6 +16,54 @@ const dict = {
     workflowKicker: "طريقة العمل",
     featuresKicker: "أدوات عملية",
     featuresTitle: "كل ما تحتاجه للمراجعة، بلا ضجيج",
+    assistantTitle: "مساعد المعلم",
+    assistantSubtitle:
+      "مساعد عملي لتحضير الدروس والاختبارات ومراجعة مؤشرات الصف، من دون الوصول إلى أسماء الطلاب أو إجاباتهم الفردية.",
+    assistantTeacherOnly: "مساعد المعلم متاح لحسابات المعلمين والمدرسين فقط.",
+    assistantWorkspaceSummary: "ملخص مساحة العمل",
+    assistantAssessments: "الاختبارات",
+    assistantDrafts: "مسودات",
+    assistantPending: "تسليمات بانتظار المراجعة أو النشر",
+    assistantReleased: "نتائج منشورة",
+    assistantAverageReleased: "متوسط النتائج المنشورة",
+    assistantAveragePrivacy:
+      "يُعرض المتوسط فقط عند توفر خمس نتائج منشورة أو أكثر، ويُحسب من الدرجات الإجمالية دون عرض درجات فردية.",
+    assistantNotConfigured:
+      "المساعد غير مفعّل على الخادم بعد. يمكنك استخدام أدوات الاختبارات والتصحيح أدناه.",
+    assistantDataError: "تعذر تحميل مؤشرات مساحة العمل. حاول تحديث الصفحة.",
+    assistantConversation: "المحادثة",
+    assistantSessionOnly: "لا تُحفظ المحادثة بعد مغادرة الصفحة.",
+    assistantNewChat: "محادثة جديدة",
+    assistantWelcome:
+      "اسأل عن تخطيط درس أو إعداد أسئلة أو كتابة معيار تصحيح. يعتمد المساعد على أعداد إجمالية من مساحة عملك فقط؛ لا تُدخل أسماء طلاب أو بيانات تعريفية.",
+    assistantPromptLesson:
+      "حضّر خطة درس مدتها ٤٠ دقيقة عن دورة الماء للصف الثامن، مع هدف تعلم ونشاط ختامي.",
+    assistantPromptQuestions:
+      "اكتب خمسة أسئلة متنوعة عن دورة الماء للصف الثامن مع تحديد هدف كل سؤال.",
+    assistantPromptRubric:
+      "صغ معيار تصحيح من أربعة مستويات لإجابة قصيرة تشرح التبخر والتكاثف والهطول.",
+    assistantPromptFeedback:
+      "اكتب ملاحظة بناءة وقصيرة لطالب أتقن الفكرة الأساسية ويحتاج إلى توضيح خطوات الحل.",
+    assistantPromptResults:
+      "اقترح طريقة لمراجعة نتائج الصف من المؤشرات الإجمالية دون افتراض أسباب لا تظهر في البيانات.",
+    assistantBuildAssessment: "إعداد اختبار",
+    assistantOpenGrading: "مراجعة التسليمات",
+    assistantOpenAnalytics: "تحليل النتائج",
+    assistantTools: "أدوات المعلم",
+    assistantReminderTitle: "المعلم صاحب القرار",
+    assistantReminderBody:
+      "الاقتراحات مسودات للمراجعة فقط. لا ينشئ المساعد اختباراً أو يحفظه، ولا يعتمد درجات أو ينشر نتائج.",
+    assistantMessageLabel: "اكتب سؤالك للمساعد",
+    assistantPlaceholder: "اكتب سؤالك… (Ctrl + Enter للإرسال)",
+    assistantPrivacyNote: "تجنب إدخال أسماء الطلاب أو أي بيانات شخصية.",
+    assistantSend: "إرسال الرسالة",
+    assistantThinking: "المساعد يجهّز رداً…",
+    assistantCopy: "نسخ الرد",
+    assistantCopied: "تم نسخ الرد.",
+    assistantCopyFailed: "تعذر نسخ الرد.",
+    assistantRateLimit: "وصلت الخدمة إلى حد الطلبات مؤقتاً. انتظر قليلاً ثم حاول مجدداً.",
+    assistantTimeout: "استغرق الرد وقتاً أطول من المتوقع. حاول مرة أخرى.",
+    assistantError: "تعذر الحصول على رد الآن. حاول مرة أخرى بعد قليل.",
     workflowTitle: "من إجابة الطالب إلى نتيجة معتمدة",
     workflowIntro: "خطوات واضحة، من إعداد الاختبار إلى مشاركة النتيجة.",
     step1Label: "حدّد المطلوب",
@@ -691,6 +739,54 @@ const dict = {
     workflowKicker: "HOW IT WORKS",
     featuresKicker: "BUILT FOR THE CLASSROOM",
     featuresTitle: "The review tools you need, without the noise",
+    assistantTitle: "Teacher assistant",
+    assistantSubtitle:
+      "A practical assistant for lesson planning, assessment drafting, and classroom indicators—with no access to student names or individual answers.",
+    assistantTeacherOnly: "The teacher assistant is available to teacher and tutor accounts only.",
+    assistantWorkspaceSummary: "Workspace summary",
+    assistantAssessments: "Assessments",
+    assistantDrafts: "Drafts",
+    assistantPending: "Submissions awaiting review or release",
+    assistantReleased: "Results released",
+    assistantAverageReleased: "Average released score",
+    assistantAveragePrivacy:
+      "The average appears only when at least five results have been released; it is computed from aggregate marks, not individual scores.",
+    assistantNotConfigured:
+      "The assistant is not configured on the server yet. You can still use the assessment and grading tools below.",
+    assistantDataError: "Could not load workspace indicators. Try refreshing the page.",
+    assistantConversation: "Conversation",
+    assistantSessionOnly: "This conversation is not saved after you leave the page.",
+    assistantNewChat: "New chat",
+    assistantWelcome:
+      "Ask about lesson planning, drafting questions, or writing a marking criterion. The assistant only receives aggregate workspace counts; do not enter student names or identifying details.",
+    assistantPromptLesson:
+      "Plan a 40-minute Grade 8 lesson on the water cycle, with one learning objective and a short exit activity.",
+    assistantPromptQuestions:
+      "Draft five varied Grade 8 questions about the water cycle and state the objective for each.",
+    assistantPromptRubric:
+      "Write a four-level marking criterion for a short answer explaining evaporation, condensation, and precipitation.",
+    assistantPromptFeedback:
+      "Write brief, constructive feedback for a learner who understands the main idea but needs to show their working more clearly.",
+    assistantPromptResults:
+      "Suggest a way to review class results from aggregate indicators without assuming causes the data does not show.",
+    assistantBuildAssessment: "Build an assessment",
+    assistantOpenGrading: "Review submissions",
+    assistantOpenAnalytics: "View analytics",
+    assistantTools: "Teacher tools",
+    assistantReminderTitle: "The teacher stays in control",
+    assistantReminderBody:
+      "Suggestions are drafts for review. The assistant cannot create or save an assessment, approve marks, or release results.",
+    assistantMessageLabel: "Write a message to the assistant",
+    assistantPlaceholder: "Ask a question… (Ctrl + Enter to send)",
+    assistantPrivacyNote: "Avoid entering student names or personal information.",
+    assistantSend: "Send message",
+    assistantThinking: "Preparing a response…",
+    assistantCopy: "Copy reply",
+    assistantCopied: "Reply copied.",
+    assistantCopyFailed: "Could not copy the reply.",
+    assistantRateLimit: "The service is temporarily rate-limited. Wait a moment and try again.",
+    assistantTimeout: "The response took longer than expected. Please try again.",
+    assistantError: "Could not get a response right now. Try again shortly.",
     workflowTitle: "From a student's answer to an approved result",
     workflowIntro: "A clear path from setting the assessment to sharing the result.",
     step1Label: "Set the criteria",

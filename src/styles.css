@@ -331,3 +331,36 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+.assistant-chat-area {
+  min-height: 18rem;
+  max-height: 38rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.assistant-tool-link {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.3rem;
+  padding: 0.65rem 0.75rem;
+  color: var(--color-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition:
+    border-color var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
+}
+
+.assistant-tool-link:hover {
+  border-color: color-mix(in oklab, var(--color-primary) 45%, var(--color-border));
+  background-color: var(--color-secondary);
+}
+
+.assistant-tool-link svg {
+  flex: 0 0 auto;
+  color: var(--color-primary);
+}
