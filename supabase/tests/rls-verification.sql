@@ -1,0 +1,34 @@
+-- Manual RLS regression checks for the 2026-10-31 security fixes.
+-- Run in the Supabase SQL editor as a privileged role, then as the test
+-- users (or with `set request.jwt.claims`). Each block names the expected
+-- result. Requires: one teacher T, students S1 (assigned) and S2, and a
+-- published assessment A with starts_at in the future.
+--
+-- FIX 1 (question window):
+--   As S1 BEFORE starts_at:  select count(*) from public.questions where assessment_id = A;
+--     EXPECT 0 rows (previously: all questions).
+--   As S1 AFTER starts_at (or starts_at null): same query EXPECT all questions.
+--   As S1 on a CLOSED assigned assessment: EXPECT questions readable (review).
+--   As T: EXPECT all questions of own assessments readable in every state.
+--
+-- FIX 2a (join_code unwritable):
+--   As S1: update public.profiles set join_code = 'ABC123' where id = auth.uid();
+--     EXPECT permission denied (column privilege). full_name update EXPECT ok.
+--   As T: update own full_name EXPECT ok; update S1.parent_phone (linked) EXPECT ok;
+--     update S1.join_code EXPECT permission denied.
+--
+-- FIX 2b (owner role check):
+--   Insert a join_code directly on S2's profile as admin, then as S1 call
+--   select public.join_teacher('<S2 code>'); EXPECT invalid_code.
+--   As S1 call join_teacher with T's real code: EXPECT teacher id returned
+--   and a teacher_students row created.
+--
+-- FIX 2c (teacher scope guard):
+--   As T: update public.profiles set full_name = 'X' where id = <S1>;
+--     EXPECT forbidden_profile_field (teachers maintain contact fields only).
+--   As T: update public.profiles set parent_phone = '+201012345678', whatsapp_consent = true where id = <S1>;
+--     EXPECT ok. As S1 renaming SELF: EXPECT ok.
+--
+-- FIX 5 (legacy data):
+--   Migration adds the Egyptian CHECK as NOT VALID: pre-existing rows with
+--   older formats are kept untouched; only new writes are validated.
