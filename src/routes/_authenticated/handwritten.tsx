@@ -149,6 +149,112 @@ async function compressImage(file: File): Promise<{ dataUrl: string; blob: Blob 
   }
 }
 
+/** Max pages expanded from one uploaded PDF/Word file. */
+const MAX_FILE_PAGES = 10;
+
+/** Render extracted Word text onto white A4-ratio JPEG pages so the same
+ * image/OCR/storage pipeline (and its audit trail) handles .docx files. */
+function textToPageFiles(text: string, baseName: string): File[] {
+  const W = 1240;
+  const H = 1754;
+  const MARGIN = 72;
+  const LINE_H = 40;
+  const FONT = "28px system-ui, sans-serif";
+  const maxCharsPerLine = 55;
+  const isAr = /[\u0600-\u06FF]/.test(text);
+  // Greedy word wrap by character budget (canvas measureText is exact but
+  // per-word measuring is slower; a fixed budget is sufficient for a
+  // readable rendering of typed answers).
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? cur + " " + w : w;
+    if (next.length > maxCharsPerLine && cur) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = next;
+    }
+  }
+  if (cur) lines.push(cur);
+  const linesPerPage = Math.floor((H - 2 * MARGIN) / LINE_H);
+  const pages: File[] = [];
+  const pageCount = Math.min(Math.ceil(lines.length / linesPerPage) || 1, MAX_FILE_PAGES);
+  for (let p = 0; p < pageCount; p++) {
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas unavailable");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#111111";
+    ctx.font = FONT;
+    ctx.direction = isAr ? "rtl" : "ltr";
+    ctx.textAlign = isAr ? "right" : "left";
+    const x = isAr ? W - MARGIN : MARGIN;
+    const pageLines = lines.slice(p * linesPerPage, (p + 1) * linesPerPage);
+    pageLines.forEach((line, i) => ctx.fillText(line, x, MARGIN + i * LINE_H + LINE_H / 2));
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    const byteString = atob(dataUrl.split(",")[1] ?? "");
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+    pages.push(new File([bytes], `${baseName}-p${p + 1}.jpg`, { type: "image/jpeg" }));
+  }
+  return pages;
+}
+
+/**
+ * Expand an uploaded file into image page Files for the grading pipeline:
+ * - image/* stays as-is;
+ * - PDF pages are rendered to JPEGs via pdfjs-dist (already a dependency);
+ * - .docx text is extracted via mammoth (already a dependency) and rendered
+ *   onto white pages.
+ * Returns [] for unsupported types so the caller can show the error toast.
+ */
+async function fileToPageFiles(file: File): Promise<File[]> {
+  if (file.type.startsWith("image/")) return [file];
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+  const isDocx =
+    file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    /\.docx$/i.test(file.name);
+  if (isPdf) {
+    const pdfjs = await import("pdfjs-dist");
+    const { default: workerUrl } = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+    pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pages: File[] = [];
+    const pageCount = Math.min(doc.numPages, MAX_FILE_PAGES);
+    for (let p = 1; p <= pageCount; p++) {
+      const page = await doc.getPage(p);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvas, viewport }).promise;
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.9),
+      );
+      if (!blob) throw new Error("canvas toBlob failed");
+      pages.push(new File([blob], `${file.name}-p${p}.jpg`, { type: "image/jpeg" }));
+    }
+    return pages;
+  }
+  if (isDocx) {
+    const mammoth = await import("mammoth");
+    const { value } = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    const text = value.trim();
+    if (!text) return [];
+    return textToPageFiles(text, file.name);
+  }
+  return [];
+}
+
 function ocrErrorKey(code: string): string {
   if (code === "VISION_NOT_CONFIGURED") return "hwOcrNotConfigured";
   if (code === "VISION_UNSUPPORTED") return "hwVisionUnsupported";
@@ -409,16 +515,20 @@ function Handwritten() {
 
   async function onFileChange(file: File | undefined) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error(t("hwNeedImage"));
-      return;
-    }
-    if (file.size > 8 * 1024 * 1024) {
+    if (file.size > 20 * 1024 * 1024) {
       toast.error(t("hwOcrFailed"));
       return;
     }
     try {
-      const { dataUrl, blob } = await compressImage(file);
+      const pages = await fileToPageFiles(file);
+      // The single-paper panel grades one page: use the first page of a
+      // PDF/Word file. Multi-page papers belong to the match panel above.
+      const page = pages[0];
+      if (!page) {
+        toast.error(t("hwNeedImage"));
+        return;
+      }
+      const { dataUrl, blob } = await compressImage(page);
       setImageDataUrl(dataUrl);
       setImageName(file.name);
       setPaperBlob(blob);
@@ -470,39 +580,51 @@ function Handwritten() {
     const picked = files.slice(0, room);
     if (files.length > room) toast.error(t("hwMatchTooMany"));
     for (const file of picked) {
-      if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) {
+      if (file.size > 20 * 1024 * 1024) {
         toast.error(t("hwNeedImage"));
         continue;
       }
+      let pageFiles: File[];
       try {
-        const { dataUrl, blob } = await compressImage(file);
-        const id = `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-        setMatchItems((prev) => [
-          ...prev,
-          {
-            id,
-            dataUrl,
-            blob,
-            imagePath: "",
-            fileName: file.name,
-            text: "",
-            questionId: null,
-            confidence: "none",
-            method: "none",
-            model: "",
-            studentName: "",
-            graded: false,
-          },
-        ]);
-        // PLATFORM RULE: the page is persisted server-side on select.
-        const path = await uploadPaper(blob);
-        if (!path) {
-          toast.error(t("hwImageUploadFailed"));
-          continue;
-        }
-        updateMatchItem(id, { imagePath: path });
+        pageFiles = await fileToPageFiles(file);
       } catch {
-        toast.error(t("hwOcrFailed"));
+        pageFiles = [];
+      }
+      if (pageFiles.length === 0) {
+        toast.error(t("hwNeedImage"));
+        continue;
+      }
+      for (const pageFile of pageFiles.slice(0, room)) {
+        try {
+          const { dataUrl, blob } = await compressImage(pageFile);
+          const id = `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+          setMatchItems((prev) => [
+            ...prev,
+            {
+              id,
+              dataUrl,
+              blob,
+              imagePath: "",
+              fileName: pageFile.name,
+              text: "",
+              questionId: null,
+              confidence: "none",
+              method: "none",
+              model: "",
+              studentName: "",
+              graded: false,
+            },
+          ]);
+          // PLATFORM RULE: the page is persisted server-side on select.
+          const path = await uploadPaper(blob);
+          if (!path) {
+            toast.error(t("hwImageUploadFailed"));
+            continue;
+          }
+          updateMatchItem(id, { imagePath: path });
+        } catch {
+          toast.error(t("hwOcrFailed"));
+        }
       }
     }
   }
@@ -969,7 +1091,7 @@ function Handwritten() {
               <Label>{t("hwMatchTitle")}</Label>
               <Input
                 type="file"
-                accept="image/*"
+                accept="image/*,application/pdf,.docx"
                 multiple
                 onChange={(e) => {
                   const fs = [...(e.target.files ?? [])];
@@ -1093,7 +1215,7 @@ function Handwritten() {
             <Input
               id="hw-file"
               type="file"
-              accept="image/*"
+              accept="image/*,application/pdf,.docx"
               onChange={(e) => void onFileChange(e.target.files?.[0])}
             />
             <p className="text-xs text-muted-foreground">{t("hwUploadHint")}</p>
@@ -1300,4 +1422,4 @@ function Handwritten() {
       </div>
     </>
   );
-}
+                                     }
