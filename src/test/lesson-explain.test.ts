@@ -3,10 +3,29 @@ import {
   buildLessonExplainSystemPrompt,
   buildLessonExplainUserPrompt,
   capLessonSourceText,
+  detectLessonLanguage,
   LESSON_EXPLAIN_MAX_CHARS,
   LESSON_EXPLAIN_MIN_CHARS,
   validateLessonExplainInput,
 } from "@/lib/lesson-explain";
+
+describe("lesson language detection", () => {
+  it("follows the lesson script, not the caller fallback", () => {
+    expect(detectLessonLanguage("دورة المياه: التبخر والتكثف والهطول.", "en")).toBe("ar");
+    expect(detectLessonLanguage("The water cycle: evaporation and rain.", "ar")).toBe("en");
+  });
+
+  it("follows the majority script in mixed text", () => {
+    expect(detectLessonLanguage("دورة المياه water cycle التبخر", "en")).toBe("ar");
+    expect(detectLessonLanguage("water cycle evaporation دورة", "ar")).toBe("en");
+  });
+
+  it("falls back for script-neutral text", () => {
+    expect(detectLessonLanguage("12345 !!!", "ar")).toBe("ar");
+    expect(detectLessonLanguage("12345 !!!", "en")).toBe("en");
+    expect(detectLessonLanguage("", "en")).toBe("en");
+  });
+});
 
 describe("lesson explain source cap", () => {
   it("keeps short text untouched and untruncated", () => {
@@ -84,6 +103,9 @@ describe("lesson explain prompts", () => {
     }
     expect(prompt).toContain("لا تنشئ اختباراً ولا تعتمد درجات ولا تنشر نتائج");
     expect(prompt).toContain("لا تخترع حقائق");
+    expect(prompt).toContain("كل العناوين وكل الكلمات");
+    expect(prompt).toContain("لا تستخدم أي كلمة من لغة أخرى");
+    expect(prompt).toContain("لغة واضحة وبسيطة");
   });
 
   it("english prompt names all five sections and the draft-only safety line", () => {
@@ -99,6 +121,9 @@ describe("lesson explain prompts", () => {
     }
     expect(prompt).toContain("create no assessments, approve no marks, and release no results");
     expect(prompt).toContain("Do not invent facts");
+    expect(prompt).toContain("ENTIRE reply");
+    expect(prompt).toContain("another language");
+    expect(prompt).toContain("clear, simple language");
   });
 
   it("user prompt carries the lesson text", () => {

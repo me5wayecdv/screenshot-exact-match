@@ -53,16 +53,39 @@ export function validateLessonExplainInput(raw: unknown): LessonExplainInput | n
 }
 
 /**
+ * Detect the lesson's language from its script: the explanation must follow
+ * the LESSON text, not the teacher's UI language (a teacher with an English
+ * UI explaining an Arabic lesson got English headings with an Arabic body).
+ * Majority script wins; neutral text falls back to the caller's language.
+ */
+export function detectLessonLanguage(
+  sourceText: string,
+  fallback: LessonExplainLanguage,
+): LessonExplainLanguage {
+  const arabic = sourceText.match(
+    /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/g,
+  );
+  const latin = sourceText.match(/[A-Za-z]/g);
+  const arabicCount = arabic ? arabic.length : 0;
+  const latinCount = latin ? latin.length : 0;
+  if (arabicCount > latinCount) return "ar";
+  if (latinCount > arabicCount) return "en";
+  return fallback;
+}
+
+/**
  * System prompt for the explanation. The reply must be in the language of
  * the lesson text itself (falling back to the teacher's UI language when
  * the lesson language is unclear), structured in the five fixed sections,
- * and grounded in the provided text only — no invented facts.
+ * and grounded in the provided text only — no invented facts. The whole
+ * reply, headings included, must be in that one language, written clearly.
  */
 export function buildLessonExplainSystemPrompt(language: LessonExplainLanguage): string {
   if (language === "ar") {
     return [
       "أنت مساعد تربوي عملي داخل منصة قَيّمني، مخصص لمعلمي المدارس والمدرسين الخصوصيين.",
       "اشرح الدرس التالي بلغة نص الدرس نفسه (درس عربي يُشرح بالعربية، ودرس إنجليزي يُشرح بالإنجليزية)؛ وإذا لم تتضح لغة الدرس، اشرح بالعربية.",
+      "اكتب الرد كاملاً — كل العناوين وكل الكلمات — بلغة نص الدرس نفسه، ولا تستخدم أي كلمة من لغة أخرى. واستخدم لغة واضحة وبسيطة: جمل قصيرة وصياغة سهلة يفهمها المعلم مباشرة.",
       "اعتمد على نص الدرس المقدم فقط. لا تخترع حقائق أو تفاصيل من خارج النص؛ وإذا كان النص ناقصاً أو غامضاً في نقطة ما، قل ذلك صراحة بدل ملء الفراغ.",
       "اكتب الشرح بالترتيب التالي، مع عنوان واضح لكل قسم:",
       "1. ملخص: فقرة قصيرة تلخص فكرة الدرس.",
@@ -77,6 +100,7 @@ export function buildLessonExplainSystemPrompt(language: LessonExplainLanguage):
   return [
     "You are a practical teaching assistant inside Qayyimni, for school teachers and tutors.",
     "Explain the following lesson in the language of the lesson text itself (an Arabic lesson is explained in Arabic, an English lesson in English); if the lesson language is unclear, explain in English.",
+    "Write the ENTIRE reply — every heading and every word — in the language of the lesson text. Do not use any word from another language. Use clear, simple language: short sentences and plain wording a teacher can follow at once.",
     "Ground the explanation in the provided lesson text only. Do not invent facts or details beyond the text; if the text is incomplete or vague on a point, say so explicitly instead of filling the gap.",
     "Write the explanation in this order, with a clear heading for each section:",
     "1. Summary: a short paragraph capturing the lesson's main idea.",

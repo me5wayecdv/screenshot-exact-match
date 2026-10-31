@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildLessonExplainSystemPrompt,
   buildLessonExplainUserPrompt,
+  detectLessonLanguage,
   validateLessonExplainInput,
 } from "@/lib/lesson-explain";
 
@@ -58,6 +59,10 @@ export const explainLesson = createServerFn({ method: "POST" })
     const input = validateLessonExplainInput(data);
     if (!input) return { ok: false, code: "INVALID_INPUT" };
 
+    // The lesson's script decides the explanation language; the caller's
+    // UI language is only the fallback for script-neutral text.
+    const language = detectLessonLanguage(input.sourceText, input.language);
+
     const auth = context as unknown as ExplainContext;
     if (!(await authorizeTeacher(auth))) return { ok: false, code: "UNAUTHORIZED" };
 
@@ -78,10 +83,10 @@ export const explainLesson = createServerFn({ method: "POST" })
           temperature: 0.35,
           max_tokens: AI_MAX_TOKENS,
           messages: [
-            { role: "system", content: buildLessonExplainSystemPrompt(input.language) },
+            { role: "system", content: buildLessonExplainSystemPrompt(language) },
             {
               role: "user",
-              content: buildLessonExplainUserPrompt(input.language, input.sourceText),
+              content: buildLessonExplainUserPrompt(language, input.sourceText),
             },
           ],
         }),
