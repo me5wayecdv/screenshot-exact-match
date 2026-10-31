@@ -526,7 +526,7 @@ const dict = {
     hwVisionUnsupported:
       "النموذج الحالي لا يدعم قراءة الصور — اضبط AI_VISION_MODEL على نموذج يدعم الصور (Vision).",
     hwOcrFailed: "تعذّر استخراج النص — حاول مجدداً أو اكتب النص يدوياً.",
-    hwNeedImage: "ارفع صورة ورقة الإجابة أولاً.",
+    hwNeedImage: "ارفع صورة أو PDF أو Word لورقة الإجابة.",
     hwNeedText: "أدخل نص السؤال ونص الإجابة قبل اقتراح الدرجة أو الحفظ.",
     hwNeedSuggestion: "اطلب اقتراح الدرجة أولاً — الدرجة النهائية يحددها الذكاء الاصطناعي.",
     hwAiFinalNote:
@@ -753,8 +753,9 @@ const dict = {
     integrityReportHeading: "إشارات المراجعة لكل تسليم",
     // USP slice 4 — WhatsApp parent reports
     parentPhone: "رقم هاتف ولي الأمر",
-    parentPhoneHint: "بالصيغة الدولية: يبدأ بـ + ثم كود الدولة، مثل +20…",
-    parentPhoneInvalid: "رقم غير صحيح. استخدم الصيغة الدولية: + ثم كود الدولة ثم الرقم.",
+    parentPhoneHint: "رقم مصري: يبدأ بـ 010 أو 011 أو 012 أو 015، أو بالصيغة الدولية +20…",
+    parentPhoneInvalid: "رقم غير صحيح. لازم رقم موبايل مصري يبدأ بـ 010 أو 011 أو 012 أو 015.",
+    parentPhoneRequired: "رقم ولي الأمر مطلوب.",
     whatsappConsent: "أوافق على إرسال نتيجة الطالب لولي الأمر عبر واتساب",
     whatsappConsentHint: "لن تُرسل أي نتيجة بدون هذا الإذن، حتى لو كان الرقم مسجّلًا.",
     whatsappSendToParent: "إرسال النتيجة لولي الأمر",
@@ -1308,7 +1309,7 @@ const dict = {
     hwVisionUnsupported:
       "The current model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
     hwOcrFailed: "Could not extract the text — try again or type the text manually.",
-    hwNeedImage: "Upload an answer paper photo first.",
+    hwNeedImage: "Upload an answer paper image, PDF or Word file.",
     hwNeedText: "Enter the question text and the answer text before suggesting a grade or saving.",
     hwNeedSuggestion: "Request a grade suggestion first — the AI sets the final grade.",
     hwAiFinalNote:
@@ -1537,9 +1538,10 @@ const dict = {
     integrityReportHeading: "Review signals per submission",
     // USP slice 4 — WhatsApp parent reports
     parentPhone: "Parent phone number",
-    parentPhoneHint: "International format: starts with + and the country code, e.g. +20…",
+    parentPhoneHint: "Egyptian number: starts with 010, 011, 012 or 015, or international +20…",
     parentPhoneInvalid:
-      "Invalid number. Use international format: + followed by the country code and number.",
+      "Invalid number. It must be an Egyptian mobile starting with 010, 011, 012 or 015.",
+    parentPhoneRequired: "Parent phone number is required.",
     whatsappConsent: "I agree to send the student's result to the parent via WhatsApp",
     whatsappConsentHint: "No result is sent without this consent, even if a number is saved.",
     whatsappSendToParent: "Send result to parent",
@@ -1607,6 +1609,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     en: "All questions must be graded before release.",
   },
   already_released: { ar: "تم نشر النتيجة بالفعل.", en: "Result already released." },
+  parent_phone_required: {
+    ar: "سجّل رقم هاتف ولي الأمر أولاً من لوحة التحكم قبل بدء الامتحان.",
+    en: "Add a parent phone number from your dashboard before starting the exam.",
+  },
 };
 
 export function translateError(err: unknown, lang: Lang): string {
@@ -1666,4 +1672,4 @@ export function formatDate(d: string | null | undefined, lang: Lang) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(d));
-}
+      }
