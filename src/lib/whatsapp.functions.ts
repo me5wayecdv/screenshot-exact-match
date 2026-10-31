@@ -32,7 +32,7 @@
  */
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { isValidE164, type WhatsAppSendResult } from "./whatsapp";
+import { isValidEgyptianMobile, type WhatsAppSendResult } from "./whatsapp";
 
 type AuthedContext = {
   supabase: import("@supabase/supabase-js").SupabaseClient;
@@ -137,7 +137,7 @@ export const sendWhatsAppReport = createServerFn({ method: "POST" })
     const consent = (profile?.whatsapp_consent ?? false) as boolean;
     if (!phone) return { ok: true, status: "skipped", reason: "no_contact" };
     if (!consent) return { ok: true, status: "skipped", reason: "no_consent" };
-    if (!isValidE164(phone)) {
+    if (!isValidEgyptianMobile(phone)) {
       const auditSaved = await writeAudit(ctx, {
         submission_id: submissionId,
         status: "failed",
