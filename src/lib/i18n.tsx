@@ -724,6 +724,11 @@ const dict = {
     genVisionUnsupported:
       "النموذج المضبوط لا يقرأ الصور — اضبط AI_VISION_MODEL على نموذج يدعم الصور.",
     genOcrFailed: "تعذّر استخراج النص من الصورة.",
+    genVisionBusy: "خدمة قراءة الصور مشغولة مؤقتاً. لم يُستخرج النص بعد؛ أعد المحاولة بعد قليل.",
+    genVisionUpstream: "تعذّر الاتصال بخدمة قراءة الصور. حاول مرة أخرى بعد قليل.",
+    genVisionTimeout: "استغرق استخراج النص وقتاً أطول من المتوقع. أعد المحاولة.",
+    genVisionRateLimit: "وصلنا إلى الحد المؤقت لطلبات استخراج الصور. انتظر قليلاً ثم أعد المحاولة.",
+    genOcrRetry: "إعادة المحاولة",
     genTooLong: "نص المصدر أطول من 30,000 حرف — اختصره قبل التوليد.",
     // Question bank (builder)
     bankTitle: "بنك الأسئلة",
@@ -1513,6 +1518,11 @@ const dict = {
     genVisionUnsupported:
       "The configured model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
     genOcrFailed: "Could not extract text from the photo.",
+    genVisionBusy: "Photo reading is temporarily busy. The text was not extracted; please try again shortly.",
+    genVisionUpstream: "Could not reach the photo-reading service. Please try again shortly.",
+    genVisionTimeout: "Text extraction took longer than expected. Please try again.",
+    genVisionRateLimit: "The temporary photo-extraction limit was reached. Wait a little, then try again.",
+    genOcrRetry: "Retry extraction",
     genTooLong: "Source text is longer than 30,000 characters — shorten it before generating.",
     // Question bank (builder)
     bankTitle: "Question bank",
