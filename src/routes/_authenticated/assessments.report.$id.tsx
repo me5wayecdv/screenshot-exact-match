@@ -12,8 +12,8 @@ import { gradesToCsv, questionsToCsv } from "@/lib/lms-export";
 import { latestSubmittedPerStudent } from "@/lib/exam-attempt";
 
 /**
- * Per-assessment report — school-teacher only (legacy 'teacher' rows are
- * converted to 'school_teacher' by the segmentation migration).
+ * Per-assessment report — available to teachers and tutors; RLS limits
+ * assessment and result reads to the assessment owner.
  *
  * Stats use only assessments / assessment_assignments / submissions.
  * The per-question breakdown (<AssessmentReportQuestions />) reads the
@@ -57,11 +57,10 @@ function AssessmentReportPage() {
   const { t, lang } = useI18n();
   const { data: me, isLoading: meLoading } = useMe();
 
-  // `useMe` on main HEAD types role as "teacher" | "student" only.
-  // "school_teacher" arrives with the segmentation slice (which also
-  // extends the role type); the cast keeps this file compiling until then.
+  // Legacy `teacher` rows map to `school_teacher` in useMe; include tutors
+  // because they own assessments and have the same owner-scoped result access.
   const role = me?.role as string | undefined;
-  const isTeacher = role === "teacher" || role === "school_teacher";
+  const isTeacher = role === "teacher" || role === "school_teacher" || role === "tutor";
 
   const assessmentQuery = useQuery({
     queryKey: ["assessment-report", id],

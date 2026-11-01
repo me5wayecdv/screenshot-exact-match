@@ -7,18 +7,15 @@
 -- EXECUTE grant. In particular, auth.uid() is NULL for anon, so checks using
 -- `some_user_id <> auth.uid()` are not safe by themselves.
 revoke all on function public.has_role(uuid, public.app_role), public.is_teacher_of(uuid, uuid),
-  public.owns_assessment(uuid), public.assigned_published(uuid), public.is_school_member(uuid),
-  public.is_school_teacher(uuid), public.is_lesson_member(uuid), public.same_school(uuid),
-  public.join_school(text), public.enroll_lesson(text), public.my_students(),
+  public.owns_assessment(uuid), public.assigned_published(uuid),
+  public.is_lesson_member(uuid), public.enroll_lesson(text), public.my_students(),
   public.handle_new_user(), public.log_handwritten_grade() from public, anon;
 grant execute on function public.has_role(uuid, public.app_role), public.is_teacher_of(uuid, uuid),
-  public.owns_assessment(uuid), public.assigned_published(uuid), public.is_school_member(uuid),
-  public.is_school_teacher(uuid), public.is_lesson_member(uuid), public.same_school(uuid),
-  public.join_school(text), public.enroll_lesson(text), public.my_students() to authenticated;
+  public.owns_assessment(uuid), public.assigned_published(uuid),
+  public.is_lesson_member(uuid), public.enroll_lesson(text), public.my_students() to authenticated;
 grant execute on function public.has_role(uuid, public.app_role), public.is_teacher_of(uuid, uuid),
-  public.owns_assessment(uuid), public.assigned_published(uuid), public.is_school_member(uuid),
-  public.is_school_teacher(uuid), public.is_lesson_member(uuid), public.same_school(uuid),
-  public.join_school(text), public.enroll_lesson(text), public.my_students() to service_role;
+  public.owns_assessment(uuid), public.assigned_published(uuid),
+  public.is_lesson_member(uuid), public.enroll_lesson(text), public.my_students() to service_role;
 
 -- Prevent direct role enumeration through the helper used by RLS policies.
 create or replace function public.has_role(_user_id uuid, _role public.app_role)
@@ -101,6 +98,88 @@ begin
   update public.submissions set status = 'awaiting_review', submitted_at = now() where id = _submission;
   return true;
 end $$;
+
+-- Grade and release through audited owner-scoped RPCs, not direct client
+-- updates. Serialize answer reviews on the parent submission so the final
+-- answer reliably moves it to 'approved' before release.
+create or replace function public.review_answer(
+  _answer uuid, _score numeric, _feedback text, _decision text
+)
+returns void language plpgsql security definer set search_path = public as $$
+declare an public.answers%rowtype; s public.submissions%rowtype; v_submission uuid;
+begin
+  if auth.uid() is null then raise exception 'not_found'; end if;
+  select submission_id into v_submission from public.answers where id = _answer;
+  if v_submission is null then raise exception 'not_found'; end if;
+  select * into s from public.submissions where id = v_submission for update;
+  select * into an from public.answers where id = _answer for update;
+  if s.id is null or an.id is null or an.submission_id <> s.id
+    or not public.owns_assessment(s.assessment_id) then raise exception 'not_found'; end if;
+  if s.status not in ('awaiting_review', 'approved') then raise exception 'not_ready_for_review'; end if;
+  if _decision is null or _decision not in ('approve', 'reject') then raise exception 'invalid_decision'; end if;
+  if length(coalesce(_feedback, '')) > 5000 then raise exception 'feedback_too_long'; end if;
+  if _decision = 'approve' and (_score is null or _score < 0 or _score > an.max_marks) then
+    raise exception 'score_out_of_range';
+  end if;
+
+  update public.answers set
+    final_score = case when _decision = 'approve' then _score else null end,
+    feedback = coalesce(_feedback, ''),
+    review_status = case when _decision = 'approve'
+      then 'approved'::public.review_status else 'rejected'::public.review_status end
+  where id = _answer;
+  update public.submissions set status = case
+    when exists (select 1 from public.answers where submission_id = s.id and final_score is null)
+      then 'awaiting_review'::public.submission_status
+    else 'approved'::public.submission_status end
+  where id = s.id;
+  insert into public.audit_log(actor_id, action, entity_id, details)
+  values (auth.uid(), 'review_answer', _answer, jsonb_build_object(
+    'decision', _decision, 'score', _score, 'previous_final', an.final_score,
+    'ai_score', an.ai_suggestion->'suggested_score'
+  ));
+end $$;
+
+create or replace function public.release_submission(_sub uuid, _feedback text)
+returns void language plpgsql security definer set search_path = public as $$
+declare s public.submissions%rowtype; total numeric; possible numeric;
+begin
+  if auth.uid() is null then raise exception 'not_found'; end if;
+  select * into s from public.submissions where id = _sub for update;
+  if s.id is null or not public.owns_assessment(s.assessment_id) then raise exception 'not_found'; end if;
+  if s.status <> 'approved' then raise exception 'not_approved'; end if;
+  if length(coalesce(_feedback, '')) > 5000 then raise exception 'feedback_too_long'; end if;
+  if exists (
+    select 1 from public.questions q
+    left join public.answers an on an.question_id = q.id and an.submission_id = _sub
+    where q.assessment_id = s.assessment_id
+      and (an.id is null or an.final_score is null or an.final_score < 0 or an.final_score > q.marks)
+  ) then raise exception 'not_fully_graded'; end if;
+  select coalesce(sum(final_score), 0), coalesce(sum(max_marks), 0)
+    into total, possible from public.answers where submission_id = _sub;
+  update public.submissions set final_score = total, total_possible = possible,
+    teacher_feedback = coalesce(_feedback, ''), status = 'released', released_at = now()
+  where id = _sub;
+  insert into public.audit_log(actor_id, action, entity_id, details)
+  values (auth.uid(), 'release', _sub, jsonb_build_object('score', total));
+end $$;
+
+revoke update on public.submissions from public, anon, authenticated;
+revoke update on public.answers from public, anon, authenticated;
+grant update (auto_score) on public.answers to authenticated;
+drop policy if exists "teacher updates answers" on public.answers;
+create policy "teacher updates unreleased answer auto scores" on public.answers
+  for update to authenticated
+  using (exists (
+    select 1 from public.submissions s
+    where s.id = submission_id and s.status <> 'released'
+      and public.owns_assessment(s.assessment_id)
+  ))
+  with check (exists (
+    select 1 from public.submissions s
+    where s.id = submission_id and s.status <> 'released'
+      and public.owns_assessment(s.assessment_id)
+  ));
 
 create or replace function public.resolve_review_request(_id uuid, _response text)
 returns boolean language plpgsql security definer set search_path = public as $$
@@ -205,20 +284,6 @@ begin
   return t;
 end $$;
 
-create or replace function public.join_school(_code text)
-returns uuid language plpgsql security definer set search_path = public as $$
-declare s uuid;
-begin
-  if auth.uid() is null or not (public.has_role(auth.uid(), 'school_teacher') or public.has_role(auth.uid(), 'admin')) then
-    raise exception 'only_school_teachers';
-  end if;
-  if _code is null or length(trim(_code)) > 32 then raise exception 'invalid_code'; end if;
-  select id into s from public.schools where join_code = upper(trim(_code));
-  if s is null then raise exception 'invalid_code'; end if;
-  insert into public.school_teachers(school_id, teacher_id) values (s, auth.uid()) on conflict do nothing;
-  return s;
-end $$;
-
 create or replace function public.enroll_lesson(_code text)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare l uuid;
@@ -245,12 +310,6 @@ set join_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
 where length(join_code) < 12;
 alter table public.lessons alter column join_code
   set default upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
-update public.schools
-set join_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
-where length(join_code) < 12;
-alter table public.schools alter column join_code
-  set default upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12));
-
 -- Future signup codes follow the same high-entropy format; signup metadata
 -- cannot elevate the role, and only teachers/tutors receive a profile code.
 create or replace function public.handle_new_user()
@@ -278,29 +337,22 @@ begin
   return new;
 end $$;
 
--- Constrain all join-code values and prevent clients from choosing predictable
--- codes during lesson/school creation or changing a code later.
+-- Constrain all active join-code values and prevent clients from choosing
+-- predictable codes during lesson creation or changing a code later.
 alter table public.profiles add constraint profiles_join_code_entropy_check
   check (join_code is null or join_code ~ '^[A-F0-9]{12}$') not valid;
 alter table public.lessons add constraint lessons_join_code_entropy_check
-  check (join_code ~ '^[A-F0-9]{12}$') not valid;
-alter table public.schools add constraint schools_join_code_entropy_check
   check (join_code ~ '^[A-F0-9]{12}$') not valid;
 update public.profiles set join_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
   where join_code is not null and join_code !~ '^[A-F0-9]{12}$';
 update public.lessons set join_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
   where join_code !~ '^[A-F0-9]{12}$';
-update public.schools set join_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
-  where join_code !~ '^[A-F0-9]{12}$';
 alter table public.profiles validate constraint profiles_join_code_entropy_check;
 alter table public.lessons validate constraint lessons_join_code_entropy_check;
-alter table public.schools validate constraint schools_join_code_entropy_check;
 
 revoke insert, update on public.lessons from public, anon, authenticated;
 grant insert (tutor_id, title, description, subject_id), update (title, description, subject_id)
   on public.lessons to authenticated;
-revoke insert, update on public.schools from public, anon, authenticated;
-grant insert (name), update (name) on public.schools to authenticated;
 
 -- 3) Fix the misqualified teacher_id reference in the RLS policy; the old
 -- expression resolved to a.teacher_id = a.teacher_id (always true).
@@ -328,12 +380,10 @@ create policy "student creates review requests" on public.grade_review_requests 
   );
 
 -- 4) Stop collecting raw student answers in the future-training table until
--- a consent, minimization and retention workflow exists.
+-- a consent, minimization and retention workflow exists. Preserve existing
+-- rows: their disposition requires an explicit, separately approved action.
 drop policy if exists "ai_training_examples_insert_teacher" on public.ai_training_examples;
-revoke insert on public.ai_training_examples from public, authenticated, anon;
--- No persisted consent/retention metadata exists for the legacy dataset, so
--- remove rows that cannot be proven consented rather than silently retaining them.
-delete from public.ai_training_examples;
+revoke all on public.ai_training_examples from public, authenticated, anon;
 
 -- 5) Atomic AI quota: 30 weighted units/minute and 500/day per authenticated
 -- user. One row per user; old counters are reset in-place, so the limiter
@@ -435,8 +485,10 @@ language sql stable security definer set search_path = public as $$
   join public.assessments a on a.id = s.assessment_id
   where auth.uid() is not null
     and a.teacher_id = auth.uid()
-    and _status in ('awaiting_review', 'released')
-    and s.status::text = _status
+    and (
+      (_status = 'awaiting_review' and s.status::text in ('awaiting_review', 'approved'))
+      or (_status = 'released' and s.status::text = 'released')
+    )
   order by s.submitted_at desc, s.id desc
   offset greatest(coalesce(_offset, 0), 0)
   limit greatest(1, least(coalesce(_limit, 31), 51))
@@ -468,7 +520,8 @@ language sql stable security definer set search_path = public as $$
   from public.questions q
   join public.assessments own on own.id = q.assessment_id and own.teacher_id = auth.uid()
   left join public.answers a on a.question_id = q.id
-  left join public.submissions s on s.id = a.submission_id and s.assessment_id = q.assessment_id
+  left join public.submissions s on s.id = a.submission_id
+    and s.assessment_id = q.assessment_id and s.status = 'released'
   where q.assessment_id = _assessment and auth.uid() is not null
   group by q.id
 $$;

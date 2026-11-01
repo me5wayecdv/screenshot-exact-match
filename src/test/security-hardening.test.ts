@@ -17,6 +17,17 @@ const scaleMigration = readFileSync(
   ),
   "utf8",
 );
+const removeSchoolsMigration = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../supabase/migrations/20261028020000_remove_schools.sql",
+  ),
+  "utf8",
+);
+const gradingRoute = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), "../routes/_authenticated/grading.tsx"),
+  "utf8",
+);
 
 describe("production security hardening migration", () => {
   it("never grants admin from user-controlled signup metadata", () => {
@@ -56,8 +67,42 @@ describe("production security hardening migration", () => {
     expect(scaleMigration).toMatch(
       /minute_units \+ _units > 30 or v_row\.day_units \+ _units > 500/i,
     );
-    expect(scaleMigration).toMatch(/revoke insert on public\.ai_training_examples/i);
-    expect(scaleMigration).toMatch(/delete from public\.ai_training_examples/i);
+    expect(scaleMigration).toMatch(/revoke all on public\.ai_training_examples/i);
+    expect(scaleMigration).not.toMatch(/delete\s+from public\.ai_training_examples/i);
+  });
+
+  it("routes final grading and release through audited RPCs", () => {
+    expect(scaleMigration).toMatch(/create or replace function public\.review_answer/i);
+    expect(scaleMigration).toMatch(/create or replace function public\.release_submission/i);
+    expect(scaleMigration).toMatch(
+      /revoke update on public\.submissions from public, anon, authenticated/i,
+    );
+    expect(scaleMigration).toMatch(
+      /revoke update on public\.answers from public, anon, authenticated/i,
+    );
+    expect(scaleMigration).toMatch(
+      /grant update \(auto_score\) on public\.answers to authenticated/i,
+    );
+    expect(scaleMigration).toMatch(
+      /teacher updates unreleased answer auto scores[\s\S]*?s\.status <> 'released'/i,
+    );
+    expect(gradingRoute).toMatch(/selected\.status === "released"/);
+    expect(scaleMigration).toMatch(/s\.status::text in \('awaiting_review', 'approved'\)/i);
+    expect(gradingRoute).toMatch(/supabase\.rpc\("review_answer"/);
+    expect(gradingRoute).toMatch(/supabase\.rpc\("release_submission"/);
+  });
+
+  it("limits question-performance analytics to released attempts", () => {
+    expect(scaleMigration).toMatch(
+      /create or replace function public\.teacher_analytics_question_stats[\s\S]*?left join public\.submissions s on s\.id = a\.submission_id[\s\S]*?s\.status = 'released'/i,
+    );
+  });
+
+  it("does not reference school objects removed by an earlier migration", () => {
+    expect(removeSchoolsMigration).toMatch(/drop table if exists public\.schools/i);
+    expect(scaleMigration).not.toMatch(
+      /public\.(?:schools|school_teachers|classes|class_members)|public\.(?:is_school_member|is_school_teacher|same_school|join_school)\s*\(/i,
+    );
   });
 
   it("keeps join codes private and enforces high-entropy code formats", () => {

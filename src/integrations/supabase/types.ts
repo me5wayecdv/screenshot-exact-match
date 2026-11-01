@@ -92,6 +92,7 @@ export type Database = {
         Row: {
           created_at: string;
           auto_whatsapp_send: boolean;
+          audience_mode: "auto_all" | "explicit";
           due_at: string | null;
           duration_minutes: number | null;
           starts_at: string | null;
@@ -107,6 +108,7 @@ export type Database = {
         };
         Insert: {
           auto_whatsapp_send?: boolean;
+          audience_mode?: "auto_all" | "explicit";
           created_at?: string;
           due_at?: string | null;
           duration_minutes?: number | null;
@@ -123,6 +125,7 @@ export type Database = {
         };
         Update: {
           auto_whatsapp_send?: boolean;
+          audience_mode?: "auto_all" | "explicit";
           created_at?: string;
           due_at?: string | null;
           duration_minutes?: number | null;
@@ -173,66 +176,6 @@ export type Database = {
           id?: never;
         };
         Relationships: [];
-      };
-      // Hand-added for the segmentation migration (supabase/migrations/20261026130000_segmentation.sql).
-      // Regenerate with `supabase gen types` to confirm.
-      class_members: {
-        Row: {
-          class_id: string;
-          joined_at: string;
-          student_id: string;
-        };
-        Insert: {
-          class_id: string;
-          joined_at?: string;
-          student_id: string;
-        };
-        Update: {
-          class_id?: string;
-          joined_at?: string;
-          student_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "class_members_class_id_fkey";
-            columns: ["class_id"];
-            isOneToOne: false;
-            referencedRelation: "classes";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      classes: {
-        Row: {
-          created_at: string;
-          id: string;
-          name: string;
-          school_id: string;
-          teacher_id: string;
-        };
-        Insert: {
-          created_at?: string;
-          id?: string;
-          name: string;
-          school_id: string;
-          teacher_id?: string;
-        };
-        Update: {
-          created_at?: string;
-          id?: string;
-          name?: string;
-          school_id?: string;
-          teacher_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "classes_school_id_fkey";
-            columns: ["school_id"];
-            isOneToOne: false;
-            referencedRelation: "schools";
-            referencedColumns: ["id"];
-          },
-        ];
       };
       profiles: {
         Row: {
@@ -457,56 +400,6 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
-      };
-      school_teachers: {
-        Row: {
-          joined_at: string;
-          school_id: string;
-          teacher_id: string;
-        };
-        Insert: {
-          joined_at?: string;
-          school_id: string;
-          teacher_id: string;
-        };
-        Update: {
-          joined_at?: string;
-          school_id?: string;
-          teacher_id?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "school_teachers_school_id_fkey";
-            columns: ["school_id"];
-            isOneToOne: false;
-            referencedRelation: "schools";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      schools: {
-        Row: {
-          created_at: string;
-          created_by: string;
-          id: string;
-          join_code: string;
-          name: string;
-        };
-        Insert: {
-          created_at?: string;
-          created_by?: string;
-          id?: string;
-          join_code?: string;
-          name: string;
-        };
-        Update: {
-          created_at?: string;
-          created_by?: string;
-          id?: string;
-          join_code?: string;
-          name?: string;
-        };
-        Relationships: [];
       };
       subjects: {
         Row: {
@@ -863,7 +756,6 @@ export type Database = {
         Args: { _student: string; _teacher: string };
         Returns: boolean;
       };
-      join_school: { Args: { _code: string }; Returns: string };
       join_teacher: { Args: { _code: string }; Returns: string };
       my_students: {
         Args: never;
@@ -888,7 +780,7 @@ export type Database = {
           _answer: string;
           _decision: string;
           _feedback: string;
-          _score: number;
+          _score: number | null;
         };
         Returns: undefined;
       };
@@ -983,14 +875,6 @@ export type Database = {
         }
         Returns: boolean
       }
-    }
-        Args: { _a: string; _answers: Json };
-        Returns: string;
-      };
-      start_attempt: { Args: { _assessment: string; _question_order: Json }; Returns: string };
-      save_draft: { Args: { _answers: Json; _submission: string }; Returns: boolean };
-      submit_attempt: { Args: { _submission: string }; Returns: boolean };
-      resolve_review_request: { Args: { _id: string; _response: string }; Returns: boolean };
     };
     Enums: {
       app_role: "teacher" | "student" | "school_teacher" | "tutor" | "admin";
@@ -1119,7 +1003,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["teacher", "student"],
+      app_role: ["teacher", "student", "school_teacher", "tutor", "admin"],
       assessment_status: ["draft", "published", "closed", "archived"],
       question_type: ["mcq", "true_false", "short_answer", "written"],
       review_status: ["not_graded", "auto_graded", "ai_suggested", "approved", "rejected"],

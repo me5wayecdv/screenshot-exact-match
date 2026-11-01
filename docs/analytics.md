@@ -1,7 +1,11 @@
 # Analytics (Phase 4)
 
-The `/analytics` page (teachers only: school teachers and tutors) reads
-existing tables only. No migration was needed for this phase.
+The `/analytics` page is available to teachers and tutors. Its bounded
+aggregates use the owner-scoped analytics RPCs introduced by
+`20261031120000_backend_security_and_scale.sql`; this source change has not
+been applied to a live database. Per-question performance counts only
+released attempts, while assessment, student, and lesson-group summary values
+aggregate released submissions (multiple attempts may count more than once).
 
 ## Definitions (shared with the report page)
 
@@ -32,9 +36,9 @@ existing tables only. No migration was needed for this phase.
   text (empty objectives group under "no objective"), with the top-3
   strengths and bottom-3 weaknesses.
 - **Students**: released average per student (alphabetical).
-- **Groups**: for the selected assessment, average per class (school
-  teachers) or per lesson (tutors), from class memberships /
-  lesson enrollments.
+- **Groups**: for the selected assessment, average per tutor lesson, from
+  lesson enrollments. School/class grouping is not part of the current
+  product schema.
 - **Reteach + practice**: objectives below 50% are listed as reteach
   topics. "Create practice" builds a NEW unpublished draft assessment
   from the 5 most-missed questions (copies of the questions + keys,

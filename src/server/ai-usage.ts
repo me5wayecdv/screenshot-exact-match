@@ -1,7 +1,9 @@
 /**
- * AI usage measurement (pilot cost tracking — NOT enforcement).
+ * AI usage controls and measurement.
  *
- * Every AI call site logs one row into public.ai_usage_events with the
+ * Billable call sites reserve weighted quota atomically through
+ * consume_ai_rate_quota before contacting a provider. Calls also log one
+ * row into public.ai_usage_events with the
  * acting user's id, the kind of call, the provider/model actually used,
  * and the token counts the provider reported (NULL when the provider
  * reports none, e.g. Cloudflare native run responses). Nothing in the
