@@ -108,3 +108,45 @@ describe("parseGeneratedDraft title tolerance", () => {
     expect(draft.questions).toHaveLength(1);
   });
 });
+describe("extractJsonObject rescue passes", () => {
+  it("rescues literal control characters inside strings (pdfjs form feeds)", () => {
+    // The model echoes PDF-extracted source text with raw control bytes
+    // (form feed, literal newline) inside string values: invalid JSON.
+    const raw =
+      '{"title":"اختبار","questions":[{"type":"mcq","prompt":"ما الملخص؟","options":["أ","ب","ج","د"],"correct_answer":"أ","marks":1,"explanation":"سطر أول' +
+      String.fromCharCode(0x0c) +
+      "سطر\nثانٍ" +
+      '"}]}';
+    const draft = parseGeneratedDraft(extractJsonObject(raw), 5);
+    expect(draft.questions).toHaveLength(1);
+    expect(draft.questions[0]?.explanation).toContain("سطر");
+  });
+
+  it("rejects invalid backslash escapes instead of guessing the value", () => {
+    // "C:\dir" is not a valid JSON escape, and the model's intended value
+    // is ambiguous (path vs. mistyped escape). The reply must fail cleanly
+    // rather than accept a repaired answer key we cannot prove lossless.
+    const raw =
+      '{"questions":[{"type":"mcq","prompt":"أين الملف؟","options":["C:\\dir","D:\\data"],"correct_answer":"C:\\dir","marks":1}]}';
+    expect(() => extractJsonObject(raw)).toThrow("AI_PARSE_FAILED");
+  });
+
+  it("drops trailing commas outside strings", () => {
+    const raw =
+      '{"title":"t","questions":[{"type":"true_false","prompt":"صح؟","correct_answer":"true","marks":1,},],}';
+    const draft = parseGeneratedDraft(extractJsonObject(raw), 5);
+    expect(draft.questions).toHaveLength(1);
+  });
+
+  it("keeps rejecting genuinely unparseable replies, with position only", () => {
+    expect(() => extractJsonObject("no json here at all")).toThrow("AI_PARSE_FAILED");
+    try {
+      extractJsonObject('{"title":"عنوان خاص","questions": `broken');
+      expect.unreachable();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      // Position is best-effort (runtime-dependent); content never leaks.
+      expect(msg).not.toContain("عنوان");
+    }
+  });
+});
