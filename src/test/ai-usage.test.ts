@@ -5,6 +5,7 @@ import { runGeminiQuery } from "@/server/handwritten";
 import {
   extractGeminiUsage,
   extractOpenAiUsage,
+  consumeAiRateQuota,
   logAiUsage,
   openAiProvider,
 } from "@/server/ai-usage";

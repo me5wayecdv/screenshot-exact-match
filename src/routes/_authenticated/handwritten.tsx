@@ -16,11 +16,7 @@ import { matchPaperPages } from "@/server/paper-matching";
 import { countUncertainSpans, parseUncertainSpans } from "@/lib/uncertain-text";
 import { groupSimilarAnswers } from "@/lib/similar-answers";
 import { matchProgress, nextUngradedMatch, pendingMatchItems } from "@/lib/paper-match";
-import {
-  logAiTrainingExample,
-  suggestGrade,
-  type AiGradeSuggestion as ServerSuggestion,
-} from "@/server/ai-grade";
+import { suggestGrade, type AiGradeSuggestion as ServerSuggestion } from "@/server/ai-grade";
 
 // Route file convention (same as assessments.generate.tsx): this file
 // maps to /handwritten. routeTree.gen.ts is auto-generated — do not edit
@@ -753,29 +749,6 @@ function Handwritten() {
       };
       const { error } = await supabase.from("handwritten_grades").insert(row);
       if (error) throw error;
-      // Best-effort anonymized training log: every saved AI grade is
-      // logged with suggestion == final (by design). The student name
-      // is deliberately NOT sent.
-      if (suggestion) {
-        try {
-          await logAiTrainingExample({
-            data: {
-              questionPrompt: questionPrompt.trim(),
-              rubric,
-              studentAnswer: correctedText.trim(),
-              aiSuggestedScore: suggestion.suggestedScore,
-              aiFeedback: suggestion.feedback,
-              teacherFinalScore: suggestion.suggestedScore,
-              teacherFeedback: teacherFeedback.trim(),
-              maxMarks,
-              assessmentId: assessmentId || undefined,
-              accessToken,
-            },
-          });
-        } catch {
-          // Ignored by design: logging must never block grading.
-        }
-      }
       toast.success(t("hwSaved"));
       setImageDataUrl("");
       setImageName("");

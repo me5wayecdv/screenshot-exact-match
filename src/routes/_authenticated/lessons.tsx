@@ -8,6 +8,7 @@ import { useI18n, translateError } from "@/lib/i18n";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DataPager } from "@/components/data-pager";
 
 export const Route = createFileRoute("/_authenticated/lessons")({
   head: () => ({ meta: [{ title: "Lessons · Qayyimni" }] }),
@@ -21,20 +22,37 @@ function Lessons() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [subjectId, setSubjectId] = useState("");
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
 
   const { data } = useQuery({
-    queryKey: ["tutor-lessons"],
+    queryKey: ["tutor-lessons", page],
     enabled: !!me,
     queryFn: async () => {
-      const [l, s, e] = await Promise.all([
+      const [l, s] = await Promise.all([
         supabase
           .from("lessons")
           .select("id, title, description, subject_id, join_code, created_at")
-          .order("created_at", { ascending: false }),
-        supabase.from("subjects").select("id, name").order("name"),
-        supabase.from("lesson_enrollments").select("lesson_id, student_id"),
+          .order("created_at", { ascending: false })
+          .range(page * pageSize, page * pageSize + pageSize),
+        supabase.from("subjects").select("id, name").order("name").limit(200),
       ]);
-      return { lessons: l.data ?? [], subjects: s.data ?? [], enrollments: e.data ?? [] };
+      if (l.error) throw l.error;
+      if (s.error) throw s.error;
+      const lessonRows = l.data ?? [];
+      const lessons = lessonRows.slice(0, pageSize);
+      const { data: counts, error: countError } = lessons.length
+        ? await supabase.rpc("tutor_lesson_enrollment_counts", {
+            _lesson_ids: lessons.map((lesson) => lesson.id),
+          })
+        : { data: [], error: null };
+      if (countError) throw countError;
+      return {
+        lessons,
+        subjects: s.data ?? [],
+        enrollments: counts ?? [],
+        hasNext: lessonRows.length > pageSize,
+      };
     },
   });
 
@@ -125,12 +143,21 @@ function Lessons() {
               ) : null}
               <p className="mt-2 text-sm text-muted-foreground">
                 {t("joinCodeLabel")}: <span dir="ltr">{l.join_code}</span> · {t("summaryStudents")}:{" "}
-                {(data?.enrollments ?? []).filter((x) => x.lesson_id === l.id).length}
+                {data?.enrollments.find((x) => x.lesson_id === l.id)?.student_count ?? 0}
               </p>
             </Panel>
           ))}
         </div>
       )}
+      {data && (page > 0 || data.hasNext) ? (
+        <DataPager
+          page={page}
+          hasPrevious={page > 0}
+          hasNext={data.hasNext}
+          onPrevious={() => setPage((current) => Math.max(0, current - 1))}
+          onNext={() => setPage((current) => current + 1)}
+        />
+      ) : null}
     </>
   );
 }

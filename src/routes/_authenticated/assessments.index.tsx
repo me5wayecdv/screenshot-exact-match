@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
+import { DataPager } from "@/components/data-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -24,15 +25,20 @@ function AssessmentsList() {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
   const { data } = useQuery({
-    queryKey: ["assessments"],
-    queryFn: async () =>
-      (
-        await supabase
-          .from("assessments")
-          .select("id, title, status, due_at, created_at, subjects(name)")
-          .order("created_at", { ascending: false })
-      ).data ?? [],
+    queryKey: ["assessments", page],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("assessments")
+        .select("id, title, status, due_at, created_at, subjects(name)")
+        .order("created_at", { ascending: false })
+        .range(page * pageSize, page * pageSize + pageSize);
+      if (error) throw error;
+      const rows = data ?? [];
+      return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
+    },
   });
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -72,11 +78,11 @@ function AssessmentsList() {
           <Button disabled={busy || !title.trim()}>{t("create")}</Button>
         </form>
       </Panel>
-      {data && data.length === 0 ? (
+      {data && data.rows.length === 0 && page === 0 ? (
         <Empty>{t("noAssessments")}</Empty>
       ) : (
         <div className="divide-y rounded-lg border bg-card">
-          {data?.map((a) => (
+          {data?.rows.map((a) => (
             <div
               key={a.id}
               className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-muted"
@@ -102,6 +108,15 @@ function AssessmentsList() {
           ))}
         </div>
       )}
+      {data && (page > 0 || data.hasNext) ? (
+        <DataPager
+          page={page}
+          hasPrevious={page > 0}
+          hasNext={data.hasNext}
+          onPrevious={() => setPage((current) => Math.max(0, current - 1))}
+          onNext={() => setPage((current) => current + 1)}
+        />
+      ) : null}
     </>
   );
 }

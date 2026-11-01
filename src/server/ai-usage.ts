@@ -100,11 +100,20 @@ export function createUsageClient(
 }
 
 /**
- * Insert one usage row. Never throws: any failure (missing env, network,
- * RLS rejection) is swallowed, and the caller's AI result is unaffected.
- * No retry — a failed measurement stays failed rather than delaying the
- * response or double-counting on a later retry.
+ * Atomically reserve weighted quota before a billable provider request.
+ * Fail closed when the RPC is unavailable; the upstream AI must not run.
  */
+export async function consumeAiRateQuota(client: SupabaseClient, units = 1): Promise<boolean> {
+  try {
+    if (!Number.isInteger(units) || units < 1 || units > 20) return false;
+    const { data, error } = await client.rpc("consume_ai_rate_quota", { _units: units });
+    return !error && data === true;
+  } catch {
+    // Fail closed: never call a billable provider when quota enforcement is unavailable.
+    return false;
+  }
+}
+
 export async function logAiUsage(
   client: SupabaseClient,
   teacherId: string,

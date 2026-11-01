@@ -51,6 +51,7 @@ import {
 } from "./handwritten";
 import { resolveAiConfig } from "./ai-config";
 import {
+  consumeAiRateQuota,
   createUsageClient,
   extractOpenAiUsage,
   logAiUsage,
@@ -627,12 +628,22 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       };
     }
     const textConfig = resolveAiConfig();
-    const questions = await loadQuestions(accessToken, assessmentId);
-
-    // Pilot cost measurement (best-effort, never fails the batch):
-    // one row per page vision call, attributed to the teacher.
     const env = serverSupabaseEnv();
-    const usageClient = env ? createUsageClient(env.url, env.anonKey, accessToken) : null;
+    if (!env)
+      return {
+        ok: false,
+        code: "VISION_NOT_CONFIGURED",
+        message: "Server Supabase is not configured.",
+      };
+    const usageClient = createUsageClient(env.url, env.anonKey, accessToken);
+    if (!(await consumeAiRateQuota(usageClient, pages.length * 2))) {
+      return {
+        ok: false,
+        code: "VISION_RATE_LIMIT",
+        message: "AI usage limit reached. Try again later.",
+      };
+    }
+    const questions = await loadQuestions(accessToken, assessmentId);
 
     const out: MatchedPage[] = [];
     for (let i = 0; i < pages.length; i++) {
@@ -646,14 +657,12 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       if (!visionRes.ok) {
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
       }
-      if (usageClient) {
-        await logAiUsage(usageClient, auth.userId, {
-          kind: "match",
-          provider: visionRes.provider,
-          model: visionRes.model,
-          usage: visionRes.usage,
-        });
-      }
+      await logAiUsage(usageClient, auth.userId, {
+        kind: "match",
+        provider: visionRes.provider,
+        model: visionRes.model,
+        usage: visionRes.usage,
+      });
       const numberIdx =
         visionRes.questionNumber !== null
           ? matchByNumber(visionRes.questionNumber, questions.length)

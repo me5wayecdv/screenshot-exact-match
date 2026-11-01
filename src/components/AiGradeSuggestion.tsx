@@ -32,7 +32,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getAiGradingStatus,
-  logAiTrainingExample,
   suggestGrade,
   type AiGradeSuggestion as ServerSuggestion,
 } from "@/server/ai-grade";
@@ -145,12 +144,6 @@ export function AiGradeSuggestion({
   function handleAccept(suggestion: ServerSuggestion) {
     onAccept({ score: suggestion.suggestedScore, feedback: suggestion.feedback });
     setPhase({ kind: "accepted" });
-    void logTrainingPair(
-      suggestion.suggestedScore,
-      suggestion.feedback,
-      suggestion.suggestedScore,
-      suggestion.feedback,
-    );
   }
 
   function handleApplyEdit() {
@@ -159,48 +152,6 @@ export function AiGradeSuggestion({
     if (Number.isNaN(n) || n < 0 || n > maxMarks) return;
     onAccept({ score: Math.round(n * 100) / 100, feedback: phase.feedback });
     setPhase({ kind: "accepted" });
-    void logTrainingPair(
-      phase.suggestion.suggestedScore,
-      phase.suggestion.feedback,
-      Math.round(n * 100) / 100,
-      phase.feedback,
-    );
-  }
-
-  /**
-   * Best-effort training-data logging: one anonymized row pairing the AI
-   * suggestion with the teacher's final values, for a future fine-tuning
-   * phase (see logAiTrainingExample in src/server/ai-grade.ts). Fires on
-   * Accept and on applying an Edit — never on Reject. Failures are
-   * swallowed on purpose: logging must never block grading.
-   */
-  async function logTrainingPair(
-    aiScore: number,
-    aiFeedback: string,
-    finalScore: number,
-    finalFeedback: string,
-  ) {
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token ?? "";
-      if (!accessToken) return;
-      await logAiTrainingExample({
-        data: {
-          questionPrompt,
-          rubric,
-          studentAnswer,
-          aiSuggestedScore: aiScore,
-          aiFeedback,
-          teacherFinalScore: finalScore,
-          teacherFeedback: finalFeedback,
-          maxMarks,
-          assessmentId,
-          accessToken,
-        },
-      });
-    } catch {
-      // Ignored by design.
-    }
   }
 
   if (phase.kind === "needsKey") {

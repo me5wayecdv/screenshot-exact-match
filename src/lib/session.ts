@@ -16,9 +16,10 @@ export function useMe() {
       const { data } = await supabase.auth.getUser();
       const user = data.user;
       if (!user) return null;
-      const [{ data: role }, { data: profile }] = await Promise.all([
+      const [{ data: role }, { data: profile }, { data: joinCode }] = await Promise.all([
         supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle(),
-        supabase.from("profiles").select("full_name, join_code").eq("id", user.id).maybeSingle(),
+        supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
+        supabase.rpc("my_join_code"),
       ]);
       // Defensive: pre-migration rows still carry role='teacher'; treat them as school_teacher.
       const rawRole = role?.role as string | undefined;
@@ -29,7 +30,7 @@ export function useMe() {
         email: user.email ?? "",
         role: mappedRole,
         fullName: profile?.full_name || user.email || "",
-        joinCode: profile?.join_code ?? null,
+        joinCode: joinCode ?? null,
       };
     },
     staleTime: 60_000,

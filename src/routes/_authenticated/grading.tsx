@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { sendWhatsAppReport } from "@/lib/whatsapp.functions";
 import { WhatsAppSendButton } from "@/components/whatsapp-send-button";
+import { DataPager } from "@/components/data-pager";
 
 type Q = Database["public"]["Tables"]["questions"]["Row"] & {
   question_keys: Database["public"]["Tables"]["question_keys"]["Row"] | null;
@@ -62,54 +63,57 @@ function autoFor(q: Q, answerText: string): number | null {
   return null;
 }
 
-function useGradingList(teacherId: string | undefined) {
+function useGradingList(teacherId: string | undefined, openPage: number, releasedPage: number) {
+  const openPageSize = 30;
+  const releasedPageSize = 20;
   return useQuery({
-    queryKey: ["grading-list", teacherId],
+    queryKey: ["grading-list", teacherId, openPage, releasedPage],
     enabled: !!teacherId,
     queryFn: async () => {
-      const aRes = await supabase
-        .from("assessments")
-        .select("id, title")
-        .eq("teacher_id", teacherId!);
-      if (aRes.error) throw aRes.error;
-      const assessments = aRes.data ?? [];
-      const byId = new Map(assessments.map((a) => [a.id, a.title]));
-      if (assessments.length === 0)
-        return {
-          submissions: [] as Submission[],
-          released: [] as Submission[],
-          titles: byId,
-          names: new Map<string, string>(),
-        };
-      const sRes = await supabase
-        .from("submissions")
-        .select("*")
-        .in(
-          "assessment_id",
-          assessments.map((a) => a.id),
-        )
-        .eq("status", "awaiting_review")
-        .order("submitted_at", { ascending: false });
-      if (sRes.error) throw sRes.error;
-      const submissions = (sRes.data ?? []) as Submission[];
-      const rRes = await supabase
-        .from("submissions")
-        .select("*")
-        .in(
-          "assessment_id",
-          assessments.map((a) => a.id),
-        )
-        .eq("status", "released")
-        .order("submitted_at", { ascending: false });
-      if (rRes.error) throw rRes.error;
-      const released = (rRes.data ?? []) as Submission[];
-      const studentIds = [...new Set([...submissions, ...released].map((s) => s.student_id))];
-      let names = new Map<string, string>();
-      if (studentIds.length > 0) {
-        const pRes = await supabase.from("profiles").select("id, full_name").in("id", studentIds);
-        if (!pRes.error) names = new Map((pRes.data ?? []).map((p) => [p.id, p.full_name || "—"]));
-      }
-      return { submissions, released, titles: byId, names };
+      const [openResult, releasedResult] = await Promise.all([
+        supabase.rpc("teacher_grading_page", {
+          _status: "awaiting_review",
+          _offset: openPage * openPageSize,
+          _limit: openPageSize + 1,
+        }),
+        supabase.rpc("teacher_grading_page", {
+          _status: "released",
+          _offset: releasedPage * releasedPageSize,
+          _limit: releasedPageSize + 1,
+        }),
+      ]);
+      if (openResult.error) throw openResult.error;
+      if (releasedResult.error) throw releasedResult.error;
+      const openRows = (openResult.data ?? []) as Submission[];
+      const releasedRows = (releasedResult.data ?? []) as Submission[];
+      const submissions = openRows.slice(0, openPageSize);
+      const released = releasedRows.slice(0, releasedPageSize);
+      const visibleRows = [...submissions, ...released];
+      const assessmentIds = [...new Set(visibleRows.map((row) => row.assessment_id))];
+      const studentIds = [...new Set(visibleRows.map((row) => row.student_id))];
+      const [assessmentResult, profileResult] = await Promise.all([
+        assessmentIds.length
+          ? supabase.from("assessments").select("id, title").in("id", assessmentIds)
+          : Promise.resolve({ data: [], error: null }),
+        studentIds.length
+          ? supabase.from("profiles").select("id, full_name").in("id", studentIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (assessmentResult.error) throw assessmentResult.error;
+      const titles = new Map(
+        (assessmentResult.data ?? []).map((assessment) => [assessment.id, assessment.title]),
+      );
+      const names = new Map(
+        (profileResult.data ?? []).map((profile) => [profile.id, profile.full_name || "—"]),
+      );
+      return {
+        submissions,
+        released,
+        hasMoreSubmissions: openRows.length > openPageSize,
+        hasMoreReleased: releasedRows.length > releasedPageSize,
+        titles,
+        names,
+      };
     },
   });
 }
@@ -142,8 +146,12 @@ function Grading() {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useMe();
+  const [openPage, setOpenPage] = useState(0);
+  const [releasedPage, setReleasedPage] = useState(0);
   const { data: list, isLoading: listLoading } = useGradingList(
     me?.role === "school_teacher" ? me.id : undefined,
+    openPage,
+    releasedPage,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected =
@@ -351,7 +359,22 @@ function Grading() {
               ))}
             </ul>
           )}
-          {released.length > 0 && (
+          {list && (openPage > 0 || list.hasMoreSubmissions) ? (
+            <DataPager
+              page={openPage}
+              hasPrevious={openPage > 0}
+              hasNext={list.hasMoreSubmissions}
+              onPrevious={() => {
+                setSelectedId(null);
+                setOpenPage((current) => Math.max(0, current - 1));
+              }}
+              onNext={() => {
+                setSelectedId(null);
+                setOpenPage((current) => current + 1);
+              }}
+            />
+          ) : null}
+          {(released.length > 0 || releasedPage > 0) && (
             <div className="mt-6">
               <h3 className="mb-3 font-semibold">{t("released")}</h3>
               <ul className="space-y-3">
@@ -369,6 +392,15 @@ function Grading() {
                   </li>
                 ))}
               </ul>
+              {list && (releasedPage > 0 || list.hasMoreReleased) ? (
+                <DataPager
+                  page={releasedPage}
+                  hasPrevious={releasedPage > 0}
+                  hasNext={list.hasMoreReleased}
+                  onPrevious={() => setReleasedPage((current) => Math.max(0, current - 1))}
+                  onNext={() => setReleasedPage((current) => current + 1)}
+                />
+              ) : null}
             </div>
           )}
         </Panel>

@@ -923,6 +923,68 @@ export type Database = {
       save_draft: { Args: { _answers: Json; _submission: string }; Returns: boolean }
       submit_attempt: { Args: { _submission: string }; Returns: boolean }
       resolve_review_request: { Args: { _id: string; _response: string }; Returns: boolean }
+      consume_ai_rate_quota: { Args: { _units?: number }; Returns: boolean }
+      my_join_code: { Args: never; Returns: string | null }
+      teacher_dashboard_summary: {
+        Args: never
+        Returns: {
+          active_assessment_count: number
+          pending_submission_count: number
+          student_count: number
+          released_submission_count: number
+        }[]
+      }
+      tutor_dashboard_summary: {
+        Args: never
+        Returns: { lesson_count: number; student_count: number; published_assessment_count: number }[]
+      }
+      tutor_lesson_enrollment_counts: {
+        Args: { _lesson_ids: string[] }
+        Returns: { lesson_id: string; student_count: number }[]
+      }
+      teacher_grading_page: {
+        Args: { _limit?: number; _offset?: number; _status: string }
+        Returns: Database["public"]["Tables"]["submissions"]["Row"][]
+      }
+      teacher_analytics_question_stats: {
+        Args: { _assessment: string }
+        Returns: {
+          question_id: string
+          answered: number
+          graded: number
+          avg_pct: number | null
+          full_credit_pct: number | null
+        }[]
+      }
+      teacher_analytics_student_page: {
+        Args: { _assessment: string; _limit?: number; _offset?: number }
+        Returns: {
+          student_id: string
+          full_name: string
+          released: number
+          avg_pct: number | null
+        }[]
+      }
+      teacher_analytics_group_stats: {
+        Args: { _assessment: string; _limit?: number; _offset?: number }
+        Returns: { group_id: string; name: string; students: number; avg_pct: number | null }[]
+      }
+      teacher_analytics_overview: {
+        Args: { _assessment_ids: string[] }
+        Returns: { assessment_id: string; released: number; avg_pct: number | null }[]
+      }
+      claim_whatsapp_send: { Args: { _submission: string }; Returns: boolean }
+      finish_whatsapp_send: {
+        Args: {
+          _error?: string | null
+          _message_id?: string | null
+          _retryable?: boolean
+          _status: string
+          _submission: string
+          _trigger: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "teacher" | "student" | "school_teacher" | "tutor" | "admin"
