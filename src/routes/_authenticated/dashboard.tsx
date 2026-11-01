@@ -5,6 +5,11 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMe } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
+import {
+  buildStartChecklist,
+  buildTutorStartChecklist,
+  type StartStepId,
+} from "@/lib/start-checklist";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { ParentContactForm } from "@/components/parent-contact-form";
@@ -33,6 +38,56 @@ function Dashboard() {
 }
 
 function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: string }) {
+type StartStepMeta = {
+  title: string;
+  body: string;
+  to: "/assessments" | "/students" | "/grading" | "/lessons";
+  action: string;
+};
+
+function StartChecklistCard({
+  checklist,
+  stepMeta,
+}: {
+  checklist: { steps: { id: StartStepId; done: boolean }[]; completed: number; allDone: boolean };
+  stepMeta: Partial<Record<StartStepId, StartStepMeta>>;
+}) {
+  const { t } = useI18n();
+  if (checklist.allDone) return null;
+  return (
+    <Panel className="mb-8">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold">{t("startHere")}</h2>
+        <span className="text-sm text-muted-foreground">
+          {t("startProgress", { done: String(checklist.completed) })}
+        </span>
+      </div>
+      <ol className="space-y-4">
+        {checklist.steps.map((step) => {
+          const meta = stepMeta[step.id];
+          if (!meta) return null;
+          return (
+            <li key={step.id} className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">{meta.title}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{meta.body}</p>
+              </div>
+              {step.done ? (
+                <Pill t="success">{t("startDone")}</Pill>
+              ) : (
+                <Button asChild size="sm">
+                  <Link to={meta.to}>{meta.action}</Link>
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </Panel>
+  );
+}
+
+function SchoolTeacherHome({ name }: { name: string }) {
   const { t, lang } = useI18n();
   const { data } = useQuery({
     queryKey: ["teacher-summary", teacherId],
@@ -65,6 +120,31 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
     { label: t("summaryReleased"), value: data?.releasedCount },
   ];
 
+  const checklist = buildStartChecklist({
+    assessmentsCount: data?.assessments.length ?? 0,
+    studentsCount: data?.students.length ?? 0,
+    hasReleased: (data?.submissions ?? []).some((s) => s.status === "released"),
+  });
+  const stepMeta: Partial<Record<StartStepId, StartStepMeta>> = {
+    assessment: {
+      title: t("startAssessmentTitle"),
+      body: t("startAssessmentBody"),
+      to: "/assessments",
+      action: t("startAssessmentAction"),
+    },
+    students: {
+      title: t("startStudentsTitle"),
+      body: t("startStudentsBody"),
+      to: "/students",
+      action: t("startStudentsAction"),
+    },
+    release: {
+      title: t("startReleaseTitle"),
+      body: t("startReleaseBody"),
+      to: "/grading",
+      action: t("startReleaseAction"),
+    },
+  };
   return (
     <>
       <PageHeader
@@ -80,6 +160,7 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
           </>
         }
       />
+      {data && <StartChecklistCard checklist={checklist} stepMeta={stepMeta} />}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((c) => (
           <Panel key={c.label}>
@@ -90,7 +171,14 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
       </div>
       <h2 className="mb-3 mt-10 text-lg font-semibold">{t("assessments")}</h2>
       {data && data.assessments.length === 0 ? (
-        <Empty>{t("noAssessments")}</Empty>
+        <Empty>
+          <p>{t("noAssessments")}</p>
+          <div className="mt-4">
+            <Button asChild>
+              <Link to="/assessments">{t("newAssessment")}</Link>
+            </Button>
+          </div>
+        </Empty>
       ) : (
         <div className="divide-y rounded-lg border bg-card">
           {data?.assessments.slice(0, 6).map((a) => (
@@ -148,6 +236,31 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
     { label: t("summaryStudents"), value: data?.summary?.student_count },
     { label: t("summaryActive"), value: data?.summary?.published_assessment_count },
   ];
+  const tutorChecklist = buildTutorStartChecklist({
+    lessonsCount: data?.lessons.length ?? 0,
+    studentsCount: studentCount,
+    hasPublished: (data?.assessments ?? []).some((a) => a.status === "published"),
+  });
+  const tutorStepMeta: Partial<Record<StartStepId, StartStepMeta>> = {
+    lesson: {
+      title: t("startLessonTitle"),
+      body: t("startLessonBody"),
+      to: "/lessons",
+      action: t("createLesson"),
+    },
+    students: {
+      title: t("startStudentsTitle"),
+      body: t("startStudentsBody"),
+      to: "/students",
+      action: t("startStudentsAction"),
+    },
+    published: {
+      title: t("startPublishTitle"),
+      body: t("startPublishBody"),
+      to: "/assessments",
+      action: t("newAssessment"),
+    },
+  };
   return (
     <>
       <PageHeader
@@ -163,6 +276,7 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
           </>
         }
       />
+      {data && <StartChecklistCard checklist={tutorChecklist} stepMeta={tutorStepMeta} />}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((c) => (
           <Panel key={c.label}>

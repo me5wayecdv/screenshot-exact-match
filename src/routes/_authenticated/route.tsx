@@ -34,42 +34,90 @@ function AppShell() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  // Sidebar sections for teachers (work / assistant / follow-up / account).
+  // Destinations are unchanged; only the grouping and section headers are new.
   const nav =
     me?.role === "school_teacher"
       ? [
-          { to: "/dashboard", label: t("dashboard"), icon: Home },
-          { to: "/assessments", label: t("assessments"), icon: ClipboardList },
-          { to: "/grading", label: t("grading"), icon: CheckSquare },
-          { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
-          { to: "/audit", label: t("auditHistory"), icon: History },
-          { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
-          { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
-          { to: "/students", label: t("students"), icon: Users },
-          { to: "/profile", label: t("profile"), icon: User },
+          {
+            header: t("navWork"),
+            items: [
+              { to: "/dashboard", label: t("dashboard"), icon: Home },
+              { to: "/assessments", label: t("assessments"), icon: ClipboardList },
+              { to: "/grading", label: t("grading"), icon: CheckSquare },
+            ],
+          },
+          {
+            header: t("navAssistant"),
+            items: [{ to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText }],
+          },
+          {
+            header: t("navFollow"),
+            items: [
+              { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
+              { to: "/audit", label: t("auditHistory"), icon: History },
+              { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
+            ],
+          },
+          {
+            header: t("navAccount"),
+            items: [
+              { to: "/students", label: t("students"), icon: Users },
+              { to: "/profile", label: t("profile"), icon: User },
+            ],
+          },
         ]
       : me?.role === "tutor"
         ? [
-            { to: "/dashboard", label: t("dashboard"), icon: Home },
-            { to: "/lessons", label: t("lessons"), icon: BookOpen },
-            { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
-            { to: "/audit", label: t("auditHistory"), icon: History },
-            { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
-            { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
-            { to: "/students", label: t("students"), icon: Users },
-            { to: "/profile", label: t("profile"), icon: User },
+            {
+              header: t("navWork"),
+              items: [
+                { to: "/dashboard", label: t("dashboard"), icon: Home },
+                { to: "/lessons", label: t("lessons"), icon: BookOpen },
+              ],
+            },
+            {
+              header: t("navAssistant"),
+              items: [{ to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText }],
+            },
+            {
+              header: t("navFollow"),
+              items: [
+                { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
+                { to: "/audit", label: t("auditHistory"), icon: History },
+                { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
+              ],
+            },
+            {
+              header: t("navAccount"),
+              items: [
+                { to: "/students", label: t("students"), icon: Users },
+                { to: "/profile", label: t("profile"), icon: User },
+              ],
+            },
           ]
         : me?.role === "admin"
           ? [
-              { to: "/dashboard", label: t("dashboard"), icon: Home },
-              { to: "/admin", label: t("admin"), icon: Shield },
-              { to: "/audit", label: t("auditHistory"), icon: History },
-              { to: "/profile", label: t("profile"), icon: User },
+              {
+                header: null,
+                items: [
+                  { to: "/dashboard", label: t("dashboard"), icon: Home },
+                  { to: "/admin", label: t("admin"), icon: Shield },
+                  { to: "/audit", label: t("auditHistory"), icon: History },
+                  { to: "/profile", label: t("profile"), icon: User },
+                ],
+              },
             ]
           : [
-              { to: "/dashboard", label: t("myAssessments"), icon: Home },
-              { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
-              { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
-              { to: "/profile", label: t("profile"), icon: User },
+              {
+                header: null,
+                items: [
+                  { to: "/dashboard", label: t("myAssessments"), icon: Home },
+                  { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
+                  { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
+                  { to: "/profile", label: t("profile"), icon: User },
+                ],
+              },
             ];
 
   async function signOut() {
@@ -95,16 +143,28 @@ function AppShell() {
           aria-label={t("brand")}
           className="app-nav flex gap-1 overflow-x-auto px-3 py-3 md:flex-col md:px-3 md:py-5"
         >
-          {nav.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className="app-nav-link flex min-h-10 items-center gap-3 whitespace-nowrap rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
+          {nav.map((section) => (
+            <div
+              key={section.header ?? "main"}
+              className="flex gap-1 md:mt-6 md:flex-col md:first:mt-0"
             >
-              <item.icon className="size-4 shrink-0" aria-hidden />
-              <span>{item.label}</span>
-            </Link>
+              {section.header && (
+                <p className="hidden px-3 pb-1 text-xs font-semibold text-sidebar-foreground/60 md:block">
+                  {section.header}
+                </p>
+              )}
+              {section.items.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className="app-nav-link flex min-h-10 items-center gap-3 whitespace-nowrap rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
+                >
+                  <item.icon className="size-4 shrink-0" aria-hidden />
+                  <span>{item.label}</span>
+                </Link>
+              ))}
+            </div>
           ))}
         </nav>
 

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n, translateError } from "@/lib/i18n";
+import { isValidEgyptianMobile, normalizePhoneInput } from "@/lib/whatsapp";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -33,6 +34,7 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<"school_teacher" | "tutor" | "student">("school_teacher");
+  const [parentPhone, setParentPhone] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -50,12 +52,23 @@ function AuthPage() {
         if (error) throw error;
         navigate({ to: "/dashboard", replace: true });
       } else if (mode === "signup") {
+        // Parent phone is required for student accounts and must be an
+        // Egyptian mobile; the signup trigger stores it only when valid.
+        const cleanedPhone = normalizePhoneInput(parentPhone);
+        if (role === "student" && !isValidEgyptianMobile(cleanedPhone)) {
+          toast.error(t("parentPhoneInvalid"));
+          return;
+        }
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
             emailRedirectTo: window.location.origin + "/dashboard",
-            data: { full_name: name, role },
+            data: {
+              full_name: name,
+              role,
+              ...(role === "student" ? { parent_phone: cleanedPhone } : {}),
+            },
           },
         });
         if (error) throw error;
@@ -169,6 +182,24 @@ function AuthPage() {
                     </div>
                   </fieldset>
                 </>
+              )}
+              {mode === "signup" && role === "student" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="parent-phone">{t("parentPhone")}</Label>
+                  <Input
+                    id="parent-phone"
+                    dir="ltr"
+                    inputMode="tel"
+                    required
+                    aria-required="true"
+                    placeholder="010…"
+                    maxLength={16}
+                    autoComplete="tel"
+                    value={parentPhone}
+                    onChange={(e) => setParentPhone(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">{t("parentPhoneHint")}</p>
+                </div>
               )}
               <div className="space-y-1.5">
                 <Label htmlFor="email">{t("email")}</Label>

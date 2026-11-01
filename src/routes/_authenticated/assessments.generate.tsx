@@ -161,7 +161,7 @@ function Generate() {
   const [types, setTypes] = useState<GenerateQuestionType[]>([...GENERATE_QUESTION_TYPES]);
   const [difficulty, setDifficulty] = useState<GenerateDifficulty>("mixed");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ id: string; title: string; n: number } | null>(null);
+  const [result, setResult] = useState<{ id: string; title: string; n: number; requested: number } | null>(null);
   // Persistent generation error: toasts auto-dismiss, so a failed
   // generation used to leave no trace. This panel stays until the next
   // submit (or a success) and keeps the raw error code for diagnosis.
@@ -411,7 +411,12 @@ function Generate() {
         toast.error(display);
         return;
       }
-      setResult({ id: res.assessmentId, title: res.title, n: res.questionCount });
+      setResult({
+        id: res.assessmentId,
+        title: res.title,
+        n: res.questionCount,
+        requested: res.requestedCount,
+      });
       toast.success(t("genSuccess"));
     } catch (err) {
       // Only transport-level failures reach here (offline, 500 page, CSRF):
@@ -446,6 +451,14 @@ function Generate() {
           <p className="text-sm text-muted-foreground">
             {t("genDraftSaved", { count: String(result.n) })}
           </p>
+          {result.n < result.requested ? (
+            <p role="alert" className="rounded-md bg-warning/20 p-3 text-sm">
+              {t("genDraftSavedPartial", {
+                saved: String(result.n),
+                requested: String(result.requested),
+              })}
+            </p>
+          ) : null}
           <p className="text-sm">{t("genDraftNote")}</p>
           <div className="flex flex-wrap gap-2">
             <Link to="/assessments/$id" params={{ id: result.id }}>

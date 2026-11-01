@@ -335,29 +335,145 @@ export function repairTruncatedJson(text: string): string | null {
 }
 
 /**
+ * Syntax-only JSON rescue for model replies. NEVER invents, reorders or
+ * rewrites values:
+ * (a) literal control characters inside string literals are escaped —
+ *     PDF-extracted lesson text carries form feeds and other C0 controls
+ *     (pdfjs text items are joined verbatim), and the model echoes source
+ *     fragments with those bytes raw, which is invalid JSON;
+ * Everything runs INSIDE string literals only, and only escapes that
+ * encode the SAME string value are applied (lossless JSON transport).
+ * Ambiguous defects — invalid backslash escapes, mangled quotes — are
+ * left alone so the reply fails cleanly instead of guessing an answer
+ * key. Every question still passes the strict parseGeneratedDraft
+ * validation afterwards, so nothing corrupt is repaired into place.
+ */
+export function sanitizeModelJson(text: string): string {
+  let out = "";
+  let inString = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i]!;
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inString = false;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "\\") {
+      // Valid escapes pass through untouched. An INVALID escape makes the
+      // model's intended string ambiguous (is "\t" a tab or a literal
+      // "	"?), so it is left as-is and JSON.parse stays the judge: the
+      // reply fails cleanly rather than accepting a guessed answer key.
+      const next = text[i + 1];
+      if (next !== undefined && '\\"/bfnrtu'.includes(next)) {
+        out += ch + next;
+        i += 2;
+        continue;
+      }
+      out += ch;
+      i++;
+      continue;
+    }
+    const code = ch.charCodeAt(0);
+    if (code < 0x20) {
+      switch (code) {
+        case 0x08: out += "\\b"; break;
+        case 0x09: out += "\\t"; break;
+        case 0x0a: out += "\\n"; break;
+        case 0x0c: out += "\\f"; break;
+        case 0x0d: out += "\\r"; break;
+        default: out += "\\u" + code.toString(16).padStart(4, "0");
+      }
+      i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Remove commas that sit directly before a closing ] or } OUTSIDE string
+ * literals — a frequent model slip. Structural only: no value is touched.
+ */
+export function dropTrailingCommas(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j]!)) j++;
+      if (text[j] === "}" || text[j] === "]") continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/** First V8 "position N" from a JSON.parse error message, or "". */
+function parseErrorPosition(error: unknown): string {
+  const m = error instanceof Error ? /position (\d+)/.exec(error.message) : null;
+  return m?.[1] ?? "";
+}
+
+/**
  * Extract the JSON object from a model reply. Tolerates ```json fences and
- * leading prose, and repairs a reply truncated at the provider's output cap
- * instead of failing the whole generation.
+ * leading prose, rescues syntax-only defects (control characters in strings,
+ * trailing commas) and repairs a reply
+ * truncated at the provider's output cap instead of failing the whole
+ * generation. The thrown error carries the first parse offset (a NUMBER
+ * only — never reply content) for bounded diagnostics.
  */
 export function extractJsonObject(text: string): unknown {
   const start = text.indexOf("{");
   if (start === -1) throw new Error("AI_PARSE_FAILED");
   const body = text.slice(start);
   const end = body.lastIndexOf("}");
-  if (end > 0) {
-    try {
-      return JSON.parse(body.slice(0, end + 1));
-    } catch {
-      // fall through to the truncated-reply repair below
-    }
-  }
+  const candidates: string[] = [];
+  if (end > 0) candidates.push(body.slice(0, end + 1));
   const repaired = repairTruncatedJson(body);
-  if (repaired) {
+  if (repaired) candidates.push(repaired);
+  // Always attempt the raw body too: even a doomed parse can yield the
+  // first error offset (numeric diagnostics only, never content).
+  if (candidates.length === 0) candidates.push(body);
+
+  let firstPos = "";
+  for (const candidate of candidates) {
     try {
-      return JSON.parse(repaired);
-    } catch {
-      // fall through: genuinely unparseable
+      return JSON.parse(candidate);
+    } catch (e) {
+      if (!firstPos) firstPos = parseErrorPosition(e);
+    }
+    const rescued = dropTrailingCommas(sanitizeModelJson(candidate));
+    if (rescued !== candidate) {
+      try {
+        return JSON.parse(rescued);
+      } catch {
+        // next candidate
+      }
     }
   }
-  throw new Error("AI_PARSE_FAILED");
+  throw new Error(`AI_PARSE_FAILED${firstPos ? ` at position ${firstPos}` : ""}`);
 }

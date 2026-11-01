@@ -293,7 +293,7 @@ framework in production — so the teacher saw a button that "did nothing".
 | `AI_UPSTREAM`       | 5xx or transport failure (detail carries the cause)           | retry; check provider status |
 | `AI_TIMEOUT`        | no reply within 120 s                                         | shorter source text; retry |
 | `AI_EMPTY_REPLY`    | 200 with empty content (detail carries `finish_reason`)       | retry with shorter text |
-| `AI_PARSE_FAILED`   | reply had no usable JSON/questions (detail carries its head)   | retry; shorter/cleaner source |
+| `AI_PARSE_FAILED`   | reply had no usable JSON/questions (detail is bounded metadata only: replyLen/finish/parseErrorAt — never reply content)   | retry; shorter/cleaner source |
 | `DB_ERROR`          | Supabase insert failed (detail carries the row/column error)   | RLS or schema problem |
 | `NOT_TEACHER`       | caller role is not school_teacher/tutor                       | expected |
 | `VALIDATION`        | payload rejected (source < 50 chars, no type, bad count)      | expected |
@@ -307,3 +307,14 @@ Two hardening changes ship with it:
    object that arrived complete, closes the array/object) instead of
    failing the whole generation; a missing model `title` no longer
    discards a valid question set (the teacher's title is used instead).
+3. 2026-11-01: syntax-only rescue for the SUSPECTED failure class behind the
+   teacher-reported AI_PARSE_FAILED with a PDF-uploaded CV (hypothesis,
+   not yet reproduced): pdfjs-extracted text can carry C0 control bytes
+   (form feeds etc.) that the model may echo raw into JSON strings. Source text is stripped of C0 controls at input
+   validation, `sanitizeModelJson()` escapes control bytes INSIDE string
+   literals only (invalid backslash escapes are left to fail cleanly -
+   guessing the intended value could change an answer key), `dropTrailingCommas()`
+   removes pre-brace/bracket commas outside strings, and the success
+   payload carries `requestedCount` so the UI must say "saved X of Y"
+   instead of presenting a partial draft as complete. Strict per-question
+   validation is unchanged: nothing invalid is ever repaired into place.

@@ -82,7 +82,12 @@ export type GenerateAssessmentSuccess = {
   ok: true;
   assessmentId: string;
   title: string;
+  /** Questions actually saved (<= requestedCount when some were invalid
+   *  or the reply was truncated). */
   questionCount: number;
+  /** Questions the teacher asked for — the UI must say so explicitly when
+   *  fewer were saved, never present a partial draft as complete. */
+  requestedCount: number;
 };
 
 export type GenerateAssessmentFailure = {
@@ -113,7 +118,13 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
     throw new Error("VALIDATION");
   }
   const d = data as Record<string, unknown>;
-  const sourceText = typeof d["sourceText"] === "string" ? d["sourceText"].trim() : "";
+  // Strip C0 control characters (except tab/newline/CR) and DEL at the
+  // boundary: PDF text extraction (pdfjs) emits form feeds and similar
+  // bytes, and the model echoes them raw into its JSON reply, which used
+  // to make the reply unparseable (AI_PARSE_FAILED).
+  const sourceText = (typeof d["sourceText"] === "string" ? d["sourceText"] : "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .trim();
   if (sourceText.length < SOURCE_MIN_CHARS) throw new Error("VALIDATION");
   const types = Array.isArray(d["types"])
     ? [...new Set(d["types"].filter(isGenerateQuestionType))]
@@ -225,6 +236,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
     // other OpenAI-compatible endpoints behind AI_BASE_URL; the prompt
     // demands JSON-only output and extractJsonObject() tolerates fences.
     let replyText = "";
+    let finishReason = "";
     try {
       // No Authorization header when the key is empty (local endpoints
       // without auth, e.g. Ollama).
@@ -264,10 +276,10 @@ export const generateAssessment = createServerFn({ method: "POST" })
       }
       const json = (await res.json()) as AiChatResponse;
       replyText = json.choices?.[0]?.message?.content ?? "";
+      finishReason =
+        (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
       if (!replyText.trim()) {
-        const finish = (json as { choices?: { finish_reason?: string }[] }).choices?.[0]
-          ?.finish_reason;
-        return fail("AI_EMPTY_REPLY", finish ? `finish_reason=${finish}` : "");
+        return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
       }
       // Pilot cost measurement (best-effort, never fails generation):
       // one row per successful generation call, attributed to the teacher.
@@ -288,10 +300,22 @@ export const generateAssessment = createServerFn({ method: "POST" })
     let draft: GeneratedDraft;
     try {
       draft = parseGeneratedDraft(extractJsonObject(replyText), input.questionCount);
-    } catch {
-      // Ship the head of the reply so the failure is diagnosable from the
-      // error panel instead of "something went wrong".
-      return fail("AI_PARSE_FAILED", `reply: ${describeThrown(replyText, 160)}`);
+    } catch (e) {
+      // Bounded, content-free diagnostics only: reply length, provider
+      // finish_reason and the first JSON parse offset. The raw reply can
+      // carry private lesson/student content and is never echoed to the
+      // UI or the logs.
+      const pos = e instanceof Error ? / at position (\d+)$/.exec(e.message)?.[1] : undefined;
+      return fail(
+        "AI_PARSE_FAILED",
+        [
+          `replyLen=${replyText.length}`,
+          finishReason ? `finish=${finishReason}` : "",
+          pos ? `parseErrorAt=${pos}` : "",
+        ]
+          .filter(Boolean)
+          .join("; "),
+      );
     }
 
     // Save as an UNPUBLISHED draft owned by the teacher. No assignments,
@@ -351,5 +375,6 @@ export const generateAssessment = createServerFn({ method: "POST" })
       assessmentId: assessment.id,
       title: assessment.title,
       questionCount: draft.questions.length,
+      requestedCount: input.questionCount,
     };
   });

@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { isValidE164, normalizePhoneInput } from "@/lib/whatsapp";
+import { isValidEgyptianMobile, normalizePhoneInput } from "@/lib/whatsapp";
 
 export function ParentContactForm({
   studentId,
@@ -44,20 +44,30 @@ export function ParentContactForm({
   const [consent, setConsent] = useState(initialConsent);
   const [busy, setBusy] = useState(false);
   const [formatError, setFormatError] = useState(false);
+  const [requiredError, setRequiredError] = useState(false);
 
   async function save() {
     const cleaned = normalizePhoneInput(phone);
-    // Empty phone is allowed (clears the contact); a non-empty phone
-    // MUST be valid E.164 — the DB CHECK constraint enforces this too.
-    if (cleaned !== "" && !isValidE164(cleaned)) {
+    // Parent phone is REQUIRED (product decision 2026-10-31) and must be
+    // an Egyptian mobile: +20 followed by 010/011/012/015. Local forms
+    // (01012345678) are normalized by normalizePhoneInput. The DB CHECK
+    // constraint enforces the same rule.
+    if (cleaned === "") {
+      setRequiredError(true);
+      setFormatError(false);
+      return;
+    }
+    if (!isValidEgyptianMobile(cleaned)) {
       setFormatError(true);
+      setRequiredError(false);
       return;
     }
     setFormatError(false);
+    setRequiredError(false);
     setBusy(true);
     const { error } = await supabase
       .from("profiles")
-      .update({ parent_phone: cleaned === "" ? null : cleaned, whatsapp_consent: consent })
+      .update({ parent_phone: cleaned, whatsapp_consent: consent })
       .eq("id", studentId);
     setBusy(false);
     if (error) return void toast.error(translateError(error, lang));
@@ -76,12 +86,19 @@ export function ParentContactForm({
           placeholder="+20…"
           value={phone}
           maxLength={16}
+          required
+          aria-required="true"
           onChange={(e) => {
             setPhone(e.target.value);
             setFormatError(false);
+            setRequiredError(false);
           }}
         />
-        {formatError ? <p className="text-xs text-destructive">{t("parentPhoneInvalid")}</p> : null}
+        {requiredError ? (
+          <p className="text-xs text-destructive">{t("parentPhoneRequired")}</p>
+        ) : formatError ? (
+          <p className="text-xs text-destructive">{t("parentPhoneInvalid")}</p>
+        ) : null}
         <p className="text-xs text-muted-foreground">{t("parentPhoneHint")}</p>
       </div>
       <div className="flex items-center gap-2">
