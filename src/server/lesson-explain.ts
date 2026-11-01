@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { resolveAiConfig } from "@/server/ai-config";
-import { extractOpenAiUsage, logAiUsage, openAiProvider } from "@/server/ai-usage";
+import {
+  consumeAiRateQuota,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+} from "@/server/ai-usage";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -68,6 +73,9 @@ export const explainLesson = createServerFn({ method: "POST" })
 
     const config = resolveAiConfig();
     if (!config) return { ok: false, code: "AI_NOT_CONFIGURED" };
+    if (!(await consumeAiRateQuota(auth.supabase))) {
+      return { ok: false, code: "AI_RATE_LIMIT" };
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);

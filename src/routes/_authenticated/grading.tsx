@@ -148,14 +148,18 @@ function Grading() {
   const { data: me, isLoading: meLoading } = useMe();
   const [openPage, setOpenPage] = useState(0);
   const [releasedPage, setReleasedPage] = useState(0);
+  const gradingTeacherId =
+    me && (me.role === "school_teacher" || me.role === "tutor") ? me.id : undefined;
+  const canGrade = gradingTeacherId !== undefined;
   const { data: list, isLoading: listLoading } = useGradingList(
-    me?.role === "school_teacher" ? me.id : undefined,
+    gradingTeacherId,
     openPage,
     releasedPage,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected =
     list?.submissions.find((s) => s.id === selectedId) ?? list?.submissions[0] ?? null;
+  const isReleased = selected?.status === "released";
   const { data: detail, isLoading: detailLoading } = useGradingDetail(selected);
   const [scores, setScores] = useState<Record<string, string>>({});
   const [feedbacks, setFeedbacks] = useState<Record<string, string>>({});
@@ -180,7 +184,14 @@ function Grading() {
   // auto_score only where the stored value differs from the computed one,
   // so this effect never loops. Teacher scores are never touched here.
   useEffect(() => {
-    if (!detail || !selected || autoDone.current.has(selected.id)) return;
+    if (
+      !detail ||
+      !selected ||
+      selected.status === "released" ||
+      autoDone.current.has(selected.id)
+    ) {
+      return;
+    }
     const jobs = detail.answers.flatMap((a) => {
       const q = detail.questions.find((qq) => qq.id === a.question_id);
       if (!q) return [];
@@ -207,11 +218,9 @@ function Grading() {
   }, [detail, selected, qc, lang]);
 
   if (meLoading || listLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
-  // School teachers grade their own assessments' submissions. (The
-  // segmentation slice converts legacy 'teacher' rows to 'school_teacher'
-  // in the DB and session.ts maps any leftover defensively, so only
-  // 'school_teacher' is checked here.)
-  if (!me || me.role !== "school_teacher") return <Empty>{t("gradingTeacherOnly")}</Empty>;
+  // Teachers and tutors may grade only assessments they own; the bounded
+  // RPC applies the same owner check independently of this UI gate.
+  if (!me || !canGrade) return <Empty>{t("gradingTeacherOnly")}</Empty>;
 
   const submissions = list?.submissions ?? [];
   const released = list?.released ?? [];
@@ -225,8 +234,8 @@ function Grading() {
     return { value: n, error: Number.isNaN(n) || n < 0 || n > marks };
   }
 
-  /** Save all teacher scores + feedback. Returns false on validation error. */
-  async function saveAll(): Promise<boolean> {
+  /** Save teacher scores + feedback through the audited, owner-scoped RPC. */
+  async function saveAll(force = false): Promise<boolean> {
     if (!detail || !selected) return false;
     for (const q of detail.questions) {
       const a = answerByQuestion.get(q.id);
@@ -241,8 +250,15 @@ function Grading() {
       if (!a) return [];
       const { value } = scoreOf(a.id, Number(q.marks));
       const fb = feedbacks[a.id] ?? "";
-      if (value === a.final_score && fb === (a.feedback ?? "")) return [];
-      return [supabase.from("answers").update({ final_score: value, feedback: fb }).eq("id", a.id)];
+      if (!force && value === a.final_score && fb === (a.feedback ?? "")) return [];
+      return [
+        supabase.rpc("review_answer", {
+          _answer: a.id,
+          _score: value,
+          _feedback: fb,
+          _decision: value === null ? "reject" : "approve",
+        }),
+      ];
     });
     const results = await Promise.all(writes);
     const failed = results.find((r) => r.error);
@@ -259,11 +275,12 @@ function Grading() {
     setBusy(false);
     if (!ok) return;
     toast.success(t("gradingSaved"));
+    await qc.invalidateQueries({ queryKey: ["grading-list", me?.id] });
     await qc.invalidateQueries({ queryKey: ["grading-detail", selected?.id] });
   }
 
   async function release() {
-    if (!me || !detail || !selected) return;
+    if (!me || !detail || !selected || isReleased) return;
     // Teacher-final-word: every question needs an explicit teacher score
     // (auto scores alone never release a submission).
     for (const q of detail.questions) {
@@ -274,24 +291,17 @@ function Grading() {
       }
     }
     setBusy(true);
-    const ok = await saveAll();
+    // Force a review RPC for every answer so legacy drafts with previously
+    // saved direct scores are promoted through the current audited state path.
+    const ok = await saveAll(true);
     if (!ok) {
       setBusy(false);
       return;
     }
-    const final = detail.questions.reduce((s, q) => {
-      const a = answerByQuestion.get(q.id);
-      return s + (a ? (scoreOf(a.id, Number(q.marks)).value ?? 0) : 0);
-    }, 0);
-    const { error } = await supabase
-      .from("submissions")
-      .update({
-        status: "released",
-        final_score: final,
-        total_possible: totalPossible,
-        released_at: new Date().toISOString(),
-      })
-      .eq("id", selected.id);
+    const { error } = await supabase.rpc("release_submission", {
+      _sub: selected.id,
+      _feedback: "",
+    });
     setBusy(false);
     if (error) return void toast.error(translateError(error, lang));
     toast.success(t("released"));
@@ -487,6 +497,7 @@ function Grading() {
                             step={0.5}
                             dir="ltr"
                             value={scores[a.id] ?? ""}
+                            disabled={isReleased}
                             onChange={(e) => setScores({ ...scores, [a.id]: e.target.value })}
                           />
                         </div>
@@ -496,13 +507,14 @@ function Grading() {
                             id={`fb-${a.id}`}
                             rows={2}
                             value={feedbacks[a.id] ?? ""}
+                            disabled={isReleased}
                             maxLength={2000}
                             onChange={(e) => setFeedbacks({ ...feedbacks, [a.id]: e.target.value })}
                           />
                         </div>
                       </div>
                     )}
-                    {a && q.type === "written" && (
+                    {a && q.type === "written" && !isReleased && (
                       <AiGradeSuggestion
                         key={a.id}
                         answerId={a.id}
@@ -522,10 +534,10 @@ function Grading() {
                 );
               })}
               <div className="flex flex-wrap gap-2">
-                <Button onClick={save} disabled={busy}>
+                <Button onClick={save} disabled={busy || isReleased}>
                   {busy ? t("saving") : t("gradingSaveScores")}
                 </Button>
-                <Button variant="outline" onClick={release} disabled={busy}>
+                <Button variant="outline" onClick={release} disabled={busy || isReleased}>
                   {t("release")}
                 </Button>
               </div>
