@@ -37,7 +37,7 @@ import { createClient } from "@supabase/supabase-js";
 import { isAiConfigured } from "./ai-config";
 import { suggestGradeWithAi, type AiGradeSuggestion } from "./ai-client";
 export type { AiGradeSuggestion } from "./ai-client";
-import { createUsageClient } from "./ai-usage";
+import { consumeAiRateQuota, createUsageClient } from "./ai-usage";
 
 export type AiGradeRequest = {
   questionPrompt: string;
@@ -55,7 +55,7 @@ export type AiGradeResult =
   | { ok: true; suggestion: AiGradeSuggestion }
   | {
       ok: false;
-      code: "INVALID_INPUT" | "UNAUTHORIZED" | "AI_NOT_CONFIGURED" | "AI_ERROR";
+      code: "INVALID_INPUT" | "UNAUTHORIZED" | "AI_NOT_CONFIGURED" | "AI_ERROR" | "AI_RATE_LIMIT";
       message: string;
     };
 
@@ -166,8 +166,10 @@ export const suggestGrade = createServerFn({ method: "POST" })
       return { ok: false, code: "INVALID_INPUT", message: request.error };
     }
 
-    // A blank answer needs no AI call: suggest 0 with a low-confidence note.
-    // The teacher still decides — this only fills the draft fields.
+    const auth = await authorize(request.accessToken, request.assessmentId);
+    if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
+
+    // A blank answer needs no AI call, but authorization still applies.
     if (!request.studentAnswer.trim()) {
       return {
         ok: true,
@@ -175,14 +177,18 @@ export const suggestGrade = createServerFn({ method: "POST" })
       };
     }
 
-    const auth = await authorize(request.accessToken, request.assessmentId);
-    if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
-
-    // Pilot cost measurement: the grading call is logged with the
-    // teacher's id. Logging is best-effort inside suggestGradeWithAi
-    // and never fails the suggestion; without Supabase env there is
-    // simply no sink to log to.
     const env = serverSupabaseEnv();
+    if (!env) return { ok: false, code: "UNAUTHORIZED", message: "Server is not configured." };
+    const usageClient = createUsageClient(env.url, env.anonKey, request.accessToken);
+    if (!(await consumeAiRateQuota(usageClient))) {
+      return {
+        ok: false,
+        code: "AI_RATE_LIMIT",
+        message: "AI usage limit reached. Try again later.",
+      };
+    }
+
+    // Pilot cost measurement is best-effort and never fails a completed suggestion.
     const result = await suggestGradeWithAi(
       {
         questionPrompt: request.questionPrompt,
@@ -191,12 +197,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
         studentAnswer: request.studentAnswer,
         maxMarks: request.maxMarks,
       },
-      env
-        ? {
-            client: createUsageClient(env.url, env.anonKey, request.accessToken),
-            teacherId: auth.userId,
-          }
-        : undefined,
+      { client: usageClient, teacherId: auth.userId },
     );
     if (!result.ok) {
       return { ok: false, code: result.error.code, message: result.error.message };
@@ -214,124 +215,4 @@ export const getAiGradingStatus = createServerFn({ method: "POST" })
   .validator((data: unknown) => data)
   .handler(async (): Promise<{ configured: boolean }> => {
     return { configured: isAiConfigured() };
-  });
-
-/**
- * FUTURE FINE-TUNING DATASET — logAiTrainingExample.
- *
- * One anonymized row is written to `ai_training_examples` whenever a
- * teacher ACCEPTS or EDITS an AI grading suggestion (never on Reject).
- * Each row pairs the AI's suggestion with the teacher's final values side
- * by side, so the platform accumulates its own training data from day one:
- * question text, rubric, student answer, ai_suggested_score, ai_feedback,
- * teacher_final_score, teacher_feedback, and the model name (from server
- * env, never from the client).
- *
- * ANONYMIZED BY DESIGN: the row stores NO student name, NO student id,
- * NO teacher id, and NO school id — nothing that identifies a person or
- * a school. The server still verifies the caller is a teacher/admin (and
- * owns the assessment when assessmentId is supplied) before inserting,
- * but the identity is used only for that check, never stored.
- *
- * NO TRAINING PIPELINE IS BUILT HERE. The intended later phase is
- * fine-tuning an Arabic-capable open model (e.g. LoRA) on this table.
- * Before any training use, the dataset must be used ONLY with proper
- * consent, and free-text answers must be scrubbed for personal data — a
- * student could have typed a name or other identifying text into an
- * answer, and raw answer text is stored as-is for grading fidelity.
- * Logging failures must never block grading: the client fires this
- * best-effort and ignores errors.
- */
-export type AiTrainingExampleInput = {
-  questionPrompt: string;
-  rubric: string;
-  studentAnswer: string;
-  aiSuggestedScore: number;
-  aiFeedback: string;
-  teacherFinalScore: number;
-  teacherFeedback: string;
-  maxMarks: number;
-  /** Optional: when supplied, ownership is verified server-side. */
-  assessmentId?: string;
-  /** Supabase session access token from the calling teacher's browser. */
-  accessToken: string;
-};
-
-function validateTrainingInput(data: unknown): AiTrainingExampleInput | { error: string } {
-  if (typeof data !== "object" || data === null) return { error: "Request must be an object." };
-  const d = data as Record<string, unknown>;
-  const asString = (v: unknown) => (typeof v === "string" ? v : null);
-  const questionPrompt = asString(d["questionPrompt"]);
-  const rubric = asString(d["rubric"]) ?? "";
-  const studentAnswer = asString(d["studentAnswer"]);
-  const aiFeedback = asString(d["aiFeedback"]) ?? "";
-  const teacherFeedback = asString(d["teacherFeedback"]) ?? "";
-  const accessToken = asString(d["accessToken"]);
-  const aiSuggestedScore = Number(d["aiSuggestedScore"]);
-  const teacherFinalScore = Number(d["teacherFinalScore"]);
-  const maxMarks = Number(d["maxMarks"]);
-  const assessmentId = asString(d["assessmentId"]) ?? undefined;
-  if (!questionPrompt?.trim()) return { error: "questionPrompt is required." };
-  if (studentAnswer === null) return { error: "studentAnswer is required." };
-  if (!accessToken?.trim()) return { error: "accessToken is required." };
-  if (
-    !Number.isFinite(aiSuggestedScore) ||
-    !Number.isFinite(teacherFinalScore) ||
-    !Number.isFinite(maxMarks) ||
-    maxMarks <= 0 ||
-    teacherFinalScore < 0 ||
-    teacherFinalScore > maxMarks
-  ) {
-    return { error: "Scores are invalid." };
-  }
-  if (
-    questionPrompt.length > 20000 ||
-    rubric.length > 20000 ||
-    studentAnswer.length > 20000 ||
-    aiFeedback.length > 20000 ||
-    teacherFeedback.length > 20000
-  ) {
-    return { error: "Input exceeds the maximum allowed size." };
-  }
-  return {
-    questionPrompt,
-    rubric,
-    studentAnswer,
-    aiSuggestedScore,
-    aiFeedback,
-    teacherFinalScore,
-    teacherFeedback,
-    maxMarks,
-    ...(assessmentId ? { assessmentId } : {}),
-    accessToken,
-  };
-}
-
-export const logAiTrainingExample = createServerFn({ method: "POST" })
-  .validator((data: unknown) => data)
-  .handler(async ({ data }): Promise<{ ok: boolean }> => {
-    const input = validateTrainingInput(data);
-    if ("error" in input) return { ok: false };
-
-    const auth = await authorize(input.accessToken, input.assessmentId);
-    if (!auth.ok) return { ok: false };
-
-    const env = serverSupabaseEnv();
-    if (!env) return { ok: false };
-    const supabase = createClient(env.url, env.anonKey, {
-      global: { headers: { Authorization: `Bearer ${input.accessToken}` } },
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    // Deliberately NO user/student/school identifiers in the row.
-    const { error } = await supabase.from("ai_training_examples").insert({
-      question_text: input.questionPrompt,
-      rubric_text: input.rubric.trim() ? input.rubric : null,
-      student_answer_text: input.studentAnswer,
-      ai_suggested_score: input.aiSuggestedScore,
-      ai_feedback: input.aiFeedback || null,
-      teacher_final_score: input.teacherFinalScore,
-      teacher_feedback: input.teacherFeedback.trim() ? input.teacherFeedback : null,
-      model_name: process.env["AI_MODEL"]?.trim() || null,
-    });
-    return { ok: !error };
   });

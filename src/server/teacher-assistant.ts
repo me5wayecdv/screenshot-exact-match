@@ -1,6 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { resolveAiConfig } from "@/server/ai-config";
-import { extractOpenAiUsage, logAiUsage, openAiProvider } from "@/server/ai-usage";
+import {
+  consumeAiRateQuota,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+} from "@/server/ai-usage";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -26,7 +31,8 @@ type AssistantErrorCode =
   | "AI_AUTH"
   | "AI_RATE_LIMIT"
   | "AI_UPSTREAM"
-  | "AI_TIMEOUT";
+  | "AI_TIMEOUT"
+  | "AI_RATE_LIMIT";
 
 type AssistantResult = { ok: true; reply: string } | { ok: false; code: AssistantErrorCode };
 
@@ -142,11 +148,11 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
 
     const auth = context as unknown as AssistantContext;
     if (!(await authorizeTeacher(auth))) return { ok: false, code: "UNAUTHORIZED" };
-    const summary = await loadWorkspaceSummary(auth);
-    if (!summary) return { ok: false, code: "DB_ERROR" };
-
     const config = resolveAiConfig();
     if (!config) return { ok: false, code: "AI_NOT_CONFIGURED" };
+    if (!(await consumeAiRateQuota(auth.supabase))) return { ok: false, code: "AI_RATE_LIMIT" };
+    const summary = await loadWorkspaceSummary(auth);
+    if (!summary) return { ok: false, code: "DB_ERROR" };
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);

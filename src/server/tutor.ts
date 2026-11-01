@@ -29,7 +29,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 import { resolveAiConfig } from "./ai-config";
-import { extractOpenAiUsage, logAiUsage, openAiProvider, type AiUsageSink } from "./ai-usage";
+import {
+  consumeAiRateQuota,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+  type AiUsageSink,
+} from "./ai-usage";
 import {
   tutorExplainPrompt,
   tutorFeedbackPrompt,
@@ -46,7 +52,8 @@ export type TutorErrorCode =
   | "TUTOR_NOT_CONFIGURED"
   | "TUTOR_UPSTREAM"
   | "TUTOR_TIMEOUT"
-  | "TUTOR_PARSE_FAILED";
+  | "TUTOR_PARSE_FAILED"
+  | "TUTOR_RATE_LIMIT";
 
 export type TutorResult =
   { ok: true; reply: string; model: string } | { ok: false; code: TutorErrorCode; message: string };
@@ -299,6 +306,13 @@ export const askTutor = createServerFn({ method: "POST" })
 
     const auth = await authorizeStudent(accessToken);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
+    if (!(await consumeAiRateQuota(auth.client))) {
+      return {
+        ok: false,
+        code: "TUTOR_RATE_LIMIT",
+        message: "AI usage limit reached. Try again later.",
+      };
+    }
 
     let finalUser: string;
     if (questionId) {
@@ -359,6 +373,13 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
     }
     const auth = await authorizeStudent(accessToken);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
+    if (!(await consumeAiRateQuota(auth.client))) {
+      return {
+        ok: false,
+        code: "TUTOR_RATE_LIMIT",
+        message: "AI usage limit reached. Try again later.",
+      };
+    }
     const question = await loadReleasedQuestion(auth.client, auth.userId, questionId);
     if (!question) {
       return {
@@ -401,6 +422,13 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
     const objectives = objectivesRaw as string[];
     const auth = await authorizeStudent(accessToken);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
+    if (!(await consumeAiRateQuota(auth.client))) {
+      return {
+        ok: false,
+        code: "TUTOR_RATE_LIMIT",
+        message: "AI usage limit reached. Try again later.",
+      };
+    }
     if (!(await hasReleasedSubmission(auth.client, auth.userId, assessmentId))) {
       return {
         ok: false,

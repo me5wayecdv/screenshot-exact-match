@@ -14,6 +14,7 @@ import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit"
 import { Button } from "@/components/ui/button";
 import { ParentContactForm } from "@/components/parent-contact-form";
 import { Input } from "@/components/ui/input";
+import { DataPager } from "@/components/data-pager";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -29,12 +30,14 @@ function Dashboard() {
   const { data: me, isLoading } = useMe();
   const { t } = useI18n();
   if (isLoading || !me) return <p className="text-muted-foreground">{t("loading")}</p>;
-  if (me.role === "school_teacher") return <SchoolTeacherHome name={me.fullName} />;
-  if (me.role === "tutor") return <TutorHome name={me.fullName} />;
+  if (me.role === "school_teacher")
+    return <SchoolTeacherHome name={me.fullName} teacherId={me.id} />;
+  if (me.role === "tutor") return <TutorHome name={me.fullName} tutorId={me.id} />;
   if (me.role === "admin") return <AdminHome name={me.fullName} />;
   return <StudentHome name={me.fullName} studentId={me.id} />;
 }
 
+function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: string }) {
 type StartStepMeta = {
   title: string;
   body: string;
@@ -87,40 +90,36 @@ function StartChecklistCard({
 function SchoolTeacherHome({ name }: { name: string }) {
   const { t, lang } = useI18n();
   const { data } = useQuery({
-    queryKey: ["teacher-summary"],
+    queryKey: ["teacher-summary", teacherId],
     queryFn: async () => {
-      const [a, s, st] = await Promise.all([
+      const [recent, summary] = await Promise.all([
         supabase
           .from("assessments")
           .select("id, title, status, created_at")
-          .order("created_at", { ascending: false }),
-        supabase.from("submissions").select("id, status, submitted_at, assessment_id"),
-        supabase.rpc("my_students"),
+          .eq("teacher_id", teacherId)
+          .order("created_at", { ascending: false })
+          .range(0, 5),
+        supabase.rpc("teacher_dashboard_summary"),
       ]);
+      if (recent.error) throw recent.error;
+      if (summary.error) throw summary.error;
+      const counts = summary.data?.[0];
       return {
-        assessments: a.data ?? [],
-        submissions: s.data ?? [],
-        students: st.data ?? [],
+        assessments: recent.data ?? [],
+        activeCount: counts?.active_assessment_count ?? 0,
+        pendingCount: counts?.pending_submission_count ?? 0,
+        releasedCount: counts?.released_submission_count ?? 0,
+        studentCount: counts?.student_count ?? 0,
       };
     },
   });
   const cards = [
-    {
-      label: t("summaryActive"),
-      value: data?.assessments.filter((x) => x.status === "published").length,
-    },
-    {
-      label: t("summaryPending"),
-      value: data?.submissions.filter(
-        (x) => x.status === "awaiting_review" || x.status === "approved",
-      ).length,
-    },
-    { label: t("summaryStudents"), value: data?.students.length },
-    {
-      label: t("summaryReleased"),
-      value: data?.submissions.filter((x) => x.status === "released").length,
-    },
+    { label: t("summaryActive"), value: data?.activeCount },
+    { label: t("summaryPending"), value: data?.pendingCount },
+    { label: t("summaryStudents"), value: data?.studentCount },
+    { label: t("summaryReleased"), value: data?.releasedCount },
   ];
+
   const checklist = buildStartChecklist({
     assessmentsCount: data?.assessments.length ?? 0,
     studentsCount: data?.students.length ?? 0,
@@ -202,31 +201,40 @@ function SchoolTeacherHome({ name }: { name: string }) {
   );
 }
 
-function TutorHome({ name }: { name: string }) {
+function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
   const { t } = useI18n();
   const { data } = useQuery({
-    queryKey: ["tutor-summary"],
+    queryKey: ["tutor-summary", tutorId],
     queryFn: async () => {
-      const [l, e, a] = await Promise.all([
+      const [lessonResult, summaryResult] = await Promise.all([
         supabase
           .from("lessons")
           .select("id, title, description, join_code, created_at")
-          .order("created_at", { ascending: false }),
-        // RLS on lesson_enrollments returns only enrollments in this tutor's lessons.
-        supabase.from("lesson_enrollments").select("lesson_id, student_id"),
-        supabase.from("assessments").select("id, status"),
+          .order("created_at", { ascending: false })
+          .range(0, 6),
+        supabase.rpc("tutor_dashboard_summary"),
       ]);
-      return { lessons: l.data ?? [], enrollments: e.data ?? [], assessments: a.data ?? [] };
+      if (lessonResult.error) throw lessonResult.error;
+      if (summaryResult.error) throw summaryResult.error;
+      const lessonRows = lessonResult.data ?? [];
+      const lessons = lessonRows.slice(0, 6);
+      const { data: enrollments, error } = lessons.length
+        ? await supabase.rpc("tutor_lesson_enrollment_counts", {
+            _lesson_ids: lessons.map((lesson) => lesson.id),
+          })
+        : { data: [], error: null };
+      if (error) throw error;
+      return {
+        lessons,
+        enrollments: enrollments ?? [],
+        summary: summaryResult.data?.[0] ?? null,
+      };
     },
   });
-  const studentCount = new Set((data?.enrollments ?? []).map((e) => e.student_id)).size;
   const cards = [
-    { label: t("summaryLessons"), value: data?.lessons.length },
-    { label: t("summaryStudents"), value: studentCount },
-    {
-      label: t("summaryActive"),
-      value: data?.assessments.filter((x) => x.status === "published").length,
-    },
+    { label: t("summaryLessons"), value: data?.summary?.lesson_count },
+    { label: t("summaryStudents"), value: data?.summary?.student_count },
+    { label: t("summaryActive"), value: data?.summary?.published_assessment_count },
   ];
   const tutorChecklist = buildTutorStartChecklist({
     lessonsCount: data?.lessons.length ?? 0,
@@ -290,7 +298,7 @@ function TutorHome({ name }: { name: string }) {
               ) : null}
               <p className="mt-2 text-sm text-muted-foreground">
                 {t("joinCodeLabel")}: <span dir="ltr">{l.join_code}</span> · {t("summaryStudents")}:{" "}
-                {(data?.enrollments ?? []).filter((e) => e.lesson_id === l.id).length}
+                {data?.enrollments.find((e) => e.lesson_id === l.id)?.student_count ?? 0}
               </p>
             </Panel>
           ))}
@@ -349,27 +357,44 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   const qc = useQueryClient();
   const [code, setCode] = useState("");
   const [lessonCode, setLessonCode] = useState("");
+  const [assignmentPage, setAssignmentPage] = useState(0);
+  const [lessonPage, setLessonPage] = useState(0);
+  const pageSize = 20;
   const { data } = useQuery({
-    queryKey: ["student-home"],
+    queryKey: ["student-home", studentId, assignmentPage, lessonPage],
     queryFn: async () => {
-      const [a, s, le, pc] = await Promise.all([
+      const [a, le, pc] = await Promise.all([
         supabase
           .from("assessments")
           .select("id, title, instructions, due_at, status")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("submissions")
-          .select("id, assessment_id, status, final_score, total_possible"),
+          .order("created_at", { ascending: false })
+          .range(assignmentPage * pageSize, assignmentPage * pageSize + pageSize),
         supabase
           .from("lesson_enrollments")
-          .select("lesson_id, lessons(id, title, description, join_code)"),
+          .select("lesson_id, lessons(id, title, description, join_code)")
+          .order("enrolled_at", { ascending: false })
+          .range(lessonPage * pageSize, lessonPage * pageSize + pageSize),
         supabase
           .from("profiles")
           .select("parent_phone, whatsapp_consent")
           .eq("id", studentId)
           .maybeSingle(),
       ]);
-      const lessons = (le.data ?? [])
+      if (a.error) throw a.error;
+      if (le.error) throw le.error;
+      const assessmentRows = a.data ?? [];
+      const lessonRows = le.data ?? [];
+      const assessmentPageRows = assessmentRows.slice(0, pageSize);
+      const assessmentIds = assessmentPageRows.map((assessment) => assessment.id);
+      const { data: submissionRows, error: submissionsError } = assessmentIds.length
+        ? await supabase
+            .from("submissions")
+            .select("id, assessment_id, status, final_score, total_possible")
+            .in("assessment_id", assessmentIds)
+        : { data: [], error: null };
+      if (submissionsError) throw submissionsError;
+      const lessons = lessonRows
+        .slice(0, pageSize)
         .map((r) => {
           const nested = r.lessons as unknown;
           return Array.isArray(nested) ? nested[0] : nested;
@@ -381,9 +406,11 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
         join_code: string | null;
       }[];
       return {
-        assessments: a.data ?? [],
-        submissions: s.data ?? [],
+        assessments: assessmentPageRows,
+        hasMoreAssessments: assessmentRows.length > pageSize,
+        submissions: submissionRows ?? [],
         lessons,
+        hasMoreLessons: lessonRows.length > pageSize,
         parentContact: pc.data ?? null,
       };
     },
@@ -494,6 +521,15 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           })}
         </div>
       )}
+      {data && (assignmentPage > 0 || data.hasMoreAssessments) ? (
+        <DataPager
+          page={assignmentPage}
+          hasPrevious={assignmentPage > 0}
+          hasNext={data.hasMoreAssessments}
+          onPrevious={() => setAssignmentPage((current) => Math.max(0, current - 1))}
+          onNext={() => setAssignmentPage((current) => current + 1)}
+        />
+      ) : null}
       {/* (2) My lessons — lessons this student enrolled in (tutor track). */}
       <h2 className="mb-3 mt-10 text-lg font-semibold">{t("myLessons")}</h2>
       <Panel className="mb-8">
@@ -518,7 +554,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           </Button>
         </form>
       </Panel>
-      {data && data.lessons.length === 0 ? (
+      {data && data.lessons.length === 0 && lessonPage === 0 ? (
         <Empty>{t("noLessons")}</Empty>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
@@ -535,6 +571,15 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           ))}
         </div>
       )}
+      {data && (lessonPage > 0 || data.hasMoreLessons) ? (
+        <DataPager
+          page={lessonPage}
+          hasPrevious={lessonPage > 0}
+          hasNext={data.hasMoreLessons}
+          onPrevious={() => setLessonPage((current) => Math.max(0, current - 1))}
+          onNext={() => setLessonPage((current) => current + 1)}
+        />
+      ) : null}
     </>
   );
 }

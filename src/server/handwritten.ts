@@ -42,6 +42,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { isLocalBaseUrl } from "./ai-config";
 import {
+  consumeAiRateQuota,
   createUsageClient,
   extractGeminiUsage,
   extractOpenAiUsage,
@@ -108,7 +109,8 @@ export type OcrErrorCode =
   | "VISION_UNSUPPORTED"
   | "VISION_UPSTREAM"
   | "VISION_TIMEOUT"
-  | "VISION_PARSE_FAILED";
+  | "VISION_PARSE_FAILED"
+  | "VISION_RATE_LIMIT";
 
 export type OcrResult =
   { ok: true; text: string; model: string } | { ok: false; code: OcrErrorCode; message: string };
@@ -746,18 +748,30 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
           "Vision provider is not configured on the server (set AI_BASE_URL and AI_MODEL, plus AI_VISION_MODEL for a vision-capable model, and AI_API_KEY for hosted providers).",
       };
     }
+    const env = serverSupabaseEnv();
+    if (!env)
+      return {
+        ok: false,
+        code: "VISION_NOT_CONFIGURED",
+        message: "Server Supabase is not configured.",
+      };
+    const usageClient = createUsageClient(env.url, env.anonKey, request.accessToken);
+    if (!(await consumeAiRateQuota(usageClient))) {
+      return {
+        ok: false,
+        code: "VISION_RATE_LIMIT",
+        message: "AI usage limit reached. Try again later.",
+      };
+    }
     const result = await callVisionOcr(config, request.imageDataUrl);
     if (!result.ok) return { ok: false, code: result.code, message: result.message };
     // Pilot cost measurement (best-effort, never fails the OCR result).
-    const env = serverSupabaseEnv();
-    if (env) {
-      await logAiUsage(createUsageClient(env.url, env.anonKey, request.accessToken), auth.userId, {
-        kind: "ocr",
-        provider: result.provider,
-        model: result.model,
-        usage: result.usage,
-      });
-    }
+    await logAiUsage(usageClient, auth.userId, {
+      kind: "ocr",
+      provider: result.provider,
+      model: result.model,
+      usage: result.usage,
+    });
     return { ok: true, text: result.text, model: config.model };
   });
 

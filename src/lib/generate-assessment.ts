@@ -38,7 +38,12 @@ import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { resolveAiConfig } from "@/server/ai-config";
-import { extractOpenAiUsage, logAiUsage, openAiProvider } from "@/server/ai-usage";
+import {
+  consumeAiRateQuota,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+} from "@/server/ai-usage";
 import type { Database } from "@/integrations/supabase/types";
 import {
   buildGeneratePrompt,
@@ -212,6 +217,9 @@ export const generateAssessment = createServerFn({ method: "POST" })
     // provider is a configuration state, not a silent failure.
     const aiConfig = resolveAiConfig();
     if (!aiConfig) return fail("AI_NOT_CONFIGURED");
+    if (!(await consumeAiRateQuota(supabase, Math.ceil(input.questionCount / 5)))) {
+      return fail("AI_RATE_LIMIT");
+    }
     const { baseUrl, model, apiKey } = aiConfig;
 
     const counts = distributeCounts(input.questionCount, input.types);

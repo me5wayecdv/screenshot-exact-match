@@ -99,6 +99,7 @@ export async function sendWhatsAppTemplate(
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
+      signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         messaging_product: "whatsapp",
         // Stored format is E.164 WITH "+"; the Cloud API `to` field is
@@ -129,7 +130,7 @@ export async function sendWhatsAppTemplate(
     return {
       configured: true,
       ok: false,
-      error: e instanceof Error ? e.message.slice(0, 500) : "network_error",
+      error: e instanceof Error && e.name === "TimeoutError" ? "whatsapp_timeout" : "network_error",
     };
   }
 
@@ -139,11 +140,19 @@ export async function sendWhatsAppTemplate(
   } | null;
 
   if (!res.ok) {
-    // Meta's error message (e.g. template not approved / not found) is
-    // safe to store: it contains no token. It IS what the teacher sees
-    // in the audit row, so a misconfigured template is visible, not silent.
-    const detail = body?.error?.message ?? `whatsapp_http_${res.status}`;
-    return { configured: true, ok: false, error: String(detail).slice(0, 500) };
+    // Store numeric provider codes, not raw response text that might contain
+    // a phone number or other recipient data.
+    const rawCode = body?.error?.code;
+    const rawSubcode = body?.error?.error_subcode;
+    const code = typeof rawCode === "number" && Number.isInteger(rawCode) ? rawCode : null;
+    const subcode =
+      typeof rawSubcode === "number" && Number.isInteger(rawSubcode) ? rawSubcode : null;
+    const suffix = [code, subcode].filter((value) => value !== null).join("_");
+    return {
+      configured: true,
+      ok: false,
+      error: `whatsapp_http_${res.status}${suffix ? `_meta_${suffix}` : ""}`,
+    };
   }
   return { configured: true, ok: true, messageId: body?.messages?.[0]?.id ?? null };
 }

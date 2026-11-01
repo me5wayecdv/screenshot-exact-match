@@ -39,6 +39,7 @@ import {
   type OcrErrorCode,
 } from "./handwritten";
 import {
+  consumeAiRateQuota,
   createUsageClient,
   extractOpenAiUsage,
   logAiUsage,
@@ -472,7 +473,13 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
 
     const auth = await authorizeTeacher(accessToken);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
-
+    const env = serverSupabaseEnv();
+    if (!env)
+      return {
+        ok: false,
+        code: "VISION_NOT_CONFIGURED",
+        message: "Server Supabase is not configured.",
+      };
     const config = resolveVisionConfig();
     if (!config) {
       return {
@@ -483,11 +490,17 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
       };
     }
 
+    const usageClient = createUsageClient(env.url, env.anonKey, accessToken);
+    if (!(await consumeAiRateQuota(usageClient, imageDataUrls.length))) {
+      return {
+        ok: false,
+        code: "VISION_RATE_LIMIT",
+        message: "AI usage limit reached. Try again later.",
+      };
+    }
+
     // Pilot cost measurement (best-effort, never fails the batch):
     // one row per image, attributed to the teacher.
-    const env = serverSupabaseEnv();
-    const usageClient = env ? createUsageClient(env.url, env.anonKey, accessToken) : null;
-
     const texts: string[] = [];
     for (let i = 0; i < imageDataUrls.length; i++) {
       const result = await callVisionOcr(
@@ -499,14 +512,12 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
       if (!result.ok) {
         return { ok: false, code: result.code, message: result.message, imageIndex: i };
       }
-      if (usageClient) {
-        await logAiUsage(usageClient, auth.userId, {
-          kind: "ocr",
-          provider: result.provider,
-          model: result.model,
-          usage: result.usage,
-        });
-      }
+      await logAiUsage(usageClient, auth.userId, {
+        kind: "ocr",
+        provider: result.provider,
+        model: result.model,
+        usage: result.usage,
+      });
       texts.push(result.text);
     }
     return { ok: true, texts };

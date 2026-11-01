@@ -10,10 +10,8 @@
  * Auth: `requireSupabaseAuth` (src/integrations/supabase/auth-middleware.ts)
  * attaches the caller's Bearer token; the handler then uses that RLS
  * client (`context.supabase`) for every read, so a teacher can only send
- * for assessments they own (public.owns_assessment) and students they
- * are linked to. The audit insert additionally tries the service-role
- * client first (server-side bookkeeping must not be losable to an RLS
- * edge case) and falls back to the RLS client.
+ * for assessments they own (public.owns_assessment). Audit writes use the
+ * service-role client only; clients cannot forge delivery outcomes.
  *
  * TEACHER-FINAL-WORD (deliberate, conservative reading of the spec):
  * BOTH triggers require the submission to be status='released'. The
@@ -21,14 +19,6 @@
  * never send an unreleased score. The auto path additionally requires
  * the assessment's auto_whatsapp_send toggle (default OFF).
  *
- * UNVERIFIED (coordinator must compile-check): no server-function file
- * exists yet on main to copy the exact createServerFn call shape from.
- * The shape below follows TanStack Start 1.x (createServerFn + .middleware
- * + .validator + .handler) and the repo's own auth-middleware contract
- * (context carries { supabase, userId, claims }). If the installed
- * Start version shapes context differently, adapt ONLY the context
- * access lines — the authorization logic (RLS reads + owner check)
- * must stay.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
@@ -56,28 +46,60 @@ function validateSendInput(data: unknown): SendInput {
 
 /** Insert one audit row. Never throws: a failed audit write must not
  *  rewrite the send outcome (the caller reports auditSaved: false). */
-async function writeAudit(
-  ctx: AuthedContext,
-  row: {
-    submission_id: string;
-    status: "sent" | "failed" | "skipped";
-    trigger: "manual" | "auto";
-    message_id: string | null;
-    error: string | null;
-  },
-): Promise<boolean> {
-  // Preferred: service-role client (bypasses RLS, audit is append-only
-  // server bookkeeping). Falls back to the caller's RLS client, whose
-  // whatsapp_sends insert policy allows teachers of own assessments.
+async function writeAudit(row: {
+  submission_id: string;
+  status: "sent" | "failed" | "skipped";
+  trigger: "manual" | "auto";
+  message_id: string | null;
+  error: string | null;
+}): Promise<boolean> {
+  // Audit writes are server-only. Allowing client INSERT would let a teacher
+  // forge a "sent" row and suppress a later automatic notification.
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("whatsapp_sends").insert(row);
-    if (!error) return true;
+    return !error;
   } catch {
-    // Service-role env missing in this deployment — fall through to RLS.
+    return false;
   }
-  const { error } = await ctx.supabase.from("whatsapp_sends").insert(row);
-  return !error;
+}
+
+async function claimSend(submissionId: string): Promise<"claimed" | "duplicate" | "error"> {
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin.rpc("claim_whatsapp_send", {
+      _submission: submissionId,
+    });
+    if (error) return "error";
+    return data ? "claimed" : "duplicate";
+  } catch {
+    return "error";
+  }
+}
+
+async function finishSend(
+  submissionId: string,
+  status: "sent" | "failed" | "skipped",
+  trigger: "manual" | "auto",
+  messageId: string | null,
+  errorMessage: string | null,
+  retryable = false,
+): Promise<boolean> {
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin.rpc("finish_whatsapp_send", {
+      _submission: submissionId,
+      _status: status,
+      _trigger: trigger,
+      _message_id: messageId,
+      _error: errorMessage,
+      _retryable: retryable,
+    });
+    return !error && data === true;
+  } catch {
+    // The claim lease prevents an immediate duplicate while the DB is unavailable.
+    return false;
+  }
 }
 
 export const sendWhatsAppReport = createServerFn({ method: "POST" })
@@ -111,20 +133,10 @@ export const sendWhatsAppReport = createServerFn({ method: "POST" })
     if (sub.status !== "released")
       return { ok: false, status: "not_released", error: "submission_not_released" };
 
-    // 4. Auto path: toggle must be ON (default OFF) and a previous
-    // successful send must not already exist (release happens once,
-    // but a retried release call must not double-send).
-    if (trigger === "auto") {
-      if (!assessment.auto_whatsapp_send)
-        return { ok: true, status: "skipped", reason: "auto_disabled" };
-      const { data: prior } = await ctx.supabase
-        .from("whatsapp_sends")
-        .select("id")
-        .eq("submission_id", submissionId)
-        .eq("status", "sent")
-        .limit(1);
-      if (prior && prior.length > 0) return { ok: true, status: "skipped", reason: "already_sent" };
-    }
+    // 4. Auto path: the toggle is checked here, then a database uniqueness
+    // claim is acquired after contact/consent checks and before the network call.
+    if (trigger === "auto" && !assessment.auto_whatsapp_send)
+      return { ok: true, status: "skipped", reason: "auto_disabled" };
 
     // 5. Parent contact, via RLS (teacher reads linked student profiles
     // under the existing "read own profile" policy pattern).
@@ -137,6 +149,8 @@ export const sendWhatsAppReport = createServerFn({ method: "POST" })
     const consent = (profile?.whatsapp_consent ?? false) as boolean;
     if (!phone) return { ok: true, status: "skipped", reason: "no_contact" };
     if (!consent) return { ok: true, status: "skipped", reason: "no_consent" };
+    if (!isValidE164(phone)) {
+      const auditSaved = await writeAudit({
     if (!isValidEgyptianMobile(phone)) {
       const auditSaved = await writeAudit(ctx, {
         submission_id: submissionId,
@@ -148,25 +162,76 @@ export const sendWhatsAppReport = createServerFn({ method: "POST" })
       return { ok: false, status: "failed", error: "invalid_phone", auditSaved };
     }
 
-    // 6. Server-only send. Dynamic import keeps the token module out of
-    // the client bundle; the API module itself refuses when env is unset.
     const api = await import("./whatsapp-api.server");
-    const scoreText = `${Number(sub.final_score ?? 0)}/${Number(sub.total_possible ?? 0)}`;
-    const result = await api.sendWhatsAppTemplate(phone, {
-      studentName: profile?.full_name || "",
-      assessmentTitle: assessment.title,
-      scoreText,
-    });
-    if (!result.configured) return { ok: true, status: "skipped", reason: "not_configured" };
+    if (!api.isWhatsAppConfigured()) {
+      await writeAudit({
+        submission_id: submissionId,
+        status: "skipped",
+        trigger,
+        message_id: null,
+        error: "not_configured",
+      });
+      return { ok: true, status: "skipped", reason: "not_configured" };
+    }
 
-    const auditSaved = await writeAudit(ctx, {
-      submission_id: submissionId,
-      status: result.ok ? "sent" : "failed",
+    const claim = await claimSend(submissionId);
+    if (claim === "duplicate") return { ok: true, status: "skipped", reason: "already_sent" };
+    if (claim === "error") {
+      const auditSaved = await writeAudit({
+        submission_id: submissionId,
+        status: "failed",
+        trigger,
+        message_id: null,
+        error: "send_claim_failed",
+      });
+      return { ok: false, status: "failed", error: "send_claim_failed", auditSaved };
+    }
+
+    // 6. The DB atomically records the outcome and finalizes/releases the claim.
+    let result: Awaited<ReturnType<typeof api.sendWhatsAppTemplate>>;
+    try {
+      const scoreText = `${Number(sub.final_score ?? 0)}/${Number(sub.total_possible ?? 0)}`;
+      result = await api.sendWhatsAppTemplate(phone, {
+        studentName: profile?.full_name || "",
+        assessmentTitle: assessment.title,
+        scoreText,
+      });
+    } catch {
+      // The provider may have accepted the message before the connection failed.
+      // Preserve the claim to prevent a blind retry from sending a duplicate.
+      const auditSaved = await finishSend(
+        submissionId,
+        "failed",
+        trigger,
+        null,
+        "network_outcome_unknown",
+        false,
+      );
+      return { ok: false, status: "failed", error: "whatsapp_send_failed", auditSaved };
+    }
+    if (!result.configured) {
+      await finishSend(submissionId, "skipped", trigger, null, "not_configured", false);
+      return { ok: true, status: "skipped", reason: "not_configured" };
+    }
+    if (!result.ok) {
+      const auditSaved = await finishSend(
+        submissionId,
+        "failed",
+        trigger,
+        null,
+        result.error,
+        true,
+      );
+      return { ok: false, status: "failed", error: result.error, auditSaved };
+    }
+    const auditSaved = await finishSend(
+      submissionId,
+      "sent",
       trigger,
-      message_id: result.ok ? result.messageId : null,
-      error: result.ok ? null : result.error,
-    });
-    if (!result.ok) return { ok: false, status: "failed", error: result.error, auditSaved };
+      result.messageId,
+      null,
+      false,
+    );
     return { ok: true, status: "sent", messageId: result.messageId, auditSaved };
   });
 
