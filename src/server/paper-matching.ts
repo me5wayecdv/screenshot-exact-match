@@ -82,11 +82,13 @@ export type MatchResult =
 
 const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 
-/** Client-compressed JPEGs are ~1 MB; 8M chars of data URL is a hard cap. */
-const MAX_DATA_URL_CHARS = 8_000_000;
+/** Client-compressed JPEGs are ~1 MB; bound individual server inputs to 3 MB decoded. */
+const MAX_DATA_URL_CHARS = 4_000_000;
 const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 /** At most 10 page photos per matching batch (sequential vision calls). */
 const MAX_PAGES = 10;
+/** Bound aggregate JSON/image memory for one matching batch. */
+const MAX_BATCH_DATA_URL_CHARS = 20_000_000;
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
   const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
@@ -612,6 +614,17 @@ export const matchPaperPages = createServerFn({ method: "POST" })
         ok: false,
         code: "INVALID_INPUT",
         message: "Each page needs a jpeg/png/webp data URL and an imagePath.",
+      };
+    }
+    const totalImageChars = (pages as { imageDataUrl: string; imagePath: string }[]).reduce(
+      (total, page) => total + page.imageDataUrl.length,
+      0,
+    );
+    if (totalImageChars > MAX_BATCH_DATA_URL_CHARS) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        message: "Page images exceed the maximum total size.",
       };
     }
 

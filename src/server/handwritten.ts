@@ -117,8 +117,8 @@ export type OcrResult =
 
 const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 
-/** Client-compressed JPEGs are ~1 MB; 8M chars of data URL is a hard cap. */
-const MAX_DATA_URL_CHARS = 8_000_000;
+/** Client-compressed JPEGs are ~1 MB; bound individual server inputs to 3 MB decoded. */
+const MAX_DATA_URL_CHARS = 4_000_000;
 const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
