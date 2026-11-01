@@ -695,6 +695,8 @@ const dict = {
     genOpenBuilder: "مراجعة المسودة وتحريرها",
     genGenerateAnother: "توليد مسودة أخرى",
     genDraftSaved: "تم حفظ {count} سؤالاً كمسودة غير منشورة.",
+    genDraftSavedPartial:
+      "تنبيه: طلبت {requested} سؤالاً وحُفظ {saved} فقط — الأسئلة الناقصة لم تكن صالحة من رد الذكاء. راجع المسودة وأضف الناقص يدوياً قبل النشر.",
     genBackToAssessments: "العودة إلى الاختبارات",
     genFileNote:
       "الملفات المرفوعة تُحفظ على الخادم أولاً، ويُستخرج نصها إلى خانة النص — راجع النص وعدّله قبل التوليد.",
@@ -1480,6 +1482,8 @@ const dict = {
     genOpenBuilder: "Review and edit draft",
     genGenerateAnother: "Generate another draft",
     genDraftSaved: "{count} questions saved as an unpublished draft.",
+    genDraftSavedPartial:
+      "Heads up: you asked for {requested} questions but only {saved} were saved - the rest were invalid in the AI reply. Review the draft and add the missing ones yourself before publishing.",
     genBackToAssessments: "Back to assessments",
     genFileNote:
       "Uploaded files are saved on the server first, and their text is extracted into the source box — review and edit it before generating.",
