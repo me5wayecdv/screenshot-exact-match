@@ -17,12 +17,31 @@ function mockFetch(ok: boolean, body: unknown, status = 200) {
   return fetchMock;
 }
 
+function mockFetchSequence(responses: Array<{ status: number; body: unknown }>) {
+  const fetchMock = vi.fn(async () => {
+    const next = responses.shift();
+    if (!next) throw new Error("No mocked Gemini response remains.");
+    return {
+      ok: next.status >= 200 && next.status < 300,
+      status: next.status,
+      headers: new Headers(),
+      body: null,
+      text: async () =>
+        typeof next.body === "string" ? next.body : JSON.stringify(next.body),
+      json: async () => next.body,
+    } as Response;
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 function signal() {
   return new AbortController().signal;
 }
 
 describe("runGeminiQuery request shape", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -96,6 +115,63 @@ describe("runGeminiQuery request shape", () => {
       text: "first second",
       usage: { inputTokens: null, outputTokens: null },
     });
+  });
+
+  it("retries transient Gemini 503 responses before returning OCR text", async () => {
+    vi.useFakeTimers();
+    const fetchMock = mockFetchSequence([
+      {
+        status: 503,
+        body: { error: { status: "UNAVAILABLE", message: "high demand" } },
+      },
+      {
+        status: 200,
+        body: { candidates: [{ content: { parts: [{ text: "recovered" }] } }] },
+      },
+    ]);
+
+    const resultPromise = runGeminiQuery(
+      "test-key",
+      "gemini-2.5-flash",
+      signal(),
+      IMAGE_JPEG,
+      PROMPT,
+    );
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result).toEqual({
+      ok: true,
+      text: "recovered",
+      usage: { inputTokens: null, outputTokens: null },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops retrying after two transient Gemini 503 retries", async () => {
+    vi.useFakeTimers();
+    const fetchMock = mockFetchSequence([
+      { status: 503, body: { error: { message: "busy 1" } } },
+      { status: 503, body: { error: { message: "busy 2" } } },
+      { status: 503, body: { error: { message: "still busy" } } },
+    ]);
+
+    const resultPromise = runGeminiQuery(
+      "test-key",
+      "gemini-2.5-flash",
+      signal(),
+      IMAGE_JPEG,
+      PROMPT,
+    );
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("503");
+      expect(result.message).not.toContain("still busy");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("maps a non-OK response to VISION_UPSTREAM", async () => {

@@ -386,12 +386,48 @@ export async function runMoondreamQuery(
   return { ok: true, text };
 }
 
+const GEMINI_503_RETRY_DELAYS_MS = [1_000, 2_000] as const;
+
+function geminiRetryDelayMs(response: Response, fallbackMs: number): number {
+  const retryAfter = response.headers.get("retry-after")?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const requestedMs = Number.isFinite(seconds)
+      ? seconds * 1_000
+      : Date.parse(retryAfter) - Date.now();
+    if (Number.isFinite(requestedMs) && requestedMs > 0) {
+      // Respect the provider's hint without letting one OCR request hang
+      // for an unbounded period.
+      return Math.min(5_000, requestedMs);
+    }
+  }
+  return fallbackMs;
+}
+
+async function waitForGeminiRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
 /** Gemini vision via the Developer API generateContent endpoint.
  *  Unlike the Cloudflare paths, the image travels as base64 inline
  *  data (not a byte array) alongside the text prompt. Response text
  *  comes from candidates[0].content.parts[].text, joined. Error
  *  conventions mirror the sibling helpers. Dormant: only called
- *  when resolveGeminiConfig() returns non-null. */
+ *  when resolveGeminiConfig() returns non-null. Transient HTTP 503s
+ *  receive at most two bounded retries. */
 export async function runGeminiQuery(
   apiKey: string,
   model: string,
@@ -407,7 +443,7 @@ export async function runGeminiQuery(
   const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
   const data = comma >= 0 ? imageDataUrl.slice(comma + 1) : "";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-  const res = await fetch(url, {
+  const requestInit: RequestInit = {
     method: "POST",
     signal,
     headers: {
@@ -422,13 +458,28 @@ export async function runGeminiQuery(
       ],
       generationConfig: { maxOutputTokens: 8192, temperature: 0 },
     }),
-  });
+  };
+
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(url, requestInit);
+    if (res.status !== 503 || attempt >= GEMINI_503_RETRY_DELAYS_MS.length) break;
+
+    const delayMs = geminiRetryDelayMs(res, GEMINI_503_RETRY_DELAYS_MS[attempt]!);
+    await res.body?.cancel().catch(() => undefined);
+    await waitForGeminiRetry(delayMs, signal);
+  }
+
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
+    // Do not return the provider's raw error payload to the browser. Keep a
+    // stable status for UI handling without exposing vendor internals.
     return {
       ok: false,
       code: "VISION_UPSTREAM",
-      message: `Vision provider returned HTTP ${res.status}: ${stripDataUris(body).slice(0, 500)}`,
+      message:
+        res.status === 503
+          ? "Vision provider is temporarily unavailable (HTTP 503)."
+          : `Vision provider returned HTTP ${res.status}.`,
     };
   }
   const json = (await res.json()) as {

@@ -84,21 +84,19 @@ Any OpenAI-compatible provider works. Free/open options to point at:
     code, gated by the model var; do not retry without a new
     theory (binding-based call or chat-completions vision
     shape). Revert remains a one-var switch, no code removal.
-  - Gemini vision branch 2026-10-30 (DORMANT, not yet live-tested):
-    `runGeminiQuery` in handwritten.ts calls the Developer API
-    generateContent endpoint (base64 inlineData + text prompt,
-    `maxOutputTokens: 8192`, temperature 0; response text from
-    candidates[0].content.parts). All three call sites check
-    `resolveGeminiConfig()` FIRST: it returns non-null only when
-    VISION_PROVIDER=gemini AND GEMINI_API_KEY are set (model
-    from GEMINI_MODEL, default gemini-2.5-flash). With either
-    unset, behavior is exactly the Cloudflare/Llama path —
-    verified by build + tests with no live change. The key is a
-    Worker secret (GEMINI_API_KEY), never in code. Direction
-    note: on 2026-10-30 the user waived the free-open-source
-    model direction for Gemini ("results over direction");
-    test on the dense Arabic + English photos before any live
-    switch.
+  - Gemini vision branch: `runGeminiQuery` in handwritten.ts calls the
+    Developer API `generateContent` endpoint (base64 inlineData + text
+    prompt, `maxOutputTokens: 8192`, temperature 0; response text from
+    `candidates[0].content.parts`). It is selected only when
+    `VISION_PROVIDER=gemini` AND `GEMINI_API_KEY` are set (model from
+    `GEMINI_MODEL`, default `gemini-2.5-flash`). The key is a Worker
+    secret, never stored in code. The user reported intermittent HTTP
+    503 high-demand errors while extracting exam images. The source-OCR
+    path now retries Gemini 503s twice, then falls back to the configured
+    `AI_VISION_MODEL` Workers AI path; this code change has not yet been
+    test-run or deployed. Other Gemini vision paths do not yet have this
+    Cloudflare fallback. Verify Workers AI quota/cost and Arabic OCR
+    quality before relying on the fallback in production.
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they

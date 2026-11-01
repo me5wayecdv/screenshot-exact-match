@@ -169,6 +169,7 @@ function Generate() {
   const [fileBusy, setFileBusy] = useState(false);
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrRetryBatch, setOcrRetryBatch] = useState<{ blobs: Blob[]; names: string[] } | null>(null);
   const [visionOk, setVisionOk] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -206,6 +207,8 @@ function Generate() {
   }
 
   async function handleDocFile(file: File) {
+    setOcrError(null);
+    setOcrRetryBatch(null);
     const lower = file.name.toLowerCase();
     const isPdf = lower.endsWith(".pdf");
     const isDocx = lower.endsWith(".docx");
@@ -290,26 +293,40 @@ function Generate() {
     return [...aLines, ...bLines.slice(overlap)].join("\n");
   }
 
-  async function handleImageFiles(files: File[]) {
-    if (files.length > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
-    if (files.some((f) => f.size > MAX_IMAGE_BYTES)) return void toast.error(t("genFileTooBig"));
+  async function handleImageFiles(
+    files: File[],
+    retryBatch?: { blobs: Blob[]; names: string[] },
+  ) {
+    const imageCount = retryBatch?.blobs.length ?? files.length;
+    if (imageCount > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
+    if (!retryBatch && files.some((f) => f.size > MAX_IMAGE_BYTES)) {
+      return void toast.error(t("genFileTooBig"));
+    }
     setOcrError(null);
+    if (!retryBatch) setOcrRetryBatch(null);
     setFileBusy(true);
+    let preparedBatch: { blobs: Blob[]; names: string[] } | null = retryBatch ?? null;
     try {
-      const dataUrls: string[] = [];
-      const blobs: Blob[] = [];
-      for (const f of files) {
-        const compressed = await compressImage(f);
-        blobs.push(compressed);
-        try {
-          await uploadSource(compressed, "jpg");
-        } catch {
-          setOcrError("Upload to the generation-sources bucket failed.");
-          toast.error(t("genUploadFailed"));
-          return;
+      const names = retryBatch?.names ?? files.map((file) => file.name);
+      const blobs = retryBatch ? [...retryBatch.blobs] : [];
+      const dataUrls = retryBatch ? await Promise.all(blobs.map(blobToDataUrl)) : [];
+      if (!retryBatch) {
+        for (const file of files) {
+          const compressed = await compressImage(file);
+          blobs.push(compressed);
+          try {
+            await uploadSource(compressed, "jpg");
+          } catch {
+            setOcrError(t("genUploadFailed"));
+            toast.error(t("genUploadFailed"));
+            return;
+          }
+          dataUrls.push(await blobToDataUrl(compressed));
         }
-        dataUrls.push(await blobToDataUrl(compressed));
+        preparedBatch = { blobs, names };
+        setOcrRetryBatch(preparedBatch);
       }
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -323,7 +340,7 @@ function Generate() {
         if (res.message.includes("408") || res.code === "VISION_TIMEOUT") {
           try {
             const perFile: string[] = [];
-            for (let i = 0; i < files.length; i++) {
+            for (let i = 0; i < blobs.length; i++) {
               const originalBlob = blobs[i];
               if (!originalBlob) throw new Error("Missing uploaded source image.");
               const quarters = await splitImageBlob(originalBlob);
@@ -353,32 +370,55 @@ function Generate() {
             }
             const joined = perFile.join("\n\n");
             if (joined.trim().length >= 50) {
+              setOcrRetryBatch(null);
               setSourceText((prev) => appendSource(prev, joined));
-              noteExtracted(files.map((f) => f.name).join("، "), joined);
+              noteExtracted(names.join("، "), joined);
               return;
             }
           } catch {
             // Fall through to the original error handling below.
           }
         }
-        // Persistent panel (same pattern as the handwritten page): the
-        // generic toast alone hides which stage failed, and this path
-        // failed repeatedly with no diagnosable detail.
-        setOcrError(`[${res.code}] ${res.message}`);
-        if (res.code === "VISION_NOT_CONFIGURED") return void toast.error(t("genVisionMissing"));
-        if (res.code === "VISION_UNSUPPORTED") return void toast.error(t("genVisionUnsupported"));
-        return void toast.error(t("genOcrFailed"));
+        const temporaryUnavailable =
+          res.code === "VISION_UPSTREAM" && /HTTP 503|UNAVAILABLE/i.test(res.message);
+        const userMessage =
+          temporaryUnavailable
+            ? t("genVisionBusy")
+            : res.code === "VISION_NOT_CONFIGURED"
+              ? t("genVisionMissing")
+              : res.code === "VISION_UNSUPPORTED"
+                ? t("genVisionUnsupported")
+                : res.code === "VISION_TIMEOUT"
+                  ? t("genVisionTimeout")
+                  : res.code === "VISION_RATE_LIMIT"
+                    ? t("genVisionRateLimit")
+                    : res.code === "VISION_UPSTREAM"
+                      ? t("genVisionUpstream")
+                      : t("genOcrFailed");
+        const retryable =
+          res.code === "VISION_UPSTREAM" ||
+          res.code === "VISION_TIMEOUT" ||
+          res.code === "VISION_RATE_LIMIT";
+        if (retryable && preparedBatch) setOcrRetryBatch(preparedBatch);
+        else setOcrRetryBatch(null);
+        setOcrError(userMessage);
+        toast.error(userMessage);
+        return;
       }
       const text = res.texts.join("\n\n");
       if (text.trim().length < 50) {
+        setOcrRetryBatch(preparedBatch);
+        setOcrError(t("genExtractFailed"));
         toast.error(t("genExtractFailed"));
         return;
       }
+      setOcrRetryBatch(null);
       setSourceText((prev) => appendSource(prev, text));
-      noteExtracted(files.map((f) => f.name).join("، "), text);
+      noteExtracted(names.join("، "), text);
     } catch {
-      setOcrError("Photo OCR request failed (network or server error).");
-      toast.error(t("genOcrFailed"));
+      if (preparedBatch) setOcrRetryBatch(preparedBatch);
+      setOcrError(t("genVisionUpstream"));
+      toast.error(t("genVisionUpstream"));
     } finally {
       setFileBusy(false);
     }
@@ -572,6 +612,16 @@ function Generate() {
                 >
                   {ocrError}
                 </div>
+              )}
+              {ocrError && ocrRetryBatch && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={fileBusy}
+                  onClick={() => void handleImageFiles([], ocrRetryBatch)}
+                >
+                  {t("genOcrRetry")}
+                </Button>
               )}
             </div>
 

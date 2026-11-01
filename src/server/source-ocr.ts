@@ -177,14 +177,19 @@ async function callVisionOcr(
           "Parts that are unreadable, write [unclear] in their place. " +
           "Return only the transcription, nothing else.",
       );
-      if (!g.ok) return g;
-      return {
-        ok: true,
-        text: extractTranscription(g.text),
-        provider: "gemini",
-        model: gemini.model,
-        usage: g.usage,
-      };
+      if (g.ok) {
+        return {
+          ok: true,
+          text: extractTranscription(g.text),
+          provider: "gemini",
+          model: gemini.model,
+          usage: g.usage,
+        };
+      }
+      // Gemini 503s are retried by runGeminiQuery first. If the provider is
+      // still unavailable, continue to the configured Workers AI vision model
+      // below instead of exposing a single-provider outage to the teacher.
+      if (!(g.code === "VISION_UPSTREAM" && /HTTP 503/i.test(g.message))) return g;
     }
     // LLaVA (image-to-text) cannot take the chat-completions shape below:
     // on Cloudflare it needs the native run endpoint with a byte-array
