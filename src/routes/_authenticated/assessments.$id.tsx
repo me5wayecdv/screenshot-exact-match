@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { WhatsAppAutoSendToggle } from "@/components/whatsapp-auto-send-toggle";
-import { planPublishAudience } from "@/lib/audience";
+import { missingAssignments, modeFromCoverage, planPublishAudience } from "@/lib/audience";
 
 type QType = Database["public"]["Enums"]["question_type"];
 type Status = Database["public"]["Enums"]["assessment_status"];
@@ -73,6 +73,7 @@ function Builder() {
   // see the narrowing of `data`, but these consts carry it.
   const linkedStudentIds = data.students.map((st) => st.student_id);
   const assignedIds = data.assigned;
+  const unassigned = missingAssignments(linkedStudentIds, assignedIds);
 
   /**
    * Publish is the one transition that decides who can see the exam, so it
@@ -87,17 +88,16 @@ function Builder() {
    * A subset selection is never widened.
    */
   async function setStatus(s: Status) {
-    const plan = planPublishAudience({
-      linkedIds: linkedStudentIds,
-      assignedIds,
-      audienceMode: a.audience_mode,
-    });
+    // The audience is derived from the rows that exist, never from
+    // a.audience_mode (its DB default is 'explicit', which used to be
+    // mistaken for a deliberate choice).
+    const plan = planPublishAudience({ linkedIds: linkedStudentIds, assignedIds });
     if (s === "published") {
       if (plan.blocked === "no_students") {
         toast.error(t("publishNoStudents"));
         return;
       }
-      if (assignedIds.size > 0 && plan.assignIds.length === 0 && !plan.everyone) {
+      if (plan.mode === "explicit") {
         // A strict subset: allowed, but say out loud who will NOT see it.
         toast.warning(
           t("publishPartial", {
@@ -117,19 +117,43 @@ function Builder() {
           .insert(plan.assignIds.map((student_id) => ({ assessment_id: id, student_id })));
         if (aErr) toast.error(translateError(aErr, lang));
       }
-      // Best effort: schemas without audience_mode simply ignore this.
-      await supabase
-        .from("assessments")
-        .update({ audience_mode: plan.everyone ? "auto_all" : "explicit" })
-        .eq("id", id);
-      toast.success(
-        t("publishReach", {
-          count: String(plan.everyone ? linkedStudentIds.length : assignedIds.size),
-        }),
-      );
+      // Persist what was actually decided. Best effort: a schema without
+      // audience_mode ignores it, and the rows above are already correct.
+      await supabase.from("assessments").update({ audience_mode: plan.mode }).eq("id", id);
+
+      // Report the truth: re-read the assignment rows instead of trusting
+      // the pre-publish selection (that reported "0 students" on a live
+      // publish that had in fact assigned the student).
+      const { data: rows, error: readErr } = await supabase
+        .from("assessment_assignments")
+        .select("student_id")
+        .eq("assessment_id", id);
+      const reach = rows?.length ?? 0;
+      if (readErr) {
+        toast.warning(t("publishReachUnknown"));
+      } else if (reach === 0) {
+        toast.error(t("publishReachZero"));
+      } else {
+        toast.success(t("publishReach", { count: String(reach) }));
+      }
     }
     refresh();
   }
+
+  /** Switch an already-published assessment to "everyone" and top it up. */
+  async function makeAudienceEveryone() {
+    const missing = missingAssignments(linkedStudentIds, assignedIds);
+    if (missing.length > 0) {
+      const { error } = await supabase
+        .from("assessment_assignments")
+        .insert(missing.map((student_id) => ({ assessment_id: id, student_id })));
+      if (error) return void toast.error(translateError(error, lang));
+    }
+    await supabase.from("assessments").update({ audience_mode: "auto_all" }).eq("id", id);
+    toast.success(t("audienceEveryoneNow", { count: String(linkedStudentIds.length) }));
+    refresh();
+  }
+
   async function addQuestion(type: QType) {
     const { data: q, error } = await supabase
       .from("questions")
@@ -160,23 +184,6 @@ function Builder() {
     ]);
     refresh();
   }
-  /**
-   * A student who joined AFTER publish is not in assessment_assignments on
-   * schemas where join_teacher does not back-fill (or when the audience was
-   * recorded but the row was skipped). Give the teacher a one-click repair
-   * instead of asking them to close and re-publish.
-   */
-  async function syncAudience() {
-    const missing = linkedStudentIds.filter((sid) => !assignedIds.has(sid));
-    if (missing.length === 0) return;
-    const { error } = await supabase
-      .from("assessment_assignments")
-      .insert(missing.map((student_id) => ({ assessment_id: id, student_id })));
-    if (error) return void toast.error(translateError(error, lang));
-    toast.success(t("audienceSynced", { count: String(missing.length) }));
-    refresh();
-  }
-
   async function toggleAssign(studentId: string, on: boolean) {
     const { error } = on
       ? await supabase
@@ -188,6 +195,16 @@ function Builder() {
           .eq("assessment_id", id)
           .eq("student_id", studentId);
     if (error) return void toast.error(translateError(error, lang));
+    // Keep the marker honest with the boxes: removing anyone means the
+    // teacher chose a subset; ending up with everyone selected means
+    // "everyone" again (and late joiners should keep arriving).
+    const next = new Set(assignedIds);
+    if (on) next.add(studentId);
+    else next.delete(studentId);
+    await supabase
+      .from("assessments")
+      .update({ audience_mode: modeFromCoverage(linkedStudentIds, next) })
+      .eq("id", id);
     refresh();
   }
 
@@ -300,14 +317,28 @@ function Builder() {
                 })}
               </p>
             ) : null}
-            {a.audience_mode === "auto_all" &&
-            data.assigned.size < data.students.length &&
-            a.status !== "draft" ? (
+            {a.status !== "draft" && unassigned.length > 0 ? (
               <div className="mt-3 space-y-2 rounded-md bg-info/15 p-3">
-                <p className="text-xs">{t("audienceHasNewStudents")}</p>
-                <Button size="sm" variant="outline" onClick={syncAudience}>
-                  {t("audienceSyncNow")}
-                </Button>
+                {a.audience_mode === "auto_all" ? (
+                  <>
+                    <p className="text-xs">{t("audienceHasNewStudents")}</p>
+                    <Button size="sm" variant="outline" onClick={makeAudienceEveryone}>
+                      {t("audienceSyncNow")}
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    {/* 'explicit' means a real subset — never widen it
+                        silently. Offer the switch instead, because a
+                        subset that just happens to cover everyone who was
+                        linked at publish time is indistinguishable from
+                        "everyone" once somebody new joins. */}
+                    <p className="text-xs">{t("audienceExplicitNote")}</p>
+                    <Button size="sm" variant="outline" onClick={makeAudienceEveryone}>
+                      {t("audienceMakeEveryone")}
+                    </Button>
+                  </>
+                )}
               </div>
             ) : null}
             <p className="mt-4 text-xs text-muted-foreground">

@@ -9,17 +9,33 @@ report.
 
 ## The rule at publish time
 
-`src/lib/audience.ts` (`planPublishAudience`, unit-tested) decides before the
-status flips, and the builder (`src/routes/_authenticated/assessments/$id.tsx`)
-enforces it:
+`src/lib/audience.ts` (`planPublishAudience`, unit-tested) derives the audience
+from the **rows that exist**, never from `assessments.audience_mode` — that
+column defaults to `'explicit'`, and trusting the default was a real bug
+(2026-11-03): a first publish with one linked student was classified
+`explicit`, so students who joined later were never assigned, and the toast
+reported "0 students".
 
-| State | Publish result |
-| ----- | -------------- |
-| Teacher has **no linked students** | **Blocked** with an explanatory message. Publishing to nobody is not a reachable state. |
-| No student selected | **Everyone**: assign every linked student, mark `audience_mode = 'auto_all'` so later joiners are included too. |
-| A strict subset selected | Keep exactly that subset, mark `audience_mode = 'explicit'`, and warn how many students will *not* see it. |
+| Coverage at publish | Audience | Effect |
+| ------------------- | -------- | ------ |
+| No linked students | — | **Blocked** ("nobody could see it"). |
+| Nothing selected | `auto_all` | Every linked student assigned; later joiners included. |
+| Selection covers every linked student | `auto_all` | Same — selecting everyone *is* "everyone". |
+| A strict subset selected | `explicit` | Exactly that subset; never widened (teacher is warned). |
 
-After publishing, the teacher sees "Published — N student(s) can see it now."
+The marker is **written** from that decision, and the success toast reports a
+number read back from `assessment_assignments` after the write — not from the
+pre-publish selection.
+
+For an already-published exam, the builder shows, when some linked students
+are unassigned:
+
+- audience `auto_all` → "**Add the new students**" (safe top-up);
+- audience `explicit` → a note plus "**Audience: all my students**", because a
+  subset that covered everyone at publish time cannot be told apart from
+  "everyone" once somebody new joins. Nothing is widened without that click.
+
+## If the database is behind
 
 ## If the database is behind
 
@@ -34,10 +50,17 @@ The app does not depend on the migration being applied:
   button (`syncAudience`).
 
 The database-side twin of this rule is
-`supabase/migrations/20261101010000_audience_auto_all.sql` (publish-time
-auto-assignment + `join_teacher` back-filling open `auto_all` exams). Applying
-it is still the right end state; the app floor above means an unapplied
-migration degrades to "one extra click", never to "invisible exam".
+`supabase/migrations/20261103090000_audience_by_coverage.sql`: publish
+classifies by **coverage** (not by "any row exists"), refuses to publish with
+no linked students, and `join_teacher` keeps back-filling open `auto_all`
+exams (from `20261101010000_audience_auto_all.sql`). The migration also
+carries a commented, opt-in repair query for rows the old logic mislabelled —
+it only matches assessments whose assignments already cover every linked
+student.
+
+The app does not depend on either migration: it writes the assignment rows and
+the marker itself, so an unapplied migration degrades to "one extra click",
+never to an invisible exam.
 
 ## Student-side empty state
 
