@@ -112,9 +112,16 @@ function Builder() {
 
     if (s === "published" && plan.blocked === null) {
       if (plan.assignIds.length > 0) {
-        const { error: aErr } = await supabase
-          .from("assessment_assignments")
-          .insert(plan.assignIds.map((student_id) => ({ assessment_id: id, student_id })));
+        // The RPC already assigns everyone on current schemas, so a plain
+        // insert here hits the (assessment_id, student_id) primary key and
+        // surfaced a second, red "duplicate key" toast right after a publish
+        // that had actually succeeded. Upsert-and-ignore makes the top-up
+        // idempotent: it only ever adds rows that are genuinely missing, and
+        // a concurrent join can no longer turn into an error.
+        const { error: aErr } = await supabase.from("assessment_assignments").upsert(
+          plan.assignIds.map((student_id) => ({ assessment_id: id, student_id })),
+          { onConflict: "assessment_id,student_id", ignoreDuplicates: true },
+        );
         if (aErr) toast.error(translateError(aErr, lang));
       }
       // Persist what was actually decided. Best effort: a schema without
@@ -144,9 +151,11 @@ function Builder() {
   async function makeAudienceEveryone() {
     const missing = missingAssignments(linkedStudentIds, assignedIds);
     if (missing.length > 0) {
-      const { error } = await supabase
-        .from("assessment_assignments")
-        .insert(missing.map((student_id) => ({ assessment_id: id, student_id })));
+      // Same rule as publish: idempotent top-up, never a duplicate-key error.
+      const { error } = await supabase.from("assessment_assignments").upsert(
+        missing.map((student_id) => ({ assessment_id: id, student_id })),
+        { onConflict: "assessment_id,student_id", ignoreDuplicates: true },
+      );
       if (error) return void toast.error(translateError(error, lang));
     }
     await supabase.from("assessments").update({ audience_mode: "auto_all" }).eq("id", id);
