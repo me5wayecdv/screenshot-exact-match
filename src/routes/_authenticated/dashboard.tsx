@@ -37,7 +37,6 @@ function Dashboard() {
   return <StudentHome name={me.fullName} studentId={me.id} />;
 }
 
-function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: string }) {
 type StartStepMeta = {
   title: string;
   body: string;
@@ -87,7 +86,7 @@ function StartChecklistCard({
   );
 }
 
-function SchoolTeacherHome({ name }: { name: string }) {
+function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: string }) {
   const { t, lang } = useI18n();
   const { data } = useQuery({
     queryKey: ["teacher-summary", teacherId],
@@ -122,8 +121,8 @@ function SchoolTeacherHome({ name }: { name: string }) {
 
   const checklist = buildStartChecklist({
     assessmentsCount: data?.assessments.length ?? 0,
-    studentsCount: data?.students.length ?? 0,
-    hasReleased: (data?.submissions ?? []).some((s) => s.status === "released"),
+    studentsCount: data?.studentCount ?? 0,
+    hasReleased: (data?.releasedCount ?? 0) > 0,
   });
   const stepMeta: Partial<Record<StartStepId, StartStepMeta>> = {
     assessment: {
@@ -237,9 +236,9 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
     { label: t("summaryActive"), value: data?.summary?.published_assessment_count },
   ];
   const tutorChecklist = buildTutorStartChecklist({
-    lessonsCount: data?.lessons.length ?? 0,
-    studentsCount: studentCount,
-    hasPublished: (data?.assessments ?? []).some((a) => a.status === "published"),
+    lessonsCount: data?.summary?.lesson_count ?? 0,
+    studentsCount: data?.summary?.student_count ?? 0,
+    hasPublished: (data?.summary?.published_assessment_count ?? 0) > 0,
   });
   const tutorStepMeta: Partial<Record<StartStepId, StartStepMeta>> = {
     lesson: {
