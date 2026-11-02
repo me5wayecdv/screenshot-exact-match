@@ -17,7 +17,7 @@ import type { GenerateFailureCode } from "@/lib/ai-failure";
 import type { GenerateDifficulty, GenerateQuestionType } from "@/lib/generate-assessment-prompt";
 import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
 import { getHandwritingStatus } from "@/server/handwritten";
-import { ocrSourceImages } from "@/server/source-ocr";
+import { ocrSourceImages, type SourceOcrResult } from "@/server/source-ocr";
 
 // Route file convention (verified against the repo listing at HEAD):
 // src/routes/_authenticated/assessments.$id.tsx, assessments.index.tsx,
@@ -73,6 +73,7 @@ const GEN_ERROR_KEYS: Record<GenerateFailureCode, string> = {
 const MAX_SOURCE_CHARS = 30_000;
 const MAX_DOC_BYTES = 10 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_OCR_BLOB_BYTES = 2_900_000;
 const MAX_IMAGES = 5;
 
 function appendSource(prev: string, text: string): string {
@@ -81,24 +82,35 @@ function appendSource(prev: string, text: string): string {
   return prev.trim() ? `${prev.trim()}\n\n${clean}` : clean;
 }
 
-/** Compress an image to a ≤1600px JPEG (same bound as handwritten papers). */
+/** Keep small print readable while staying below the server's 4 MB data-URL bound. */
 async function compressImage(file: File): Promise<Blob> {
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
-  const w = Math.max(1, Math.round(bitmap.width * scale));
-  const h = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas unavailable.");
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close();
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/jpeg", 0.85),
-  );
-  if (!blob) throw new Error("Compression failed.");
-  return blob;
+  try {
+    for (const maxEdge of [2400, 2048, 1600]) {
+      const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+      const w = Math.max(1, Math.round(bitmap.width * scale));
+      const h = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas unavailable.");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(bitmap, 0, 0, w, h);
+
+      for (const quality of [0.9, 0.84, 0.78]) {
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", quality),
+        );
+        if (!blob) throw new Error("Compression failed.");
+        if (blob.size <= MAX_OCR_BLOB_BYTES) return blob;
+      }
+    }
+    throw new Error("Image is too large to prepare for OCR.");
+  } finally {
+    bitmap.close();
+  }
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -172,6 +184,7 @@ function Generate() {
   // submit (or a success) and keeps the raw error code for diagnosis.
   const [genError, setGenError] = useState<string | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
+  const [detailedOcr, setDetailedOcr] = useState(false);
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [ocrRetryBatch, setOcrRetryBatch] = useState<{ blobs: Blob[]; names: string[] } | null>(
@@ -300,6 +313,45 @@ function Generate() {
     return [...aLines, ...bLines.slice(overlap)].join("\n");
   }
 
+  async function transcribeInSections(
+    blobs: Blob[],
+    accessToken: string,
+  ): Promise<SourceOcrResult> {
+    const texts: string[] = [];
+    for (let i = 0; i < blobs.length; i++) {
+      const image = blobs[i];
+      if (!image) {
+        return {
+          ok: false,
+          code: "INVALID_INPUT",
+          message: "Missing source image.",
+          imageIndex: i,
+        };
+      }
+      const quarters = await splitImageBlob(image);
+      const quarterDataUrls = await Promise.all(quarters.map(blobToDataUrl));
+      const result = await ocrSourceImages({
+        data: { imageDataUrls: quarterDataUrls, accessToken },
+      });
+      if (!result.ok) return { ...result, imageIndex: i };
+      if (result.texts.length !== 4) {
+        return {
+          ok: false,
+          code: "VISION_PARSE_FAILED",
+          message: "Section OCR returned an incomplete page.",
+          imageIndex: i,
+        };
+      }
+      texts.push(
+        joinSplitTexts(
+          joinSplitTexts(joinSplitTexts(result.texts[0]!, result.texts[1]!), result.texts[2]!),
+          result.texts[3]!,
+        ),
+      );
+    }
+    return { ok: true, texts };
+  }
+
   async function handleImageFiles(files: File[], retryBatch?: { blobs: Blob[]; names: string[] }) {
     const imageCount = retryBatch?.blobs.length ?? files.length;
     if (imageCount > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
@@ -313,7 +365,8 @@ function Generate() {
     try {
       const names = retryBatch?.names ?? files.map((file) => file.name);
       const blobs = retryBatch ? [...retryBatch.blobs] : [];
-      const dataUrls = retryBatch ? await Promise.all(blobs.map(blobToDataUrl)) : [];
+      const dataUrls =
+        retryBatch && !detailedOcr ? await Promise.all(blobs.map(blobToDataUrl)) : [];
       if (!retryBatch) {
         for (const file of files) {
           const compressed = await compressImage(file);
@@ -325,7 +378,7 @@ function Generate() {
             toast.error(t("genUploadFailed"));
             return;
           }
-          dataUrls.push(await blobToDataUrl(compressed));
+          if (!detailedOcr) dataUrls.push(await blobToDataUrl(compressed));
         }
         preparedBatch = { blobs, names };
         setOcrRetryBatch(preparedBatch);
@@ -334,55 +387,34 @@ function Generate() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const res = await ocrSourceImages({
-        data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
-      });
-      if (!res.ok) {
-        // 408/timeout-only fallback (see handwritten.tsx): split each
-        // page into overlapping quarters and transcribe those instead.
-        // Per-file calls keep the batch within the 1–5 image limit.
-        if (res.message.includes("408") || res.code === "VISION_TIMEOUT") {
-          try {
-            const perFile: string[] = [];
-            for (let i = 0; i < blobs.length; i++) {
-              const originalBlob = blobs[i];
-              if (!originalBlob) throw new Error("Missing uploaded source image.");
-              const quarters = await splitImageBlob(originalBlob);
-              const quarterDataUrls: string[] = [];
-              for (const quarter of quarters) {
-                try {
-                  await uploadSource(quarter, "jpg");
-                } catch {
-                  // Quarters are derivatives of an already-persisted
-                  // original; a failed quarter upload must not block OCR.
-                }
-                quarterDataUrls.push(await blobToDataUrl(quarter));
-              }
-              const splitRes = await ocrSourceImages({
-                data: { imageDataUrls: quarterDataUrls, accessToken: session?.access_token ?? "" },
-              });
-              if (!splitRes.ok || splitRes.texts.length !== 4) throw new Error("split failed");
-              perFile.push(
-                joinSplitTexts(
-                  joinSplitTexts(
-                    joinSplitTexts(splitRes.texts[0]!, splitRes.texts[1]!),
-                    splitRes.texts[2]!,
-                  ),
-                  splitRes.texts[3]!,
-                ),
-              );
-            }
-            const joined = perFile.join("\n\n");
+      const res: SourceOcrResult = detailedOcr
+        ? await transcribeInSections(blobs, session?.access_token ?? "")
+        : await ocrSourceImages({
+            data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
+          });
+      if (
+        !res.ok &&
+        !detailedOcr &&
+        (res.message.includes("408") || res.code === "VISION_TIMEOUT")
+      ) {
+        // A timeout may mean the full page is too dense for one pass.
+        // Retry with overlapping quarters, whose text is larger per crop.
+        try {
+          const splitRes = await transcribeInSections(blobs, session?.access_token ?? "");
+          if (splitRes.ok) {
+            const joined = splitRes.texts.join("\n\n");
             if (joined.trim().length >= 50) {
               setOcrRetryBatch(null);
               setSourceText((prev) => appendSource(prev, joined));
               noteExtracted(names.join("، "), joined);
               return;
             }
-          } catch {
-            // Fall through to the original error handling below.
           }
+        } catch {
+          // Fall through to the original error handling below.
         }
+      }
+      if (!res.ok) {
         const temporaryUnavailable =
           res.code === "VISION_UPSTREAM" && /HTTP 503|UNAVAILABLE/i.test(res.message);
         const userMessage = temporaryUnavailable
@@ -588,6 +620,17 @@ function Generate() {
                   }}
                 />
                 <p className="text-xs text-muted-foreground">{t("genUploadDocHint")}</p>
+              </div>
+              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-2">
+                <Checkbox
+                  id="g-ocr-detailed"
+                  checked={detailedOcr}
+                  onCheckedChange={(checked) => setDetailedOcr(!!checked)}
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="g-ocr-detailed">{t("genOcrDetailed")}</Label>
+                  <p className="text-xs text-muted-foreground">{t("genOcrDetailedHint")}</p>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label>{t("genUploadImages")}</Label>
