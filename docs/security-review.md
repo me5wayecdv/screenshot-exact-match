@@ -10,13 +10,16 @@ The repository contains a Drizzle baseline at
 `drizzle/migrations/0000_migration.sql` followed by timestamped SQL under
 `supabase/migrations/`; the deployment history and schema equivalence have
 not been verified against a database. Apply nothing as part of this review.
-The source includes a school-removal migration, later security/scale changes,
-then audience and own-response changes. `20261031120000_backend_security_and_scale.sql`
-has been corrected in this branch to remove references to dropped school
-objects, preserve and lock down existing `ai_training_examples` rows, enforce
-released-only question analytics, and require audited grading/release RPCs.
-That migration remains unapplied and requires a disposable-database rehearsal
-and explicit operator approval before any hosted rollout.
+The current source migration sequence includes school-removal,
+security/scale, audience, own-response, and later grading changes. Enumerate the
+full sequence from the checked-out release; repository files do not prove that
+any hosted database has applied it.
+`20261031120000_backend_security_and_scale.sql` was corrected to remove
+references to dropped school objects, preserve and lock down existing
+`ai_training_examples` rows, enforce released-only question analytics, and
+require audited grading/release RPCs. It and the later migrations require a
+disposable-database rehearsal and explicit operator approval before any hosted
+rollout.
 
 ## What holds
 
