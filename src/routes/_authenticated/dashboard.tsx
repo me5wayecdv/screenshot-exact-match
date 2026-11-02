@@ -11,7 +11,7 @@ import {
   buildTutorStartChecklist,
   type StartStepId,
 } from "@/lib/start-checklist";
-import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
+import { PageHeader, Panel, Pill, Empty, Hero, StatChip, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { ParentContactForm } from "@/components/parent-contact-form";
 import { Input } from "@/components/ui/input";
@@ -145,31 +145,49 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
       action: t("startReleaseAction"),
     },
   };
+  const pendingStep = checklist.steps.find((step) => !step.done);
+  const nextStep = pendingStep ? stepMeta[pendingStep.id] : undefined;
   return (
     <>
-      <PageHeader
-        title={`${t("welcome")}، ${name}`}
+      {/* One decision per screen: the hero names the single next step, the
+          numbers become quiet chips, and the list stays below. */}
+      <Hero
+        kicker={t("heroKicker")}
+        title={
+          nextStep ? (
+            <>
+              {t("heroNext")} <span className="marker">{nextStep.title}</span>
+            </>
+          ) : (
+            `${t("welcome")}، ${name}`
+          )
+        }
+        body={nextStep ? nextStep.body : t("heroTeacherBody")}
         actions={
           <>
-            <Button asChild variant="outline">
+            {nextStep ? (
+              <Button asChild size="lg" className="lift">
+                <Link to={nextStep.to}>{nextStep.action}</Link>
+              </Button>
+            ) : (
+              <Button asChild size="lg" className="lift">
+                <Link to="/assessments">{t("newAssessment")}</Link>
+              </Button>
+            )}
+            <Button asChild variant="secondary">
               <Link to="/assistant">{t("assistantTitle")}</Link>
-            </Button>
-            <Button asChild>
-              <Link to="/assessments">{t("newAssessment")}</Link>
             </Button>
           </>
         }
+        hint={t("heroTeacherHint")}
       />
-      {data && <StartChecklistCard checklist={checklist} stepMeta={stepMeta} />}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 flex flex-wrap gap-2">
         {cards.map((c) => (
-          <Panel key={c.label}>
-            <p className="text-sm text-muted-foreground">{c.label}</p>
-            <p className="mt-2 font-display text-3xl font-bold text-primary">{c.value ?? "—"}</p>
-          </Panel>
+          <StatChip key={c.label} label={c.label} value={c.value} />
         ))}
       </div>
-      <h2 className="mb-3 mt-10 text-lg font-semibold">{t("assessments")}</h2>
+      {data && <StartChecklistCard checklist={checklist} stepMeta={stepMeta} />}
+      <h2 className="mb-3 mt-8 text-lg font-semibold">{t("assessments")}</h2>
       {data && data.assessments.length === 0 ? (
         <Empty>
           <p>{t("noAssessments")}</p>
@@ -261,31 +279,46 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
       action: t("newAssessment"),
     },
   };
+  const pendingStep = tutorChecklist.steps.find((step) => !step.done);
+  const nextStep = pendingStep ? tutorStepMeta[pendingStep.id] : undefined;
   return (
     <>
-      <PageHeader
-        title={`${t("welcome")}، ${name}`}
+      <Hero
+        kicker={t("heroKicker")}
+        title={
+          nextStep ? (
+            <>
+              {t("heroNext")} <span className="marker">{nextStep.title}</span>
+            </>
+          ) : (
+            `${t("welcome")}، ${name}`
+          )
+        }
+        body={nextStep ? nextStep.body : t("heroTutorBody")}
         actions={
           <>
-            <Button asChild variant="outline">
+            {nextStep ? (
+              <Button asChild size="lg" className="lift">
+                <Link to={nextStep.to}>{nextStep.action}</Link>
+              </Button>
+            ) : (
+              <Button asChild size="lg" className="lift">
+                <Link to="/lessons">{t("createLesson")}</Link>
+              </Button>
+            )}
+            <Button asChild variant="secondary">
               <Link to="/assistant">{t("assistantTitle")}</Link>
-            </Button>
-            <Button asChild>
-              <Link to="/lessons">{t("createLesson")}</Link>
             </Button>
           </>
         }
+        hint={t("heroTutorHint")}
       />
-      {data && <StartChecklistCard checklist={tutorChecklist} stepMeta={tutorStepMeta} />}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mb-6 flex flex-wrap gap-2">
         {cards.map((c) => (
-          <Panel key={c.label}>
-            <p className="text-sm text-muted-foreground">{c.label}</p>
-            <p className="mt-2 font-display text-3xl font-bold text-primary">{c.value ?? "—"}</p>
-          </Panel>
+          <StatChip key={c.label} label={c.label} value={c.value} />
         ))}
       </div>
-      <h2 className="mb-3 mt-10 text-lg font-semibold">{t("lessons")}</h2>
+      <h2 className="mb-3 mt-8 text-lg font-semibold">{t("lessons")}</h2>
       {data && data.lessons.length === 0 ? (
         <Empty>{t("noLessons")}</Empty>
       ) : (
@@ -436,22 +469,41 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
     setLessonCode("");
     qc.invalidateQueries();
   }
+  const activeAssessment = data?.assessments.find(
+    (a) => data.submissions.find((sub) => sub.assessment_id === a.id)?.status === "in_progress",
+  );
   return (
     <>
-      <PageHeader title={`${t("welcome")}، ${name}`} />
-      <Panel className="mb-8">
-        <h2 className="mb-3 font-semibold">{t("parentPhone")}</h2>
-        <ParentContactForm
-          studentId={studentId}
-          initialPhone={data?.parentContact?.parent_phone ?? null}
-          initialConsent={data?.parentContact?.whatsapp_consent ?? false}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["student-home"] })}
-        />
-      </Panel>
+      {/* Student home asks one question: what is the next thing to do? */}
+      <Hero
+        kicker={t("heroKicker")}
+        title={`${t("welcome")}، ${name}`}
+        body={
+          activeAssessment
+            ? t("heroStudentActive", { title: activeAssessment.title })
+            : (data?.teacherLinks ?? 0) === 0
+              ? t("noTeacherLinked")
+              : t("heroStudentIdle")
+        }
+        actions={
+          activeAssessment ? (
+            <Button asChild size="lg" className="lift">
+              <Link to="/assessments/take/$id" params={{ id: activeAssessment.id }}>
+                {t("continueAttempt")}
+              </Link>
+            </Button>
+          ) : (
+            <Button asChild size="lg" className="lift" variant="secondary">
+              <a href="#join">{t("joinTeacher")}</a>
+            </Button>
+          )
+        }
+        hint={t("heroStudentHint")}
+      />
       {/* (1) Teacher work — assessments assigned by teachers. */}
       <h2 className="mb-3 text-lg font-semibold">{t("schoolWork")}</h2>
       <Panel className="mb-8">
-        <form onSubmit={join} className="flex flex-wrap items-end gap-3">
+        <form id="join" onSubmit={join} className="flex flex-wrap items-end gap-3">
           <div className="flex-1">
             <label htmlFor="code" className="text-sm font-medium">
               {t("joinTeacher")}
@@ -557,6 +609,21 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           onNext={() => setAssignmentPage((current) => current + 1)}
         />
       ) : null}
+      {/* Contact details are needed once, then never again: keep them out of
+          the way instead of occupying the top of the screen. */}
+      <details className="mb-8 rounded-lg border bg-card p-4">
+        <summary className="cursor-pointer text-sm font-medium">
+          {t("parentPhone")} · {t("optional")}
+        </summary>
+        <div className="mt-4">
+          <ParentContactForm
+            studentId={studentId}
+            initialPhone={data?.parentContact?.parent_phone ?? null}
+            initialConsent={data?.parentContact?.whatsapp_consent ?? false}
+            onSaved={() => qc.invalidateQueries({ queryKey: ["student-home"] })}
+          />
+        </div>
+      </details>
       {/* (2) My lessons — lessons this student enrolled in (tutor track). */}
       <h2 className="mb-3 mt-10 text-lg font-semibold">{t("myLessons")}</h2>
       <Panel className="mb-8">
