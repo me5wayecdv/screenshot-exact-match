@@ -80,8 +80,8 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
   const studentAnswer = asString(d["studentAnswer"]);
   const accessToken = asString(d["accessToken"]);
   const maxMarks = typeof d["maxMarks"] === "number" ? d["maxMarks"] : Number(d["maxMarks"]);
-  const acceptedAlternatives = Array.isArray(d["acceptedAlternatives"])
-    ? d["acceptedAlternatives"].filter((a): a is string => typeof a === "string")
+  const rawAlternatives: unknown[] = Array.isArray(d["acceptedAlternatives"])
+    ? d["acceptedAlternatives"]
     : [];
   const assessmentId = asString(d["assessmentId"]) ?? undefined;
   if (!questionPrompt?.trim()) return { error: "questionPrompt is required." };
@@ -90,11 +90,29 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
   if (!Number.isFinite(maxMarks) || maxMarks <= 0 || maxMarks > 1000) {
     return { error: "maxMarks must be a positive number." };
   }
+  // Bound the raw array before inspecting its entries, then cap both each
+  // alternative and their aggregate. Otherwise a single acceptedAlternatives
+  // item could bypass the 20k-per-field limits and the one-unit AI quota.
+  if (rawAlternatives.length > 50) {
+    return { error: "Input exceeds the maximum allowed size." };
+  }
+  if (
+    rawAlternatives.some((alternative) =>
+      typeof alternative !== "string" || alternative.length > 2000,
+    )
+  ) {
+    return { error: "Each accepted alternative must be a string of at most 2000 characters." };
+  }
+  const acceptedAlternatives = rawAlternatives as string[];
+  const alternativesChars = acceptedAlternatives.reduce(
+    (total, alternative) => total + alternative.length,
+    0,
+  );
   if (
     questionPrompt.length > 20000 ||
     rubric.length > 20000 ||
     studentAnswer.length > 20000 ||
-    acceptedAlternatives.length > 50
+    alternativesChars > 20000
   ) {
     return { error: "Input exceeds the maximum allowed size." };
   }

@@ -31,8 +31,7 @@ type AssistantErrorCode =
   | "AI_AUTH"
   | "AI_RATE_LIMIT"
   | "AI_UPSTREAM"
-  | "AI_TIMEOUT"
-  | "AI_RATE_LIMIT";
+  | "AI_TIMEOUT";
 
 type AssistantResult = { ok: true; reply: string } | { ok: false; code: AssistantErrorCode };
 

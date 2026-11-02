@@ -53,11 +53,13 @@ export type SourceOcrResult =
 
 const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 
-/** Client-compressed JPEGs are ~1 MB; 8M chars of data URL is a hard cap. */
-const MAX_DATA_URL_CHARS = 8_000_000;
+/** Client-compressed JPEGs are ~1 MB; bound individual server inputs to 3 MB decoded. */
+const MAX_DATA_URL_CHARS = 4_000_000;
 const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 /** At most 5 page photos per source batch (sequential vision calls). */
 const MAX_IMAGES = 5;
+/** Bound aggregate JSON/image memory for one batch, not only each item. */
+const MAX_BATCH_DATA_URL_CHARS = 12_000_000;
 
 function serverSupabaseEnv(): { url: string; anonKey: string } | null {
   const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
@@ -459,9 +461,14 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
     const d = (data ?? {}) as Record<string, unknown>;
     const imageDataUrls = Array.isArray(d["imageDataUrls"]) ? d["imageDataUrls"] : [];
     const accessToken = typeof d["accessToken"] === "string" ? d["accessToken"] : "";
+    const totalImageChars = imageDataUrls.reduce(
+      (total, image) => total + (typeof image === "string" ? image.length : 0),
+      0,
+    );
     if (
       imageDataUrls.length === 0 ||
       imageDataUrls.length > MAX_IMAGES ||
+      totalImageChars > MAX_BATCH_DATA_URL_CHARS ||
       !imageDataUrls.every(
         (u) => typeof u === "string" && DATA_URL_RE.test(u) && u.length <= MAX_DATA_URL_CHARS,
       )

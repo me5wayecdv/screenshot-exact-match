@@ -297,6 +297,16 @@ export const askTutor = createServerFn({ method: "POST" })
     if ((!questionId && !topic) || (questionId && topic)) {
       return { ok: false, code: "INVALID_INPUT", message: "Provide either a question or a topic." };
     }
+    if (questionId && questionId.length > 100) {
+      return { ok: false, code: "INVALID_INPUT", message: "Invalid question id." };
+    }
+    if (studentAnswer.length > 20000 || teacherFeedback.length > 5000) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        message: "Answer or feedback exceeds the maximum allowed size.",
+      };
+    }
     if (customText && customText.length > 2000) {
       return { ok: false, code: "INVALID_INPUT", message: "Message is too long." };
     }
@@ -368,7 +378,13 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
     const language = isLang(d["language"]) ? d["language"] : "ar";
     const questionId = asString(d["questionId"]);
     const newAnswer = asString(d["newAnswer"])?.trim() ?? "";
-    if (!accessToken?.trim() || !questionId || !newAnswer || newAnswer.length > 5000) {
+    if (
+      !accessToken?.trim() ||
+      !questionId ||
+      questionId.length > 100 ||
+      !newAnswer ||
+      newAnswer.length > 5000
+    ) {
       return { ok: false, code: "INVALID_INPUT", message: "Invalid request." };
     }
     const auth = await authorizeStudent(accessToken);
@@ -412,6 +428,7 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
     if (
       !accessToken?.trim() ||
       !assessmentId ||
+      assessmentId.length > 100 ||
       !Array.isArray(objectivesRaw) ||
       objectivesRaw.length === 0 ||
       objectivesRaw.length > 20 ||
