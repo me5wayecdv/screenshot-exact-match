@@ -714,6 +714,9 @@ const dict = {
       "الملف يُحفظ على الخادم أولاً ثم يُستخرج نصه إلى خانة النص (حتى 10 ميجابايت).",
     genUploadImages: "أو ارفع صور صفحات المنهج",
     genUploadImagesHint: "حتى 5 صور؛ يُستخرج النص منها بالذكاء الاصطناعي إلى خانة النص.",
+    genOcrDetailed: "قراءة دقيقة للصفحات المزدحمة",
+    genOcrDetailedHint:
+      "تقسم كل صفحة إلى 4 أجزاء متداخلة لتحسين قراءة النص الصغير؛ تستهلك طلبات AI أكثر. فعّلها قبل رفع الصور.",
     genExtracting: "جارٍ استخراج النص…",
     genExtracted: "تم استخراج النص من {name} ({count} حرفاً).",
     genUploadFailed: "فشل رفع الملف إلى الخادم.",
@@ -1510,6 +1513,9 @@ const dict = {
       "The file is saved on the server first, then its text is extracted into the source box (up to 10 MB).",
     genUploadImages: "Or upload curriculum page photos",
     genUploadImagesHint: "Up to 5 photos; their text is extracted by AI into the source box.",
+    genOcrDetailed: "Detailed reading for dense pages",
+    genOcrDetailedHint:
+      "Splits each page into 4 overlapping sections to improve small-text reading; uses more AI calls. Enable before uploading photos.",
     genExtracting: "Extracting text…",
     genExtracted: "Text extracted from {name} ({count} characters).",
     genUploadFailed: "Failed to upload the file to the server.",

@@ -142,13 +142,19 @@ function extractTranscription(rawText: string): string {
   return candidate;
 }
 
+const SOURCE_OCR_INSTRUCTIONS =
+  "اقرأ الصفحة من أعلى لأسفل حتى آخر سطر، وانقل كل ما يظهر فيها حرفياً دون توقف بعد أول فقرة. " +
+  "حافظ على العناوين والفقرات والأسطر والقوائم والجداول والمعادلات والأرقام وترتيبها. " +
+  "لا تلخّص ولا تصحّح ولا تحذف ولا تضف شيئاً، ولا تخمّن الكلمات غير الواضحة. " +
+  "إذا كان النص عربياً فاكتب [غير واضح] مكان الجزء غير المقروء، وإذا كان إنجليزياً فاكتب [unclear]. " +
+  "If the page is in English, transcribe it in English; if in Arabic, in Arabic — never translate. " +
+  "Read every section from top to bottom through the final line; do not summarize or stop early. " +
+  "Preserve line breaks, lists, tables, equations, and numbers. Do not guess illegible words.";
+
 const SOURCE_SYSTEM_PROMPT =
   "أنت أداة استخراج نصوص من صور صفحات المناهج الدراسية. " +
-  "أعد النص الظاهر في الصورة كاملاً وحرفياً، مع الحفاظ على العناوين وفقرات النص وترتيبها. " +
-  "لا تلخّص ولا تصحّح ولا تضف شيئاً من عندك. " +
-  "الأجزاء غير المقروءة اكتب مكانها [غير واضح]. " +
-  "If the page is in English, transcribe it in English; if in Arabic, in Arabic — never translate. " +
-  'أجب بصيغة JSON فقط: {"text": "..."}.';
+  SOURCE_OCR_INSTRUCTIONS +
+  ' أجب بصيغة JSON فقط: {"text": "..."}.';
 
 async function callVisionOcr(
   baseUrl: string,
@@ -174,10 +180,7 @@ async function callVisionOcr(
         gemini.model,
         controller.signal,
         imageDataUrl,
-        "Transcribe all text visible in this curriculum page image completely and literally, " +
-          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
-          "Parts that are unreadable, write [unclear] in their place. " +
-          "Return only the transcription, nothing else.",
+        SOURCE_OCR_INSTRUCTIONS,
       );
       if (g.ok) {
         return {
@@ -207,10 +210,7 @@ async function callVisionOcr(
         headers,
         controller.signal,
         imageDataUrl,
-        "Transcribe all text visible in this curriculum page image completely and literally, " +
-          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
-          "Parts that are unreadable, write [unclear] in their place. " +
-          "Return only the transcription, nothing else.",
+        SOURCE_OCR_INSTRUCTIONS,
       );
       if (!llava.ok) return llava;
       return {
@@ -228,10 +228,7 @@ async function callVisionOcr(
         headers,
         controller.signal,
         imageDataUrl,
-        "Transcribe all text visible in this curriculum page image completely and literally, " +
-          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
-          "Parts that are unreadable, write [unclear] in their place. " +
-          "Return only the transcription, nothing else.",
+        SOURCE_OCR_INSTRUCTIONS,
       );
       if (!moon.ok) return moon;
       return {
@@ -258,7 +255,7 @@ async function callVisionOcr(
             { role: "system", content: SOURCE_SYSTEM_PROMPT },
             {
               role: "user",
-              content: "استخرج كل النص الظاهر في صورة صفحة المنهج هذه حرفياً.",
+              content: SOURCE_OCR_INSTRUCTIONS,
             },
           ],
           image: imageDataUrl,
@@ -360,7 +357,7 @@ async function callVisionOcr(
           {
             role: "user",
             content: [
-              { type: "text", text: "استخرج كل النص الظاهر في صورة صفحة المنهج هذه حرفياً." },
+              { type: "text", text: SOURCE_OCR_INSTRUCTIONS },
               { type: "image_url", image_url: { url: imageDataUrl } },
             ],
           },
