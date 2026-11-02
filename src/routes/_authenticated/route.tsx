@@ -134,14 +134,25 @@ function AppShell() {
           <Link to="/dashboard" className="rounded-sm">
             <Brand onDark />
           </Link>
-          <span className="md:hidden">
+          {/* Mobile keeps the header to one row: language + sign out as icons
+              (the stacked footer row below is desktop-only), so the nav strip
+              and the page content stay above the fold. */}
+          <span className="flex items-center gap-1 md:hidden">
             <LangToggle className="hover:bg-sidebar-accent" />
+            <button
+              type="button"
+              onClick={signOut}
+              aria-label={t("signOut")}
+              className="grid size-9 place-items-center rounded-sm text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              <LogOut className="size-4 rtl:rotate-180" aria-hidden />
+            </button>
           </span>
         </div>
 
         <nav
           aria-label={t("brand")}
-          className="app-nav flex gap-1 overflow-x-auto px-3 py-3 md:flex-col md:px-3 md:py-5"
+          className="app-nav scrollbar-none flex gap-1 overflow-x-auto px-3 py-3 md:flex-col md:overflow-visible md:px-3 md:py-5"
         >
           {nav.map((section) => (
             <div
@@ -192,17 +203,6 @@ function AppShell() {
               {t("signOut")}
             </button>
           </div>
-        </div>
-
-        <div className="flex justify-end border-t border-sidebar-border px-3 py-2 md:hidden">
-          <button
-            type="button"
-            onClick={signOut}
-            className="flex items-center gap-2 rounded-sm px-3 py-2 text-sm text-sidebar-foreground/75 hover:bg-sidebar-accent"
-          >
-            <LogOut className="size-4 rtl:rotate-180" aria-hidden />
-            {t("signOut")}
-          </button>
         </div>
       </aside>
 

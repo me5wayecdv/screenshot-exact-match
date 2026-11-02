@@ -187,6 +187,20 @@ function Builder() {
         <aside>
           <Panel>
             <h2 className="mb-3 font-semibold">{t("assignTo")}</h2>
+            {/* Why a "missing" assessment is usually not a bug: RLS only
+                shows a student an assessment that is published AND assigned
+                to them, so a published exam with zero assignments is
+                invisible to every student. Say it here, next to the fix. */}
+            {a.status === "published" && data.assigned.size === 0 ? (
+              <p role="status" className="mb-3 rounded-md bg-warning/25 p-3 text-sm">
+                {t("publishedNotAssigned")}
+              </p>
+            ) : null}
+            {a.status === "draft" ? (
+              <p className="mb-3 rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                {t("draftNotVisible")}
+              </p>
+            ) : null}
             {data.students.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t("noStudents")}</p>
             ) : (
@@ -205,6 +219,14 @@ function Builder() {
                 ))}
               </ul>
             )}
+            {data.students.length > 0 ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {t("assignedCount", {
+                  assigned: String(data.assigned.size),
+                  total: String(data.students.length),
+                })}
+              </p>
+            ) : null}
             <p className="mt-4 text-xs text-muted-foreground">
               {t("dueAt")}: {formatDate(a.due_at, lang)}
             </p>

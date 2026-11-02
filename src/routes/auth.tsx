@@ -167,7 +167,9 @@ function AuthPage() {
                   </div>
                   <fieldset className="space-y-2">
                     <legend className="text-sm font-medium">{t("iAm")}</legend>
-                    <div className="grid grid-cols-3 gap-2">
+                    {/* Stacked on phones: three Arabic role labels in one row
+                        are unreadable below ~360px. */}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       {(["school_teacher", "tutor", "student"] as const).map((r) => (
                         <button
                           type="button"
