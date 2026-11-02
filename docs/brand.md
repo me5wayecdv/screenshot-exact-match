@@ -30,7 +30,7 @@ That pair of dots is the signature. It appears in the logo, as a bullet (`<TwoDo
 - Arabic lockups use the correctly vocalized live wordmark **قَيّمني**; English uses **Qayyimni**. SVG wordmarks keep the text editable; the app uses `<Brand />` so language and direction stay in sync. In the Arabic lockup the mark sits on the **right**; in English, on the **left**.
 - In the app use `<Brand />` and `<BrandMark />` from `src/components/Brand.tsx`. Pass `onDark` on deep-teal surfaces (sidebar, auth panel).
 - **Clear space:** at least the width of one dot (≈ 1/9 of the tile) on every side. **Minimum size:** 16 px for the mark, 96 px wide for a lockup.
-- **Don't:** recolour the dots, put the white-tile mark on Papyrus without a border, stretch, rotate, add shadows or outlines, place the saffron tile on Saffron, or letter-space the Arabic.
+- **Don't:** recolour the dots, put the white-tile mark on Cloud without a border, stretch, rotate, add shadows or outlines, place the saffron tile on Saffron, or letter-space the Arabic.
 
 ## Colour
 
@@ -38,8 +38,9 @@ Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static asse
 
 | Name                        | Token                                    | Hex                               | Role                                                 |
 | --------------------------- | ---------------------------------------- | --------------------------------- | ---------------------------------------------------- |
-| **Papyrus** · بردي          | `--background`                           | `#FCF9F3`                         | Canvas. Warm paper, never pure white                 |
-| **Ink** · حبر               | `--foreground`                           | `#0B2425`                         | Text (15.5 : 1 on Papyrus)                           |
+| **Cloud** · سحاب            | `--background`                           | `#F0F8F7`                         | Cool, near-white page canvas                         |
+| **White** · أبيض            | `--card`                                 | `#FFFFFF`                         | Cards, forms, popovers, and logo details             |
+| **Ink** · حبر               | `--foreground`                           | `#0B2425`                         | Text (15.5 : 1 on Cloud)                             |
 | **Ink Teal** · أخضر الحبر   | `--primary`                              | `#0B7378`                         | The brand colour: buttons, links, headings (5.6 : 1) |
 | **Deep Ocean** · أزرق محيطي | `--sidebar`                              | `#073B4C`                         | Dark surfaces, sidebar, auth panel                   |
 | **Saffron** · زعفران        | `--accent`                               | `#F4B942`                         | The teacher's mark: approval, highlights             |
@@ -49,9 +50,9 @@ Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static asse
 
 **Rules**
 
-1. **Saffron is a fill, never text on paper.** On Papyrus it is only 1.8 : 1. Put Saffron Ink on it, or use it for dots and stamps.
+1. **Saffron is a fill, never text on paper.** On Cloud it is only 1.8 : 1. Put Saffron Ink on it, or use it for dots and stamps.
 2. **Saffron means "teacher decided".** Use it for approved, released and final states. Dashed or tinted (`--accent-soft`) means "AI suggestion, not final". Don't spend it on decoration.
-3. Ratio ≈ 70% Papyrus, 20% Ink Teal and Deep Ocean, 10% everything else; Saffron under 5%.
+3. Ratio ≈ 65% Cloud and White, 25% Ink Teal and Deep Ocean, 10% everything else; Saffron under 5%.
 
 ## Typography
 
@@ -67,7 +68,7 @@ Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static asse
 ## Shape and motion
 
 - Radius 8 px (`--radius`); the mark's tile is a 25% squircle (`rx 16/64`). Cards use `shadow-soft`, hover and hero use `shadow-lift`.
-- **Pattern:** `dots-pattern` (on Papyrus) and `dots-pattern-light` (on Deep Ocean): pairs of dots on a staggered lattice, 7–8% opacity. One pattern surface per screen.
+- **Pattern:** `dots-pattern` (on Cloud) and `dots-pattern-light` (on Deep Ocean): pairs of dots on a staggered lattice, 7–8% opacity. One pattern surface per screen.
 - **Motion:** the only signature animation is the **stamp** (`animate-stamp`): approval lands with a small overshoot. Everything else is 120–200 ms colour/shadow transitions. All animation is disabled under `prefers-reduced-motion`.
 
 ## Voice

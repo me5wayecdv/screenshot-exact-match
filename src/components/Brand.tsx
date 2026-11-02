@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
  * second, saffron dot is the teacher's last word. See docs/brand.md.
  *
  * Colours come from the design tokens in styles.css, so the mark follows the
- * theme. `onDark` swaps to the cream tile for deep-teal surfaces (sidebar,
+ * theme. `onDark` swaps to the white tile for dark surfaces (sidebar,
  * auth panel). The static SVG/PNG exports live in public/brand/.
  */
 export function BrandMark({
@@ -15,13 +15,13 @@ export function BrandMark({
   tile = true,
 }: {
   className?: string;
-  /** Use on deep-teal surfaces: cream tile, teal dot. */
+  /** Use on dark surfaces: white tile, teal dot. */
   onDark?: boolean;
   /** `false` draws the bare glyph in currentColor (single colour). */
   tile?: boolean;
 }) {
-  const glyph = tile ? (onDark ? "stroke-sidebar" : "stroke-background") : "stroke-current";
-  const firstDot = tile ? (onDark ? "fill-primary" : "fill-background") : "fill-current";
+  const glyph = tile ? (onDark ? "stroke-sidebar" : "stroke-card") : "stroke-current";
+  const firstDot = tile ? (onDark ? "fill-primary" : "fill-card") : "fill-current";
   const lastDot = tile ? "fill-accent" : "fill-current";
   return (
     <svg
@@ -31,12 +31,7 @@ export function BrandMark({
       className={`h-8 w-8 shrink-0 ${className}`}
     >
       {tile && (
-        <rect
-          width="64"
-          height="64"
-          rx="16"
-          className={onDark ? "fill-background" : "fill-primary"}
-        />
+        <rect width="64" height="64" rx="16" className={onDark ? "fill-card" : "fill-primary"} />
       )}
       <g
         transform="translate(4 -1.5)"
@@ -76,7 +71,7 @@ export function Brand({
   onDark = false,
 }: {
   className?: string;
-  /** Set on deep-teal surfaces so the mark uses its cream-tile variant. */
+  /** Set on dark surfaces so the mark uses its white-tile variant. */
   onDark?: boolean;
 }) {
   const { t, lang } = useI18n();
