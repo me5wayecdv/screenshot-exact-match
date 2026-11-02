@@ -1,60 +1,73 @@
-// Pure decision: what must happen to an assessment's audience when the
-// teacher presses "publish", so that "published but nobody can see it" is
-// not a reachable state.
+// Pure decision: who can see an assessment, decided from the actual
+// assignment rows — never from the `audience_mode` column default.
 //
-// Why it exists: the DB function auto-assigns every linked student when the
-// teacher published WITHOUT picking anyone, but a project whose migration
-// is behind, or a student who is linked but not in the selection, still
-// produced a published exam that no student could see — the exact symptom
-// "the teacher made an exam and the student can't find it".
+// Why it was rewritten (live bug, 2026-11-03):
+// `assessments.audience_mode` defaults to 'explicit', so a brand-new draft
+// already "looked like" a deliberate explicit choice. The builder trusted
+// that value, decided the audience was a strict subset, and then wrote
+// 'explicit' back after publishing — even though the teacher had selected
+// nobody. Consequence: the publish toast reported 0 students, and students
+// who joined later were never assigned (an 'explicit' audience is never
+// widened), so the exam stayed invisible to them.
 //
-// Rules:
-// - No linked students at all -> publishing is blocked (nobody could ever
-//   see it; the teacher must share the join code first).
-// - No selection -> "everyone": assign every linked student, keep the
-//   audience open so late joiners are covered too.
-// - A subset selected -> respect it exactly; never widen a teacher's
-//   explicit choice.
+// The rule now:
+// - The audience is derived from coverage at publish time:
+//     * no student selected                 -> everyone ('auto_all')
+//     * every currently linked student is assigned -> everyone ('auto_all')
+//     * a strict subset selected            -> that subset ('explicit')
+// - `audience_mode` is WRITTEN from this decision, never read to make it.
+// - 'explicit' is only ever produced by an actual, narrower selection, so
+//   it always means what it says.
+
+export type AudienceMode = "auto_all" | "explicit";
+
+const setOf = (ids: Iterable<string>) => new Set(ids);
+
+/** Students linked to the teacher who have no assignment row yet. */
+export function missingAssignments(linkedIds: string[], assignedIds: Iterable<string>): string[] {
+  const assigned = setOf(assignedIds);
+  return linkedIds.filter((id) => !assigned.has(id));
+}
+
+/**
+ * The audience implied by the current assignment rows. Zero selections means
+ * "everyone"; a full selection means the teacher effectively chose everyone;
+ * anything in between is a deliberate subset.
+ */
+export function modeFromCoverage(linkedIds: string[], assignedIds: Iterable<string>): AudienceMode {
+  const assigned = setOf(assignedIds);
+  if (assigned.size === 0) return "auto_all";
+  return missingAssignments(linkedIds, assigned).length === 0 ? "auto_all" : "explicit";
+}
 
 export type PublishPlan =
   | { blocked: "no_students" }
   | {
       blocked: null;
-      /** Student ids to insert (already-assigned ones are excluded). */
+      /** Audience to persist on the assessment. */
+      mode: AudienceMode;
+      /** Rows to insert before persisting `mode` (everyone-audience only). */
       assignIds: string[];
-      /** True when the audience means "all my students". */
-      everyone: boolean;
     };
 
+/**
+ * What publishing must do. Publishing with no linked student is blocked:
+ * nobody could ever see the exam, and a published-but-invisible row is the
+ * exact symptom this module exists to prevent.
+ */
 export function planPublishAudience({
   linkedIds,
   assignedIds,
-  audienceMode,
 }: {
   linkedIds: string[];
   assignedIds: Iterable<string>;
-  /** Recorded audience for an already-published assessment, if any. */
-  audienceMode?: "auto_all" | "explicit" | null;
 }): PublishPlan {
   if (linkedIds.length === 0) return { blocked: "no_students" };
-  const assigned = new Set(assignedIds);
-  const missing = linkedIds.filter((id) => !assigned.has(id));
-
-  // Recorded intent wins: an explicit cohort is never widened, and an
-  // "everyone" audience is topped up with whoever joined later.
-  if (audienceMode === "explicit") {
-    return { blocked: null, assignIds: [], everyone: false };
-  }
-  if (audienceMode === "auto_all") {
-    return { blocked: null, assignIds: missing, everyone: true };
-  }
-
-  // Legacy/undecided row (no marker yet): no selection at all means the
-  // teacher never picked a cohort, so publishing means "everyone".
-  if (assigned.size === 0) {
-    return { blocked: null, assignIds: linkedIds, everyone: true };
-  }
-  // Something was selected. Only a full selection counts as "everyone";
-  // a strict subset is the teacher's choice.
-  return { blocked: null, assignIds: [], everyone: missing.length === 0 };
+  const mode = modeFromCoverage(linkedIds, assignedIds);
+  return {
+    blocked: null,
+    mode,
+    // A subset is published exactly as selected; never widened.
+    assignIds: mode === "auto_all" ? missingAssignments(linkedIds, assignedIds) : [],
+  };
 }

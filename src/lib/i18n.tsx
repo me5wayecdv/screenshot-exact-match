@@ -307,6 +307,14 @@ const dict = {
     audienceHasNewStudents: "فيه طلاب جداد انضموا بعد النشر ومش معيّنين للامتحان ده.",
     audienceSyncNow: "أضف الطلاب الجدد للامتحان",
     audienceSynced: "تمت إضافة {count} طالب للامتحان.",
+    audienceExplicitNote:
+      "الامتحان ده معيّن لمجموعة محددة من طلابك، وفيه طلاب تانيين مش معيّنين. لو المفروض كل طلابك يشوفوه (بما فيهم اللي انضموا بعد النشر) اضغط الزرار ده.",
+    audienceMakeEveryone: "خلّي الجمهور: كل طلابي",
+    audienceEveryoneNow: "بقى متاح لكل طلابك ({count}) — وأي طالب ينضم بعد كده هيتعيّن تلقائيًا.",
+    publishReachUnknown:
+      "تم النشر، لكن تعذّر تأكيد عدد الطلاب الذين سيشاهدونه — حدّث الصفحة للتأكد.",
+    publishReachZero:
+      "تم النشر لكن مفيش أي طالب معيّن للامتحان — اضغط «خلّي الجمهور: كل طلابي» هنا.",
     notFound: "غير موجود",
     summaryActive: "اختبارات منشورة",
     summaryPending: "بانتظار التصحيح",
@@ -1123,6 +1131,15 @@ const dict = {
       "Some students joined after this was published and are not assigned to it.",
     audienceSyncNow: "Add the new students",
     audienceSynced: "Added {count} student(s) to this assessment.",
+    audienceExplicitNote:
+      "This assessment is assigned to a specific group of your students; others are not assigned. If all of your students should see it — including anyone who joined after publishing — use the button below.",
+    audienceMakeEveryone: "Audience: all my students",
+    audienceEveryoneNow:
+      "Now visible to all {count} of your students — anyone who joins later is assigned automatically.",
+    publishReachUnknown:
+      "Published, but the number of students who can see it could not be confirmed — refresh to check.",
+    publishReachZero:
+      "Published, but no student is assigned to it — press “Audience: all my students” here.",
     notFound: "Not found",
     summaryActive: "Published assessments",
     summaryPending: "Awaiting grading",
