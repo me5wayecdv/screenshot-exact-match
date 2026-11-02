@@ -16,7 +16,8 @@ export function HeroGradeCard() {
 
   return (
     <div className="relative mx-auto w-full max-w-md pb-8">
-      <div className="absolute inset-x-3 top-4 bottom-5 rotate-[2deg] rounded-lg border border-primary/10 bg-secondary/60" />
+      {/* A single beam outline behind the card: depth without rotation. */}
+      <div className="absolute inset-x-4 top-5 bottom-4 rounded-xl bg-gradient-to-br from-primary/20 via-(--beam-violet)/15 to-accent/25 blur-[2px]" />
       <article className="relative overflow-hidden rounded-lg border bg-card shadow-lift">
         <header className="flex items-center justify-between gap-4 border-b px-5 py-4">
           <div className="min-w-0">
@@ -80,8 +81,8 @@ export function HeroGradeCard() {
         </section>
       </article>
 
-      <div className="animate-stamp absolute -bottom-0 end-4 flex -rotate-2 items-center gap-2 rounded-md border border-accent/70 bg-accent px-3.5 py-2 text-accent-foreground shadow-lift">
-        <span className="grid size-5 place-items-center rounded-full bg-sidebar text-sidebar-foreground">
+      <div className="animate-stamp absolute -bottom-0 end-4 flex items-center gap-2 rounded-lg border border-accent/60 bg-card/95 px-3.5 py-2 text-foreground shadow-glow backdrop-blur">
+        <span className="grid size-5 place-items-center rounded-md bg-gradient-to-br from-primary to-(--beam-violet) text-primary-foreground">
           <Check className="size-3" strokeWidth={3} />
         </span>
         <span className="font-display text-xs font-bold">{t("demoApproved")}</span>

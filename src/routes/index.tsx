@@ -64,13 +64,13 @@ function Landing() {
         <section className="mx-auto max-w-7xl px-4 pb-12 md:px-8 md:pb-16">
           <div className="landing-hero grid items-center gap-9 px-6 py-10 md:grid-cols-[1.04fr_0.96fr] md:gap-10 md:px-12 md:py-14 lg:px-16">
             <div className="landing-hero-copy relative z-10">
-              {/* Hand-made touches: a tilted sticker for the eyebrow and a
-                  saffron highlighter on the last word of the headline. */}
+              {/* Technology cues: a live "signal" pill for the eyebrow and a
+                  cyan-to-indigo wash on the last word of the headline. */}
               <p className="mb-5">
-                <span className="sticker">{t("heroEyebrow")}</span>
+                <span className="chip-glow">{t("heroEyebrow")}</span>
               </p>
               <h1 className="max-w-2xl text-4xl font-bold leading-[1.25] text-sidebar-foreground md:text-5xl lg:text-6xl">
-                {heroLead} <span className="marker text-sidebar-foreground">{heroLast}</span>
+                {heroLead} <span className="signal text-sidebar-foreground">{heroLast}</span>
               </h1>
               <p className="mt-6 max-w-xl text-base leading-8 text-sidebar-foreground/75 md:text-lg">
                 {t("heroBody")}
@@ -103,7 +103,7 @@ function Landing() {
         </section>
 
         <section className="mx-auto max-w-7xl px-5 pb-4 md:px-8">
-          <div className="rounded-lg border bg-card px-6 py-6 md:px-10">
+          <div className="grid-mesh rounded-xl border bg-card px-6 py-6 md:px-10">
             <h2 className="text-xl font-bold md:text-2xl">{t("journeyTitle")}</h2>
             <ol className="mt-5 grid gap-5 md:grid-cols-3">
               {[
