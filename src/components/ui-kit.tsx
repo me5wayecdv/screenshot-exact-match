@@ -1,19 +1,19 @@
 import type { ReactNode } from "react";
 
 const tone = {
-  neutral: "bg-muted text-muted-foreground",
-  primary: "bg-secondary text-secondary-foreground",
-  success: "bg-success/15 text-success",
-  warning: "bg-warning/25 text-warning-foreground",
-  info: "bg-info/15 text-info",
-  danger: "bg-destructive/15 text-destructive",
+  neutral: "border-border text-muted-foreground",
+  primary: "border-primary/35 text-primary",
+  success: "border-success/40 text-success",
+  warning: "border-warning/50 text-warning-foreground",
+  info: "border-info/40 text-info",
+  danger: "border-destructive/40 text-destructive",
 } as const;
 export type Tone = keyof typeof tone;
 
 export function Pill({ children, t = "neutral" }: { children: ReactNode; t?: Tone | undefined }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tone[t]}`}
+      className={`inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[0.7rem] font-medium ${tone[t]}`}
     >
       {children}
     </span>
@@ -64,16 +64,12 @@ export function PageHeader({
 }
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={`rounded-lg border bg-card p-4 shadow-soft sm:p-5 ${className}`}>
-      {children}
-    </div>
-  );
+  return <div className={`rounded-lg border bg-card p-4 sm:p-5 ${className}`}>{children}</div>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground sm:p-10">
+    <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground sm:p-8">
       {children}
     </div>
   );

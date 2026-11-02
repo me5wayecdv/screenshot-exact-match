@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
@@ -1091,7 +1092,9 @@ function Handwritten() {
                     />
                     <p className="text-xs text-muted-foreground">{item.fileName}</p>
                     {item.graded && (
-                      <p className="text-xs font-medium text-green-600">✓ {t("hwMatchGraded")}</p>
+                      <p className="flex items-center gap-1.5 text-xs font-medium text-success">
+                        <Check className="size-3.5" aria-hidden /> {t("hwMatchGraded")}
+                      </p>
                     )}
                     <div className="space-y-1.5">
                       <Label>{t("hwMatchStudentName")}</Label>
