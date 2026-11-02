@@ -17,15 +17,15 @@ That pair of dots is the signature. It appears in the logo, as a bullet (`<TwoDo
 
 ## Logo
 
-| File (`public/brand/`)                                              | Use                                                   |
-| ------------------------------------------------------------------- | ----------------------------------------------------- |
-| `logo-ar.svg`, `logo-en.svg`                                        | Default lockups on light backgrounds                  |
-| `logo-ar-on-dark.svg`, `logo-en-on-dark.svg`                        | On Deep Teal / photos darker than 40% luminance       |
-| `mark.svg`, `mark-on-dark.svg`, `mark-saffron.svg`                  | Mark only (app icons, avatars, small spaces)          |
-| `mark-glyph.svg`                                                    | One-colour glyph, no tile (stamps, watermarks, print) |
-| `wordmark-ar.svg`, `wordmark-en.svg`                                | Editable live-text wordmarks, `currentColor`          |
-| `favicon.svg`, `/favicon.ico`, `apple-touch-icon.png`, `icon-*.png` | Browser and device icons (heavier stroke at 16px)     |
-| `og-image.svg`, `og-image.png`                                      | Source SVG and social share image, 1200×630           |
+| File (`public/brand/`)                                                                   | Use                                                   |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `logo-ar.svg`, `logo-en.svg`                                                             | Default lockups on light backgrounds                  |
+| `logo-ar-on-dark.svg`, `logo-en-on-dark.svg`                                             | On Deep Ocean / photos darker than 40% luminance      |
+| `mark.svg`, `mark-on-dark.svg`, `mark-saffron.svg`                                       | Mark only (app icons, avatars, small spaces)          |
+| `mark-glyph.svg`                                                                         | One-colour glyph, no tile (stamps, watermarks, print) |
+| `wordmark-ar.svg`, `wordmark-en.svg`                                                     | Editable live-text wordmarks, `currentColor`          |
+| `favicon.svg`, `/favicon.ico`, `apple-touch-icon.png`, `icon-maskable.svg`, `icon-*.png` | Browser and device icons (heavier stroke at 16px)     |
+| `og-image.svg`, `og-image.png`                                                           | Source SVG and social share image, 1200×630           |
 
 - Arabic lockups use the correctly vocalized live wordmark **قَيّمني**; English uses **Qayyimni**. SVG wordmarks keep the text editable; the app uses `<Brand />` so language and direction stay in sync. In the Arabic lockup the mark sits on the **right**; in English, on the **left**.
 - In the app use `<Brand />` and `<BrandMark />` from `src/components/Brand.tsx`. Pass `onDark` on deep-teal surfaces (sidebar, auth panel).
@@ -36,22 +36,22 @@ That pair of dots is the signature. It appears in the logo, as a bullet (`<TwoDo
 
 Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static assets.
 
-| Name                      | Token                                    | Hex                               | Role                                                 |
-| ------------------------- | ---------------------------------------- | --------------------------------- | ---------------------------------------------------- |
-| **Papyrus** · بردي        | `--background`                           | `#FCF9F3`                         | Canvas. Warm paper, never pure white                 |
-| **Ink** · حبر             | `--foreground`                           | `#0B2425`                         | Text (15.5 : 1 on Papyrus)                           |
-| **Ink Teal** · أخضر الحبر | `--primary`                              | `#00595A`                         | The brand colour: buttons, links, headings (7.8 : 1) |
-| **Deep Teal** · أخضر عميق | `--sidebar`                              | `#023537`                         | Dark surfaces, sidebar, auth panel                   |
-| **Saffron** · زعفران      | `--accent`                               | `#F2AF48`                         | The teacher's mark: approval, highlights             |
-| **Saffron Ink**           | `--accent-foreground`                    | `#38200A`                         | Text on Saffron (8.0 : 1)                            |
-| **Mist**                  | `--secondary`                            | `#DEF0EC`                         | Tints, pills, quiet fills                            |
-| Clay / Leaf / Nile        | `--destructive` / `--success` / `--info` | `#CC342D` / `#258651` / `#347A9F` | Status only                                          |
+| Name                        | Token                                    | Hex                               | Role                                                 |
+| --------------------------- | ---------------------------------------- | --------------------------------- | ---------------------------------------------------- |
+| **Papyrus** · بردي          | `--background`                           | `#FCF9F3`                         | Canvas. Warm paper, never pure white                 |
+| **Ink** · حبر               | `--foreground`                           | `#0B2425`                         | Text (15.5 : 1 on Papyrus)                           |
+| **Ink Teal** · أخضر الحبر   | `--primary`                              | `#0B7378`                         | The brand colour: buttons, links, headings (5.6 : 1) |
+| **Deep Ocean** · أزرق محيطي | `--sidebar`                              | `#073B4C`                         | Dark surfaces, sidebar, auth panel                   |
+| **Saffron** · زعفران        | `--accent`                               | `#F4B942`                         | The teacher's mark: approval, highlights             |
+| **Saffron Ink**             | `--accent-foreground`                    | `#38200A`                         | Text on Saffron (8.0 : 1)                            |
+| **Mist**                    | `--secondary`                            | `#D7F0EC`                         | Tints, pills, quiet fills                            |
+| Clay / Leaf / Nile          | `--destructive` / `--success` / `--info` | `#CC342D` / `#258651` / `#347A9F` | Status only                                          |
 
 **Rules**
 
 1. **Saffron is a fill, never text on paper.** On Papyrus it is only 1.8 : 1. Put Saffron Ink on it, or use it for dots and stamps.
 2. **Saffron means "teacher decided".** Use it for approved, released and final states. Dashed or tinted (`--accent-soft`) means "AI suggestion, not final". Don't spend it on decoration.
-3. Ratio ≈ 70% Papyrus, 20% Ink Teal and Deep Teal, 10% everything else; Saffron under 5%.
+3. Ratio ≈ 70% Papyrus, 20% Ink Teal and Deep Ocean, 10% everything else; Saffron under 5%.
 
 ## Typography
 
@@ -67,7 +67,7 @@ Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static asse
 ## Shape and motion
 
 - Radius 8 px (`--radius`); the mark's tile is a 25% squircle (`rx 16/64`). Cards use `shadow-soft`, hover and hero use `shadow-lift`.
-- **Pattern:** `dots-pattern` (on Papyrus) and `dots-pattern-light` (on Deep Teal): pairs of dots on a staggered lattice, 7–8% opacity. One pattern surface per screen.
+- **Pattern:** `dots-pattern` (on Papyrus) and `dots-pattern-light` (on Deep Ocean): pairs of dots on a staggered lattice, 7–8% opacity. One pattern surface per screen.
 - **Motion:** the only signature animation is the **stamp** (`animate-stamp`): approval lands with a small overshoot. Everything else is 120–200 ms colour/shadow transitions. All animation is disabled under `prefers-reduced-motion`.
 
 ## Voice

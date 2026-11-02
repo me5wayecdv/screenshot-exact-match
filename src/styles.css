@@ -10,7 +10,7 @@
  *   Papyrus   --background   warm paper, the canvas
  *   Ink       --foreground   near-black teal for text
  *   Ink Teal  --primary      the brand colour (the "pen")
- *   Deep Teal --sidebar      dark surfaces
+ *   Deep Ocean --sidebar      dark surfaces
  *   Saffron   --accent       the teacher's mark. Fill only, never text on paper (1.8:1).
  *
  * Signature motif: two dots (the dots of ق). The first suggests, the saffron
@@ -67,19 +67,19 @@
   --radius: 0.5rem;
   --background: oklch(0.982 0.008 85);
   --foreground: oklch(0.24 0.03 200);
-  --card: oklch(0.995 0.004 85);
+  --card: oklch(0.997 0.004 95);
   --card-foreground: oklch(0.24 0.03 200);
-  --popover: oklch(0.995 0.004 85);
+  --popover: oklch(0.997 0.004 95);
   --popover-foreground: oklch(0.24 0.03 200);
-  --primary: oklch(0.42 0.075 195);
+  --primary: oklch(0.506 0.084 200);
   --primary-foreground: oklch(0.98 0.01 85);
-  --secondary: oklch(0.94 0.02 180);
-  --secondary-foreground: oklch(0.3 0.05 195);
-  --muted: oklch(0.95 0.01 85);
-  --muted-foreground: oklch(0.5 0.02 200);
-  --accent: oklch(0.8 0.14 75);
+  --secondary: oklch(0.937 0.027 185);
+  --secondary-foreground: oklch(0.29 0.064 205);
+  --muted: oklch(0.955 0.012 100);
+  --muted-foreground: oklch(0.49 0.025 205);
+  --accent: oklch(0.82 0.147 81);
   --accent-foreground: oklch(0.27 0.05 60);
-  --accent-soft: oklch(0.955 0.05 85);
+  --accent-soft: oklch(0.955 0.05 90);
   --destructive: oklch(0.56 0.19 28);
   --destructive-foreground: oklch(0.98 0.01 85);
   --success: oklch(0.55 0.12 155);
@@ -88,19 +88,19 @@
   --warning-foreground: oklch(0.28 0.05 60);
   --info: oklch(0.55 0.09 235);
   --info-foreground: oklch(0.98 0.01 85);
-  --border: oklch(0.9 0.012 85);
-  --input: oklch(0.88 0.014 85);
-  --ring: oklch(0.42 0.075 195);
-  --sidebar: oklch(0.3 0.05 198);
+  --border: oklch(0.91 0.016 185);
+  --input: oklch(0.88 0.02 185);
+  --ring: oklch(0.506 0.084 200);
+  --sidebar: oklch(0.329 0.059 226);
   --sidebar-foreground: oklch(0.93 0.015 90);
-  --sidebar-primary: oklch(0.8 0.14 75);
-  --sidebar-primary-foreground: oklch(0.25 0.05 60);
-  --sidebar-accent: oklch(0.36 0.055 198);
+  --sidebar-primary: oklch(0.82 0.147 81);
+  --sidebar-primary-foreground: oklch(0.27 0.05 60);
+  --sidebar-accent: oklch(0.39 0.065 220);
   --sidebar-accent-foreground: oklch(0.98 0.01 85);
-  --sidebar-border: oklch(0.38 0.05 198);
-  --sidebar-ring: oklch(0.8 0.14 75);
-  --shadow-soft: 0 1px 2px oklch(0.3 0.03 200 / 6%), 0 2px 8px oklch(0.3 0.03 200 / 5%);
-  --shadow-lift: 0 10px 30px -12px oklch(0.3 0.05 195 / 25%);
+  --sidebar-border: oklch(0.4 0.06 220);
+  --sidebar-ring: oklch(0.82 0.147 81);
+  --shadow-soft: 0 1px 2px oklch(0.3 0.05 205 / 7%), 0 3px 10px oklch(0.3 0.05 205 / 6%);
+  --shadow-lift: 0 14px 36px -14px oklch(0.3 0.08 205 / 34%);
   --duration-fast: 120ms;
   --duration-base: 200ms;
 }
@@ -141,14 +141,14 @@
 
 @utility paper-grid {
   background-image:
-    linear-gradient(to right, oklch(0.42 0.075 195 / 6%) 1px, transparent 1px),
-    linear-gradient(to bottom, oklch(0.42 0.075 195 / 6%) 1px, transparent 1px);
+    linear-gradient(to right, oklch(0.506 0.084 200 / 7%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.506 0.084 200 / 7%) 1px, transparent 1px);
   background-size: 28px 28px;
 }
 
 /* Brand pattern: pairs of dots (the dots of ق) on a staggered lattice. */
 @utility dots-pattern {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%2300595a' fill-opacity='.08'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%230b7378' fill-opacity='.08'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 72px 72px;
 }
 /* Same pattern for deep-teal surfaces. */
@@ -181,7 +181,13 @@
 
 /* Product pages: paper, ink, and a teacher's pencil — no glossy dashboard chrome. */
 .landing-page {
-  background: var(--color-background);
+  background:
+    radial-gradient(
+      ellipse 54rem 34rem at 96% 0%,
+      color-mix(in oklab, var(--color-secondary) 66%, transparent),
+      transparent 72%
+    ),
+    var(--color-background);
 }
 
 .landing-header {
@@ -194,6 +200,12 @@
   overflow: hidden;
   border-radius: 0.35rem;
   background-color: var(--color-sidebar);
+  background-image: linear-gradient(
+    132deg,
+    var(--color-sidebar) 0%,
+    color-mix(in oklab, var(--color-sidebar) 76%, var(--color-primary)) 100%
+  );
+  box-shadow: var(--shadow-lift);
 }
 
 .landing-hero::before,
