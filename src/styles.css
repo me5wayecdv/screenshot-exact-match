@@ -7,7 +7,7 @@
 /*
  * Qayyimni design system — Arabic-first. See docs/brand.md for the full guide.
  *
- *   Papyrus   --background   warm paper, the canvas
+ *   Cloud     --background   a cool, near-white canvas
  *   Ink       --foreground   near-black teal for text
  *   Ink Teal  --primary      the brand colour (the "pen")
  *   Deep Ocean --sidebar      dark surfaces
@@ -65,38 +65,38 @@
 
 :root {
   --radius: 0.5rem;
-  --background: oklch(0.982 0.008 85);
+  --background: oklch(0.972 0.008 190);
   --foreground: oklch(0.24 0.03 200);
-  --card: oklch(0.997 0.004 95);
+  --card: oklch(1 0 0);
   --card-foreground: oklch(0.24 0.03 200);
-  --popover: oklch(0.997 0.004 95);
+  --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.24 0.03 200);
-  --primary: oklch(0.506 0.084 200);
-  --primary-foreground: oklch(0.98 0.01 85);
+  --primary: oklch(0.506 0.084 200.3);
+  --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.937 0.027 185);
   --secondary-foreground: oklch(0.29 0.064 205);
-  --muted: oklch(0.955 0.012 100);
+  --muted: oklch(0.955 0.01 190);
   --muted-foreground: oklch(0.49 0.025 205);
   --accent: oklch(0.82 0.147 81);
   --accent-foreground: oklch(0.27 0.05 60);
   --accent-soft: oklch(0.955 0.05 90);
   --destructive: oklch(0.56 0.19 28);
-  --destructive-foreground: oklch(0.98 0.01 85);
+  --destructive-foreground: oklch(0.99 0 0);
   --success: oklch(0.55 0.12 155);
-  --success-foreground: oklch(0.98 0.01 85);
+  --success-foreground: oklch(0.99 0 0);
   --warning: oklch(0.75 0.14 70);
   --warning-foreground: oklch(0.28 0.05 60);
   --info: oklch(0.55 0.09 235);
-  --info-foreground: oklch(0.98 0.01 85);
+  --info-foreground: oklch(0.99 0 0);
   --border: oklch(0.91 0.016 185);
   --input: oklch(0.88 0.02 185);
-  --ring: oklch(0.506 0.084 200);
+  --ring: oklch(0.506 0.084 200.3);
   --sidebar: oklch(0.329 0.059 226);
-  --sidebar-foreground: oklch(0.93 0.015 90);
+  --sidebar-foreground: oklch(0.99 0 0);
   --sidebar-primary: oklch(0.82 0.147 81);
   --sidebar-primary-foreground: oklch(0.27 0.05 60);
   --sidebar-accent: oklch(0.39 0.065 220);
-  --sidebar-accent-foreground: oklch(0.98 0.01 85);
+  --sidebar-accent-foreground: oklch(0.99 0 0);
   --sidebar-border: oklch(0.4 0.06 220);
   --sidebar-ring: oklch(0.82 0.147 81);
   --shadow-soft: 0 1px 2px oklch(0.3 0.05 205 / 7%), 0 3px 10px oklch(0.3 0.05 205 / 6%);
@@ -141,8 +141,8 @@
 
 @utility paper-grid {
   background-image:
-    linear-gradient(to right, oklch(0.506 0.084 200 / 7%) 1px, transparent 1px),
-    linear-gradient(to bottom, oklch(0.506 0.084 200 / 7%) 1px, transparent 1px);
+    linear-gradient(to right, oklch(0.506 0.084 200.3 / 7%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.506 0.084 200.3 / 7%) 1px, transparent 1px);
   background-size: 28px 28px;
 }
 
@@ -153,7 +153,7 @@
 }
 /* Same pattern for deep-teal surfaces. */
 @utility dots-pattern-light {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%23fcf9f3' fill-opacity='.075'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%23ffffff' fill-opacity='.075'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
   background-size: 72px 72px;
 }
 
