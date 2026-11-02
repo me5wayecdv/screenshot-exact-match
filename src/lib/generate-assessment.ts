@@ -123,6 +123,7 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
   // bytes, and the model echoes them raw into its JSON reply, which used
   // to make the reply unparseable (AI_PARSE_FAILED).
   const sourceText = (typeof d["sourceText"] === "string" ? d["sourceText"] : "")
+    // eslint-disable-next-line no-control-regex -- deliberately strip disallowed C0 bytes from extracted source text.
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
     .trim();
   if (sourceText.length < SOURCE_MIN_CHARS) throw new Error("VALIDATION");

@@ -528,8 +528,10 @@ const dict = {
     hwVisionUnsupported:
       "النموذج الحالي لا يدعم قراءة الصور — اضبط AI_VISION_MODEL على نموذج يدعم الصور (Vision).",
     hwOcrFailed: "تعذّر استخراج النص — حاول مجدداً أو اكتب النص يدوياً.",
-    hwNeedImage: "ارفع صورة أو PDF أو ملف Word بصيغة .docx لورقة الإجابة (صيغة .doc القديمة غير مدعومة).",
-    hwSinglePageOnly: "الملف يحتوي أكثر من صفحة - استخدم لوحة مطابقة الأوراق المتعددة حتى لا تضيع أي صفحة.",
+    hwNeedImage:
+      "ارفع صورة أو PDF أو ملف Word بصيغة .docx لورقة الإجابة (صيغة .doc القديمة غير مدعومة).",
+    hwSinglePageOnly:
+      "الملف يحتوي أكثر من صفحة - استخدم لوحة مطابقة الأوراق المتعددة حتى لا تضيع أي صفحة.",
     hwNeedText: "أدخل نص السؤال ونص الإجابة قبل اقتراح الدرجة أو الحفظ.",
     hwNeedSuggestion: "اطلب اقتراح الدرجة أولاً — الدرجة النهائية يحددها الذكاء الاصطناعي.",
     hwAiFinalNote:
@@ -1321,8 +1323,10 @@ const dict = {
     hwVisionUnsupported:
       "The current model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
     hwOcrFailed: "Could not extract the text — try again or type the text manually.",
-    hwNeedImage: "Upload an answer paper image, PDF or Word .docx file (legacy .doc is not supported).",
-    hwSinglePageOnly: "This file has multiple pages - use the multi-page match panel so no pages are lost.",
+    hwNeedImage:
+      "Upload an answer paper image, PDF or Word .docx file (legacy .doc is not supported).",
+    hwSinglePageOnly:
+      "This file has multiple pages - use the multi-page match panel so no pages are lost.",
     hwNeedText: "Enter the question text and the answer text before suggesting a grade or saving.",
     hwNeedSuggestion: "Request a grade suggestion first — the AI sets the final grade.",
     hwAiFinalNote:
@@ -1518,10 +1522,12 @@ const dict = {
     genVisionUnsupported:
       "The configured model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
     genOcrFailed: "Could not extract text from the photo.",
-    genVisionBusy: "Photo reading is temporarily busy. The text was not extracted; please try again shortly.",
+    genVisionBusy:
+      "Photo reading is temporarily busy. The text was not extracted; please try again shortly.",
     genVisionUpstream: "Could not reach the photo-reading service. Please try again shortly.",
     genVisionTimeout: "Text extraction took longer than expected. Please try again.",
-    genVisionRateLimit: "The temporary photo-extraction limit was reached. Wait a little, then try again.",
+    genVisionRateLimit:
+      "The temporary photo-extraction limit was reached. Wait a little, then try again.",
     genOcrRetry: "Retry extraction",
     genTooLong: "Source text is longer than 30,000 characters — shorten it before generating.",
     // Question bank (builder)

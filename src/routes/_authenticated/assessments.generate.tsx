@@ -161,7 +161,12 @@ function Generate() {
   const [types, setTypes] = useState<GenerateQuestionType[]>([...GENERATE_QUESTION_TYPES]);
   const [difficulty, setDifficulty] = useState<GenerateDifficulty>("mixed");
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ id: string; title: string; n: number; requested: number } | null>(null);
+  const [result, setResult] = useState<{
+    id: string;
+    title: string;
+    n: number;
+    requested: number;
+  } | null>(null);
   // Persistent generation error: toasts auto-dismiss, so a failed
   // generation used to leave no trace. This panel stays until the next
   // submit (or a success) and keeps the raw error code for diagnosis.
@@ -169,7 +174,9 @@ function Generate() {
   const [fileBusy, setFileBusy] = useState(false);
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
-  const [ocrRetryBatch, setOcrRetryBatch] = useState<{ blobs: Blob[]; names: string[] } | null>(null);
+  const [ocrRetryBatch, setOcrRetryBatch] = useState<{ blobs: Blob[]; names: string[] } | null>(
+    null,
+  );
   const [visionOk, setVisionOk] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -293,10 +300,7 @@ function Generate() {
     return [...aLines, ...bLines.slice(overlap)].join("\n");
   }
 
-  async function handleImageFiles(
-    files: File[],
-    retryBatch?: { blobs: Blob[]; names: string[] },
-  ) {
+  async function handleImageFiles(files: File[], retryBatch?: { blobs: Blob[]; names: string[] }) {
     const imageCount = retryBatch?.blobs.length ?? files.length;
     if (imageCount > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
     if (!retryBatch && files.some((f) => f.size > MAX_IMAGE_BYTES)) {
@@ -381,20 +385,19 @@ function Generate() {
         }
         const temporaryUnavailable =
           res.code === "VISION_UPSTREAM" && /HTTP 503|UNAVAILABLE/i.test(res.message);
-        const userMessage =
-          temporaryUnavailable
-            ? t("genVisionBusy")
-            : res.code === "VISION_NOT_CONFIGURED"
-              ? t("genVisionMissing")
-              : res.code === "VISION_UNSUPPORTED"
-                ? t("genVisionUnsupported")
-                : res.code === "VISION_TIMEOUT"
-                  ? t("genVisionTimeout")
-                  : res.code === "VISION_RATE_LIMIT"
-                    ? t("genVisionRateLimit")
-                    : res.code === "VISION_UPSTREAM"
-                      ? t("genVisionUpstream")
-                      : t("genOcrFailed");
+        const userMessage = temporaryUnavailable
+          ? t("genVisionBusy")
+          : res.code === "VISION_NOT_CONFIGURED"
+            ? t("genVisionMissing")
+            : res.code === "VISION_UNSUPPORTED"
+              ? t("genVisionUnsupported")
+              : res.code === "VISION_TIMEOUT"
+                ? t("genVisionTimeout")
+                : res.code === "VISION_RATE_LIMIT"
+                  ? t("genVisionRateLimit")
+                  : res.code === "VISION_UPSTREAM"
+                    ? t("genVisionUpstream")
+                    : t("genOcrFailed");
         const retryable =
           res.code === "VISION_UPSTREAM" ||
           res.code === "VISION_TIMEOUT" ||

@@ -26,8 +26,7 @@ function mockFetchSequence(responses: Array<{ status: number; body: unknown }>) 
       status: next.status,
       headers: new Headers(),
       body: null,
-      text: async () =>
-        typeof next.body === "string" ? next.body : JSON.stringify(next.body),
+      text: async () => (typeof next.body === "string" ? next.body : JSON.stringify(next.body)),
       json: async () => next.body,
     } as Response;
   });
