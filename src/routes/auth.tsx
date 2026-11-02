@@ -120,7 +120,7 @@ function AuthPage() {
                 </div>
                 <fieldset className="space-y-1.5">
                   <legend className="text-sm font-medium">{t("iAm")}</legend>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                     {(["school_teacher", "tutor", "student"] as const).map((r) => (
                       <button
                         type="button"

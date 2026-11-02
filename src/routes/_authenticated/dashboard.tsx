@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMe } from "@/lib/session";
+import { studentAssessmentState } from "@/lib/assessment-visibility";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ function SchoolTeacherHome({ name }: { name: string }) {
       ]);
       return {
         assessments: a.data ?? [],
+        assessmentsError: a.error ? translateError(a.error, lang) : null,
         submissions: s.data ?? [],
         students: st.data ?? [],
       };
@@ -86,7 +88,13 @@ function SchoolTeacherHome({ name }: { name: string }) {
         ))}
       </div>
       <h2 className="mb-3 mt-10 text-lg font-semibold">{t("assessments")}</h2>
-      {data && data.assessments.length === 0 ? (
+      {data?.assessmentsError ? (
+        <p role="alert" className="mb-4 rounded-md bg-destructive/15 p-3 text-sm">
+          {t("assessmentsLoadFailed")}{" "}
+          <span className="text-muted-foreground">({data.assessmentsError})</span>
+        </p>
+      ) : null}
+      {data && !data.assessmentsError && data.assessments.length === 0 ? (
         <Empty>{t("noAssessments")}</Empty>
       ) : (
         <div className="divide-y rounded-lg border bg-card">
@@ -232,7 +240,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       const [a, s, le, pc] = await Promise.all([
         supabase
           .from("assessments")
-          .select("id, title, instructions, due_at, status")
+          .select("id, title, instructions, due_at, starts_at, status")
           .order("created_at", { ascending: false }),
         supabase
           .from("submissions")
@@ -259,6 +267,9 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       }[];
       return {
         assessments: a.data ?? [],
+        // A failed read must not render as "no assessments assigned": on the
+        // student side that message is indistinguishable from a bug.
+        assessmentsError: a.error ? translateError(a.error, lang) : null,
         submissions: s.data ?? [],
         lessons,
         parentContact: pc.data ?? null,
@@ -318,53 +329,67 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
         </form>
       </Panel>
       <h3 className="mb-3 text-base font-semibold">{t("myAssessments")}</h3>
-      {data && data.assessments.length === 0 ? (
+      {data?.assessmentsError ? (
+        <p role="alert" className="mb-4 rounded-md bg-destructive/15 p-3 text-sm">
+          {t("assessmentsLoadFailed")}{" "}
+          <span className="text-muted-foreground">({data.assessmentsError})</span>
+        </p>
+      ) : null}
+      {data && !data.assessmentsError && data.assessments.length === 0 ? (
         <Empty>{t("noAssigned")}</Empty>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {data?.assessments.map((a) => {
             const sub = data.submissions.find((s) => s.assessment_id === a.id);
-            const late = a.due_at && new Date(a.due_at) < new Date();
-            const canStart = !sub && a.status === "published" && !late;
+            // One pure decision, so "no button at all" can never come back:
+            // every row ends up in exactly one explicit state.
+            const state = studentAssessmentState({
+              status: a.status,
+              startsAt: a.starts_at,
+              dueAt: a.due_at,
+              submissionStatus: sub?.status ?? null,
+            });
             return (
               <Panel key={a.id}>
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold">{a.title}</h3>
-                  {sub && (
-                    <Pill t={statusTone[sub.status] ?? "neutral"}>
-                      {sub.status === "released"
-                        ? t("sub_released")
-                        : sub.status === "in_progress"
-                          ? t("draft")
-                          : t("awaitingResult")}
-                    </Pill>
-                  )}
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <h3 className="min-w-0 font-semibold">{a.title}</h3>
+                  <Pill t={statusTone[state] ?? "neutral"}>
+                    {state === "released"
+                      ? t("sub_released")
+                      : state === "in_progress"
+                        ? t("draft")
+                        : state === "awaiting_review"
+                          ? t("awaitingResult")
+                          : state === "ended"
+                            ? t("deadlinePassed")
+                            : state === "not_open_yet"
+                              ? t("notOpenYet")
+                              : state === "unavailable"
+                                ? t("notAvailableNow")
+                                : t("availableNow")}
+                  </Pill>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {t("dueAt")}: {formatDate(a.due_at, lang)}
                 </p>
                 <div className="mt-4">
-                  {sub ? (
-                    sub.status === "released" ? (
-                      <Pill t="success">
-                        {t("finalScore")}: {sub.final_score}/{sub.total_possible}
-                      </Pill>
-                    ) : sub.status === "in_progress" ? (
-                      <Button asChild size="sm">
-                        <Link to="/assessments/take/$id" params={{ id: a.id }}>
-                          {t("continueAttempt")}
-                        </Link>
-                      </Button>
-                    ) : null
-                  ) : !canStart ? (
-                    <Pill t="danger">{t("deadlinePassed")}</Pill>
-                  ) : (
+                  {state === "released" ? (
+                    <Pill t="success">
+                      {t("finalScore")}: {sub?.final_score}/{sub?.total_possible}
+                    </Pill>
+                  ) : state === "in_progress" ? (
+                    <Button asChild size="sm">
+                      <Link to="/assessments/take/$id" params={{ id: a.id }}>
+                        {t("continueAttempt")}
+                      </Link>
+                    </Button>
+                  ) : state === "available" ? (
                     <Button asChild size="sm">
                       <Link to="/assessments/take/$id" params={{ id: a.id }}>
                         {t("startAssessment")}
                       </Link>
                     </Button>
-                  )}
+                  ) : null}
                 </div>
               </Panel>
             );

@@ -98,11 +98,34 @@
   }
   html {
     font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
     -webkit-font-smoothing: antialiased;
+    /* Long Arabic titles and URLs must wrap instead of widening the page. */
+    overflow-wrap: break-word;
+  }
+  /* Media never pushes a card past the viewport on phones. */
+  img,
+  video,
+  canvas {
+    max-width: 100%;
+    height: auto;
+  }
+  /*
+   * iOS Safari zooms into any focused control whose font-size is under
+   * 16px, which makes every form on a phone feel broken. Pin 16px on
+   * small screens only; desktop keeps the design-system sizes.
+   */
+  @media (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
   }
   h1,
   h2,
@@ -122,4 +145,13 @@
     linear-gradient(to right, oklch(0.42 0.075 195 / 6%) 1px, transparent 1px),
     linear-gradient(to bottom, oklch(0.42 0.075 195 / 6%) 1px, transparent 1px);
   background-size: 28px 28px;
+}
+
+/* Horizontal nav strip on phones: scrollable, but with no visible bar. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

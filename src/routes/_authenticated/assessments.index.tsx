@@ -19,20 +19,42 @@ export const Route = createFileRoute("/_authenticated/assessments/")({
   component: AssessmentsList,
 });
 
+type AssessmentRow = {
+  id: string;
+  title: string;
+  status: string;
+  due_at: string | null;
+  created_at: string;
+  subjects: { name: string } | null;
+};
+
 function AssessmentsList() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
-  const { data } = useQuery({
+  // The query used to swallow its error (`(await ...).data ?? []`), so any
+  // failure — an RLS denial, a broken embedded subject join, a missing
+  // column — rendered as "no assessments yet". Surface it instead.
+  const { data, isLoading, error } = useQuery({
     queryKey: ["assessments"],
-    queryFn: async () =>
-      (
-        await supabase
-          .from("assessments")
-          .select("id, title, status, due_at, created_at, subjects(name)")
-          .order("created_at", { ascending: false })
-      ).data ?? [],
+    queryFn: async (): Promise<AssessmentRow[]> => {
+      const base = "id, title, status, due_at, created_at";
+      const first = await supabase
+        .from("assessments")
+        .select(`${base}, subjects(name)`)
+        .order("created_at", { ascending: false });
+      if (!first.error) return (first.data ?? []) as AssessmentRow[];
+      // The embedded subject join is cosmetic. If PostgREST cannot resolve
+      // it (an FK it does not know about), the list used to collapse to
+      // "no assessments yet" and look like vanished data; retry plain.
+      const plain = await supabase
+        .from("assessments")
+        .select(base)
+        .order("created_at", { ascending: false });
+      if (plain.error) throw plain.error;
+      return (plain.data ?? []).map((r) => ({ ...r, subjects: null })) as AssessmentRow[];
+    },
   });
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -72,7 +94,14 @@ function AssessmentsList() {
           <Button disabled={busy || !title.trim()}>{t("create")}</Button>
         </form>
       </Panel>
-      {data && data.length === 0 ? (
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">{t("loading")}</p>
+      ) : error ? (
+        <p role="alert" className="rounded-md bg-destructive/15 p-3 text-sm">
+          {t("assessmentsLoadFailed")}{" "}
+          <span className="text-muted-foreground">({translateError(error, lang)})</span>
+        </p>
+      ) : data && data.length === 0 ? (
         <Empty>{t("noAssessments")}</Empty>
       ) : (
         <div className="divide-y rounded-lg border bg-card">

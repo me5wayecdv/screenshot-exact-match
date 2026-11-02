@@ -73,19 +73,35 @@ function AppShell() {
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      <aside className="flex shrink-0 flex-col bg-sidebar text-sidebar-foreground md:min-h-screen md:w-60">
-        <div className="flex items-center justify-between p-5">
+      {/*
+        Mobile: this becomes a sticky top app bar (brand + language + sign
+        out) with a horizontally scrollable nav row underneath, so the page
+        never gets pushed below the fold and never scrolls sideways.
+        Desktop (md+): the original full-height sidebar.
+      */}
+      <aside className="sticky top-0 z-30 shrink-0 bg-sidebar text-sidebar-foreground md:static md:flex md:min-h-screen md:w-60 md:flex-col">
+        <div className="flex items-center justify-between gap-2 px-4 py-3 md:p-5">
           <Brand />
+          <div className="flex items-center gap-1 md:hidden">
+            <LangToggle className="hover:bg-sidebar-accent" />
+            <button
+              onClick={signOut}
+              aria-label={t("signOut")}
+              className="rounded-md p-2 hover:bg-sidebar-accent"
+            >
+              <LogOut className="h-4 w-4 rtl:rotate-180" aria-hidden />
+            </button>
+          </div>
         </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 md:flex-col">
+        <nav className="scrollbar-none flex gap-1 overflow-x-auto px-3 pb-2 md:flex-col md:overflow-visible md:pb-0">
           {nav.map((n) => (
             <Link
               key={n.to}
               to={n.to}
-              className="flex items-center gap-3 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent"
+              className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-sidebar-accent md:gap-3"
               activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
             >
-              <n.icon className="h-4 w-4" aria-hidden /> {n.label}
+              <n.icon className="h-4 w-4 shrink-0" aria-hidden /> {n.label}
             </Link>
           ))}
         </nav>
@@ -102,17 +118,8 @@ function AppShell() {
             </button>
           </div>
         </div>
-        <div className="flex justify-end gap-1 px-3 pb-3 md:hidden">
-          <LangToggle className="hover:bg-sidebar-accent" />
-          <button
-            onClick={signOut}
-            className="rounded-md px-3 py-1.5 text-sm hover:bg-sidebar-accent"
-          >
-            {t("signOut")}
-          </button>
-        </div>
       </aside>
-      <main className="flex-1 p-5 md:p-10">
+      <main className="min-w-0 flex-1 px-4 py-5 pb-12 md:px-10 md:py-10">
         <Outlet />
       </main>
     </div>

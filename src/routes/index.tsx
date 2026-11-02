@@ -35,7 +35,7 @@ function Landing() {
   ];
   return (
     <div className="min-h-screen">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
+      <header className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-4 sm:px-6 sm:py-5">
         <Brand className="text-primary" />
         <div className="flex items-center gap-2">
           <LangToggle />
@@ -45,14 +45,16 @@ function Landing() {
         </div>
       </header>
       <section className="paper-grid border-y">
-        <div className="mx-auto max-w-6xl px-6 py-24">
+        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
           <p className="mb-4 inline-block rounded-full bg-secondary px-3 py-1 text-sm font-medium text-secondary-foreground">
             {t("tagline")}
           </p>
-          <h1 className="max-w-3xl text-4xl font-bold leading-tight text-primary md:text-6xl">
+          <h1 className="max-w-3xl text-3xl font-bold leading-tight text-primary sm:text-4xl md:text-6xl">
             {t("heroTitle")}
           </h1>
-          <p className="mt-6 max-w-2xl text-lg text-muted-foreground">{t("heroBody")}</p>
+          <p className="mt-6 max-w-2xl text-base text-muted-foreground sm:text-lg">
+            {t("heroBody")}
+          </p>
           <div className="mt-10">
             <Button asChild size="lg" className="h-12 px-8 text-base">
               <Link to="/auth">{t("getStarted")}</Link>
@@ -60,7 +62,7 @@ function Landing() {
           </div>
         </div>
       </section>
-      <section className="mx-auto grid max-w-6xl gap-6 px-6 py-20 md:grid-cols-3">
+      <section className="mx-auto grid max-w-6xl gap-6 px-4 py-12 sm:px-6 sm:py-20 md:grid-cols-3">
         {features.map((f) => (
           <div key={f.title} className="rounded-lg border bg-card p-6 shadow-soft">
             <f.icon className="mb-4 h-6 w-6 text-primary" aria-hidden />
