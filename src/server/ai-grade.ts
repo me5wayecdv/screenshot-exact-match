@@ -97,8 +97,8 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
     return { error: "Input exceeds the maximum allowed size." };
   }
   if (
-    rawAlternatives.some((alternative) =>
-      typeof alternative !== "string" || alternative.length > 2000,
+    rawAlternatives.some(
+      (alternative) => typeof alternative !== "string" || alternative.length > 2000,
     )
   ) {
     return { error: "Each accepted alternative must be a string of at most 2000 characters." };

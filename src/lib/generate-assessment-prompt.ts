@@ -388,12 +388,23 @@ export function sanitizeModelJson(text: string): string {
     const code = ch.charCodeAt(0);
     if (code < 0x20) {
       switch (code) {
-        case 0x08: out += "\\b"; break;
-        case 0x09: out += "\\t"; break;
-        case 0x0a: out += "\\n"; break;
-        case 0x0c: out += "\\f"; break;
-        case 0x0d: out += "\\r"; break;
-        default: out += "\\u" + code.toString(16).padStart(4, "0");
+        case 0x08:
+          out += "\\b";
+          break;
+        case 0x09:
+          out += "\\t";
+          break;
+        case 0x0a:
+          out += "\\n";
+          break;
+        case 0x0c:
+          out += "\\f";
+          break;
+        case 0x0d:
+          out += "\\r";
+          break;
+        default:
+          out += "\\u" + code.toString(16).padStart(4, "0");
       }
       i++;
       continue;

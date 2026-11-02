@@ -88,11 +88,7 @@ function useTakeData(id: string, studentId: string | undefined) {
       // is not secret from them, so fetch it through the security-definer
       // function and merge it in for the history view only.
       const latestSub = submissions[submissions.length - 1];
-      if (
-        latestSub &&
-        latestSub.status !== "in_progress" &&
-        latestSub.status !== "released"
-      ) {
+      if (latestSub && latestSub.status !== "in_progress" && latestSub.status !== "released") {
         const own = await supabase.rpc("own_submission_responses", {
           _submission: latestSub.id,
         });
