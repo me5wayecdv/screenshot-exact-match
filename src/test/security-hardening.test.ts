@@ -31,7 +31,7 @@ const gradingRoute = readFileSync(
 const signupJoinCodeMigration = readFileSync(
   resolve(
     dirname(fileURLToPath(import.meta.url)),
-    "../../supabase/migrations/20261101040000_fix_signup_join_code_entropy.sql",
+    "../../supabase/migrations/20261102050446_fix_signup_join_code_entropy.sql",
   ),
   "utf8",
 );

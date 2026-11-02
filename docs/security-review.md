@@ -8,15 +8,18 @@ Supabase: it does not validate hosted Auth/Storage behavior, actual RLS request
 contexts, or the target project's migration runner.
 
 A read-only Supabase check on 2026-11-02 reported Auth, DB, Storage, and REST as
-healthy. Its migration history did not include
-`20261101030000_canonical_submission_marks.sql`; read-only inspection also
-found the deployed `review_answer` and `release_submission` definitions lacked
-the canonical-marks logic. A new follow-up migration
-`20261101040000_fix_signup_join_code_entropy.sql` repairs a separate signup
-trigger regression caught by the local rehearsal. No hosted migration, data
-write, restore drill, or deployment was performed. The project must not be
-considered schema-current until these changes are rehearsed and approved for a
-non-production environment, then explicitly approved for production.
+healthy. It found the canonical-marks migration absent and the deployed
+`review_answer` and `release_submission` definitions lacking the expected logic.
+The project was not empty: counts included 38 Auth users, 32 assessments, 11
+submissions, 17 answers, and 68 Storage objects. After the user confirmed a
+current backup and explicitly approved production application, two
+function-only migrations were applied through the Supabase migration tool:
+`20261102050438_canonical_submission_marks.sql` and
+`20261102050446_fix_signup_join_code_entropy.sql`. Read-only postchecks
+confirmed the key function logic and unchanged counts for Auth users,
+assessments, submissions, answers, and Storage objects. No staging rehearsal,
+restore drill, or application deployment was performed; production behavior
+still requires smoke testing.
 
 ## What holds
 

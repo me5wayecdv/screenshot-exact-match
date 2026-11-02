@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration = readFileSync(
-  resolve(root, "supabase/migrations/20261101030000_canonical_submission_marks.sql"),
+  resolve(root, "supabase/migrations/20261102050438_canonical_submission_marks.sql"),
   "utf8",
 );
 const aiGrade = readFileSync(resolve(root, "src/server/ai-grade.ts"), "utf8");
