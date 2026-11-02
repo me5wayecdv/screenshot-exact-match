@@ -14,6 +14,8 @@
 // reviews/edits it in the existing builder route before publishing.
 // Nothing here ever publishes.
 
+import { cleanAiOutputText } from "./ai-output";
+
 export type GenerateQuestionType = "mcq" | "true_false" | "short_answer" | "written";
 
 export const GENERATE_QUESTION_TYPES: GenerateQuestionType[] = [
@@ -123,7 +125,9 @@ export function buildGeneratePrompt(input: GeneratePromptInput): string {
       : `مستوى صعوبة كل الأسئلة: ${input.difficulty === "easy" ? "سهل" : input.difficulty === "hard" ? "صعب" : "متوسط"} (اذكر القيمة نفسها في حقل difficulty لكل سؤال).`;
   return [
     "أنت معلم خبير يصيغ اختبارات من نصوص المناهج. أجب بصيغة JSON فقط، بدون أي نص خارج JSON وبدون أسوار كود (code fences).",
-    "اكتب الأسئلة بنفس لغة النص المصدر. استخدم النص المصدر فقط: لا تخترع حقائق أو أسئلة عن معلومات غير موجودة فيه.",
+    "اكتب الأسئلة بنفس لغة النص المصدر. إذا كان عربياً فاستخدم عربية فصحى سهلة وواضحة، وإذا كان إنجليزياً فاستخدم إنجليزية بسيطة وواضحة. لا تخلط اللغتين إلا لمصطلح ضروري تشرحه.",
+    "تجنب التشكيل والتنوين غير الضروريين في العربية. لا تستخدم Markdown أو علامتي النجمتين ** داخل قيم JSON.",
+    "استخدم النص المصدر فقط: لا تخترع حقائق أو أسئلة عن معلومات غير موجودة فيه.",
     `${subjectLine}${gradeLine}أنشئ اختباراً بالمواصفات التالية:`,
     countLines,
     difficultyLine,
@@ -173,7 +177,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function cleanStr(v: unknown, max: number): string {
-  return typeof v === "string" ? v.trim().slice(0, max) : "";
+  return typeof v === "string" ? cleanAiOutputText(v).slice(0, max) : "";
 }
 
 function cleanStrArray(v: unknown, maxItem: number, maxCount: number): string[] {
@@ -181,7 +185,7 @@ function cleanStrArray(v: unknown, maxItem: number, maxCount: number): string[] 
   const out: string[] = [];
   for (const item of v) {
     if (typeof item !== "string") continue;
-    const s = item.trim();
+    const s = cleanAiOutputText(item);
     if (s && !out.includes(s)) out.push(s.slice(0, maxItem));
     if (out.length >= maxCount) break;
   }

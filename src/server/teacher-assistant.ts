@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { resolveAiConfig } from "@/server/ai-config";
+import { cleanAiOutputText } from "@/lib/ai-output";
 import {
   consumeAiRateQuota,
   extractOpenAiUsage,
@@ -185,7 +186,7 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
         choices?: Array<{ message?: { content?: string | null } }>;
         usage?: unknown;
       };
-      const reply = payload.choices?.[0]?.message?.content?.trim() ?? "";
+      const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
       if (!reply || reply.length > 10_000) return { ok: false, code: "AI_UPSTREAM" };
 
       // Usage rows store token counts/model only, never prompts or replies.

@@ -19,6 +19,9 @@ describe("buildGeneratePrompt difficulty", () => {
     expect(prompt).toContain("مستويات الصعوبة");
     expect(prompt).toContain('"difficulty": "medium"');
     expect(prompt).toContain("easy أو medium أو hard");
+    expect(prompt).toContain("عربية فصحى سهلة وواضحة");
+    expect(prompt).toContain("التنوين غير الضروريين");
+    expect(prompt).toContain("علامتي النجمتين **");
   });
 
   it("pins a single level when requested", () => {
@@ -95,6 +98,30 @@ describe("extractJsonObject resilience", () => {
 
   it("throws when nothing usable is present", () => {
     expect(() => extractJsonObject("no json here")).toThrow("AI_PARSE_FAILED");
+  });
+});
+
+describe("parseGeneratedDraft display cleanup", () => {
+  it("removes bold markers and excess tanween from generated Arabic text", () => {
+    const draft = parseGeneratedDraft(
+      {
+        title: "**اختبارٌ**",
+        questions: [
+          {
+            type: "mcq",
+            prompt: "**ما الماءُ؟**",
+            options: ["تبخرٌ", "جريان"],
+            correct_answer: "تبخرٌ",
+            marks: 1,
+          },
+        ],
+      },
+      20,
+    );
+    expect(draft.title).toBe("اختبار");
+    expect(draft.questions[0]?.prompt).toBe("ما الماءُ؟");
+    expect(draft.questions[0]?.options[0]).toBe("تبخر");
+    expect(draft.questions[0]?.correct_answer).toBe("تبخر");
   });
 });
 

@@ -36,6 +36,7 @@ import {
   openAiProvider,
   type AiUsageSink,
 } from "./ai-usage";
+import { cleanAiOutputText } from "@/lib/ai-output";
 import {
   tutorExplainPrompt,
   tutorFeedbackPrompt,
@@ -199,7 +200,7 @@ async function callChat(
       choices?: Array<{ message?: { content?: string | null } }>;
       usage?: unknown;
     };
-    const reply = payload.choices?.[0]?.message?.content?.trim() ?? "";
+    const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
     if (!reply) {
       return {
         ok: false,
@@ -247,7 +248,7 @@ function extractTips(raw: string): { objective: string; tip: string }[] | null {
           typeof (item as Record<string, unknown>)["objective"] === "string" &&
           typeof (item as Record<string, unknown>)["tip"] === "string",
       )
-      .map((item) => ({ objective: item.objective, tip: item.tip }));
+      .map((item) => ({ objective: item.objective, tip: cleanAiOutputText(item.tip) }));
     return tips.length > 0 ? tips : null;
   } catch {
     return null;

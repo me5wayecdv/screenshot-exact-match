@@ -29,6 +29,7 @@
 import { buildAiGradingPrompt, type AiGradingPromptInput } from "./ai-grading-prompt";
 import { resolveAiConfig } from "./ai-config";
 import { extractOpenAiUsage, logAiUsage, openAiProvider, type AiUsageSink } from "./ai-usage";
+import { cleanAiOutputText } from "@/lib/ai-output";
 
 export type AiConfidence = "high" | "medium" | "low";
 
@@ -80,10 +81,11 @@ function parseSuggestion(raw: unknown, maxMarks: number): AiGradeSuggestion {
       : typeof obj["explanation"] === "string"
         ? obj["explanation"]
         : "";
+  const cleanFeedback = cleanAiOutputText(feedback);
   const confidenceRaw = obj["confidence"];
   const confidence: AiConfidence =
     confidenceRaw === "high" || confidenceRaw === "low" ? confidenceRaw : "medium";
-  return { suggestedScore: clampScore(score, maxMarks), feedback, confidence };
+  return { suggestedScore: clampScore(score, maxMarks), feedback: cleanFeedback, confidence };
 }
 
 /**

@@ -85,7 +85,8 @@ export function buildLessonExplainSystemPrompt(language: LessonExplainLanguage):
     return [
       "أنت مساعد تربوي عملي داخل منصة قَيّمني، مخصص لمعلمي المدارس والمدرسين الخصوصيين.",
       "اشرح الدرس التالي بلغة نص الدرس نفسه (درس عربي يُشرح بالعربية، ودرس إنجليزي يُشرح بالإنجليزية)؛ وإذا لم تتضح لغة الدرس، اشرح بالعربية.",
-      "اكتب الرد كاملاً — كل العناوين وكل الكلمات — بلغة نص الدرس نفسه، ولا تستخدم أي كلمة من لغة أخرى. واستخدم لغة واضحة وبسيطة: جمل قصيرة وصياغة سهلة يفهمها المعلم مباشرة.",
+      "اكتب الرد كاملاً — كل العناوين وكل الكلمات — بلغة نص الدرس نفسه، ولا تخلط اللغتين إلا لمصطلح ضروري تشرحه. استخدم عربية فصحى سهلة وجملاً قصيرة وواضحة.",
+      "استخدم نصاً بسيطاً بلا Markdown bold أو علامتي النجمتين **. تجنب التشكيل والتنوين غير الضروريين.",
       "اعتمد على نص الدرس المقدم فقط. لا تخترع حقائق أو تفاصيل من خارج النص؛ وإذا كان النص ناقصاً أو غامضاً في نقطة ما، قل ذلك صراحة بدل ملء الفراغ.",
       "اكتب الشرح بالترتيب التالي، مع عنوان واضح لكل قسم:",
       "1. ملخص: فقرة قصيرة تلخص فكرة الدرس.",
@@ -100,7 +101,8 @@ export function buildLessonExplainSystemPrompt(language: LessonExplainLanguage):
   return [
     "You are a practical teaching assistant inside Qayyimni, for school teachers and tutors.",
     "Explain the following lesson in the language of the lesson text itself (an Arabic lesson is explained in Arabic, an English lesson in English); if the lesson language is unclear, explain in English.",
-    "Write the ENTIRE reply — every heading and every word — in the language of the lesson text. Do not use any word from another language. Use clear, simple language: short sentences and plain wording a teacher can follow at once.",
+    "Write the ENTIRE reply — every heading and every word — in the language of the lesson text. Do not mix languages unless a necessary technical term must be explained. Use clear, simple wording and short sentences.",
+    "Do not use Markdown bold or **. Keep formatting simple and use plain text.",
     "Ground the explanation in the provided lesson text only. Do not invent facts or details beyond the text; if the text is incomplete or vague on a point, say so explicitly instead of filling the gap.",
     "Write the explanation in this order, with a clear heading for each section:",
     "1. Summary: a short paragraph capturing the lesson's main idea.",

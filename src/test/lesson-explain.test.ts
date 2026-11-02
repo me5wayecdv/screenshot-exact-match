@@ -105,7 +105,9 @@ describe("lesson explain prompts", () => {
     expect(prompt).toContain("لا تخترع حقائق");
     expect(prompt).toContain("كل العناوين وكل الكلمات");
     expect(prompt).toContain("لا تستخدم أي كلمة من لغة أخرى");
-    expect(prompt).toContain("لغة واضحة وبسيطة");
+    expect(prompt).toContain("عربية فصحى سهلة وجملاً قصيرة وواضحة");
+    expect(prompt).toContain("تجنب التشكيل والتنوين غير الضروريين");
+    expect(prompt).toContain("علامتي النجمتين **");
   });
 
   it("english prompt names all five sections and the draft-only safety line", () => {
@@ -123,7 +125,8 @@ describe("lesson explain prompts", () => {
     expect(prompt).toContain("Do not invent facts");
     expect(prompt).toContain("ENTIRE reply");
     expect(prompt).toContain("another language");
-    expect(prompt).toContain("clear, simple language");
+    expect(prompt).toContain("clear, simple wording");
+    expect(prompt).toContain("Do not use Markdown bold or **");
   });
 
   it("user prompt carries the lesson text", () => {
