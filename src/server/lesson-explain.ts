@@ -9,6 +9,7 @@ import {
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { cleanAiOutputText } from "@/lib/ai-output";
 import {
   buildLessonExplainSystemPrompt,
   buildLessonExplainUserPrompt,
@@ -112,7 +113,7 @@ export const explainLesson = createServerFn({ method: "POST" })
         choices?: Array<{ message?: { content?: string | null } }>;
         usage?: unknown;
       };
-      const explanation = payload.choices?.[0]?.message?.content?.trim() ?? "";
+      const explanation = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
       if (!explanation || explanation.length > MAX_REPLY_CHARS) {
         return { ok: false, code: "AI_UPSTREAM" };
       }

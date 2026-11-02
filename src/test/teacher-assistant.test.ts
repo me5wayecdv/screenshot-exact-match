@@ -74,6 +74,9 @@ describe("teacher assistant system prompt", () => {
     expect(prompt).toContain("74% across 12 recent results");
     expect(prompt).toContain("لا تطلب أسماء الطلاب");
     expect(prompt).toContain("لا تعتمد درجات");
+    expect(prompt).toContain("عربية فصحى سهلة وواضحة");
+    expect(prompt).toContain("التشكيل والتنوين غير الضروريين");
+    expect(prompt).toContain("علامتي النجمتين **");
     expect(prompt).not.toContain("student_id");
   });
 
@@ -88,7 +91,8 @@ describe("teacher assistant system prompt", () => {
 
   it("uses English instructions when the interface language is English", () => {
     const prompt = buildTeacherAssistantSystemPrompt("en", summary);
-    expect(prompt).toContain("Reply in clear, direct English");
+    expect(prompt).toContain("Reply in clear, plain English");
+    expect(prompt).toContain("Avoid Markdown bold and **");
     expect(prompt).toContain("Released results: 18");
     expect(prompt).toContain("Do not approve marks");
   });
