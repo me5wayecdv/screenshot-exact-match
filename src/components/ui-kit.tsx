@@ -78,3 +78,68 @@ export function Empty({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/**
+ * The one card that tells a person what to do next. Used at the top of every
+ * home screen so the page has a single obvious action instead of a wall of
+ * cards. Decorative only: `kicker`/`hint` are optional.
+ */
+export function Hero({
+  kicker,
+  title,
+  body,
+  actions,
+  hint,
+}: {
+  kicker?: ReactNode;
+  title: ReactNode;
+  body?: ReactNode;
+  actions?: ReactNode;
+  hint?: ReactNode;
+}) {
+  return (
+    <section className="ink-hero mb-6 p-5 sm:p-7">
+      {kicker ? <p className="section-kicker mb-2">{kicker}</p> : null}
+      <h1 className="max-w-2xl text-xl font-bold leading-snug text-sidebar-foreground sm:text-2xl md:text-[1.7rem]">
+        {title}
+      </h1>
+      {body ? (
+        <p className="mt-2 max-w-xl text-sm text-sidebar-foreground/75 sm:text-[0.95rem]">{body}</p>
+      ) : null}
+      {actions ? <div className="mt-5 flex flex-wrap gap-2">{actions}</div> : null}
+      {hint ? <p className="mt-4 text-xs text-sidebar-foreground/60">{hint}</p> : null}
+    </section>
+  );
+}
+
+/** A quiet number+label, so stats never compete with the main action. */
+export function StatChip({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <span className="stat-chip">
+      <strong>{value ?? "—"}</strong>
+      <span className="text-muted-foreground">{label}</span>
+    </span>
+  );
+}
+
+/** Empty state with exactly one suggested action. */
+export function EmptyCard({
+  icon,
+  title,
+  body,
+  action,
+}: {
+  icon?: ReactNode;
+  title: string;
+  body?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="empty-card">
+      {icon}
+      <p className="font-semibold text-foreground">{title}</p>
+      {body ? <p className="max-w-sm text-sm text-muted-foreground">{body}</p> : null}
+      {action}
+    </div>
+  );
+}

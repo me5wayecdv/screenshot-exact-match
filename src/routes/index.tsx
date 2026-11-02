@@ -28,6 +28,10 @@ export const Route = createFileRoute("/")({
 
 function Landing() {
   const { t } = useI18n();
+  // Highlight the final word of the headline without touching the copy.
+  const heroWords = t("heroTitle").trim().split(/\s+/);
+  const heroLast = heroWords.at(-1) ?? "";
+  const heroLead = heroWords.slice(0, -1).join(" ");
   const features = [
     { icon: ClipboardList, title: t("feature1"), body: t("feature1b") },
     { icon: ClipboardCheck, title: t("feature2"), body: t("feature2b") },
@@ -60,12 +64,13 @@ function Landing() {
         <section className="mx-auto max-w-7xl px-4 pb-12 md:px-8 md:pb-16">
           <div className="landing-hero grid items-center gap-9 px-6 py-10 md:grid-cols-[1.04fr_0.96fr] md:gap-10 md:px-12 md:py-14 lg:px-16">
             <div className="landing-hero-copy relative z-10">
-              <p className="mb-5 flex items-center gap-2 text-sm font-semibold text-accent">
-                <span className="landing-rule" aria-hidden />
-                {t("heroEyebrow")}
+              {/* Hand-made touches: a tilted sticker for the eyebrow and a
+                  saffron highlighter on the last word of the headline. */}
+              <p className="mb-5">
+                <span className="sticker">{t("heroEyebrow")}</span>
               </p>
               <h1 className="max-w-2xl text-4xl font-bold leading-[1.25] text-sidebar-foreground md:text-5xl lg:text-6xl">
-                {t("heroTitle")}
+                {heroLead} <span className="marker text-sidebar-foreground">{heroLast}</span>
               </h1>
               <p className="mt-6 max-w-xl text-base leading-8 text-sidebar-foreground/75 md:text-lg">
                 {t("heroBody")}

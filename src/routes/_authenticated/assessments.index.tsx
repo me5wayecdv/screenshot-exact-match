@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
-import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
+import { PageHeader, Panel, Pill, EmptyCard, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { DataPager } from "@/components/data-pager";
 import { Input } from "@/components/ui/input";
@@ -108,7 +108,15 @@ function AssessmentsList() {
           <span className="text-muted-foreground">({translateError(error, lang)})</span>
         </p>
       ) : data && data.rows.length === 0 && page === 0 ? (
-        <Empty>{t("noAssessments")}</Empty>
+        <EmptyCard
+          title={t("noAssessments")}
+          body={t("noAssessmentsHint")}
+          action={
+            <Button asChild size="lg" className="lift">
+              <Link to="/assessments/generate">{t("genTitle")}</Link>
+            </Button>
+          }
+        />
       ) : (
         <div className="divide-y rounded-lg border bg-card">
           {data?.rows.map((a) => (
