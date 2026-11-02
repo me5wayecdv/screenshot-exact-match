@@ -192,9 +192,10 @@ raw extraction):
 - Curriculum page photos (up to 5): compressed to up to 2400px JPEG with
   adaptive quality/size bounds, saved to the private `generation-sources`
   bucket, then OCR'd by `src/server/source-ocr.ts`. Teachers can optionally
-  split dense pages into four overlapping sections for more detail; this uses
-  about four vision inputs per page. Timeout fallback uses the same strategy.
-  OCR reuses the vision config and error codes from handwritten OCR
+  split dense pages into four overlapping horizontal sections (about four
+  vision inputs per page) or multi-column pages into five right-to-left
+  columns (about five inputs per page). Timeout fallback uses horizontal
+  sections. OCR reuses the vision config and error codes from handwritten OCR
   (`AI_VISION_MODEL`, else `AI_MODEL`; `VISION_NOT_CONFIGURED` /
   `VISION_UNSUPPORTED` / `VISION_TIMEOUT` / `VISION_UPSTREAM` /
   `VISION_PARSE_FAILED`).

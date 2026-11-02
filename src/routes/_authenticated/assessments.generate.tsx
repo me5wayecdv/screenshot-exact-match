@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { getRtlColumnCropBounds } from "@/lib/ocr-image-layout";
 import { generateAssessment } from "@/lib/generate-assessment";
 import type { GenerateFailureCode } from "@/lib/ai-failure";
 import type { GenerateDifficulty, GenerateQuestionType } from "@/lib/generate-assessment-prompt";
@@ -184,7 +185,7 @@ function Generate() {
   // submit (or a success) and keeps the raw error code for diagnosis.
   const [genError, setGenError] = useState<string | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
-  const [detailedOcr, setDetailedOcr] = useState(false);
+  const [ocrLayout, setOcrLayout] = useState<"full" | "sections" | "columns">("full");
   const [fileNote, setFileNote] = useState<string | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const [ocrRetryBatch, setOcrRetryBatch] = useState<{ blobs: Blob[]; names: string[] } | null>(
@@ -296,6 +297,35 @@ function Generate() {
     }
   }
 
+  async function splitImageIntoColumns(blob: Blob): Promise<Blob[]> {
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const columns: Blob[] = [];
+      for (let index = 0; index < 5; index++) {
+        const bounds = getRtlColumnCropBounds(index);
+        const left = Math.floor(bounds.left * bitmap.width);
+        const right = Math.min(bitmap.width, Math.ceil(bounds.right * bitmap.width));
+        const width = Math.max(1, right - left);
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = bitmap.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Canvas unavailable.");
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(0, 0, width, bitmap.height);
+        ctx.drawImage(bitmap, left, 0, width, bitmap.height, 0, 0, width, bitmap.height);
+        const crop = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob(resolve, "image/jpeg", 0.9),
+        );
+        if (!crop) throw new Error("Compression failed.");
+        columns.push(crop);
+      }
+      return columns;
+    } finally {
+      bitmap.close();
+    }
+  }
+
   function joinSplitTexts(a: string, b: string): string {
     const aLines = a.split("\n");
     const bLines = b.split("\n");
@@ -316,6 +346,7 @@ function Generate() {
   async function transcribeInSections(
     blobs: Blob[],
     accessToken: string,
+    layout: "sections" | "columns" = "sections",
   ): Promise<SourceOcrResult> {
     const texts: string[] = [];
     for (let i = 0; i < blobs.length; i++) {
@@ -328,26 +359,23 @@ function Generate() {
           imageIndex: i,
         };
       }
-      const quarters = await splitImageBlob(image);
+      const quarters =
+        layout === "columns" ? await splitImageIntoColumns(image) : await splitImageBlob(image);
       const quarterDataUrls = await Promise.all(quarters.map(blobToDataUrl));
       const result = await ocrSourceImages({
         data: { imageDataUrls: quarterDataUrls, accessToken },
       });
       if (!result.ok) return { ...result, imageIndex: i };
-      if (result.texts.length !== 4) {
+      const expectedTiles = layout === "columns" ? 5 : 4;
+      if (result.texts.length !== expectedTiles) {
         return {
           ok: false,
           code: "VISION_PARSE_FAILED",
-          message: "Section OCR returned an incomplete page.",
+          message: "Tiled OCR returned an incomplete page.",
           imageIndex: i,
         };
       }
-      texts.push(
-        joinSplitTexts(
-          joinSplitTexts(joinSplitTexts(result.texts[0]!, result.texts[1]!), result.texts[2]!),
-          result.texts[3]!,
-        ),
-      );
+      texts.push(result.texts.slice(1).reduce(joinSplitTexts, result.texts[0]!));
     }
     return { ok: true, texts };
   }
@@ -366,7 +394,7 @@ function Generate() {
       const names = retryBatch?.names ?? files.map((file) => file.name);
       const blobs = retryBatch ? [...retryBatch.blobs] : [];
       const dataUrls =
-        retryBatch && !detailedOcr ? await Promise.all(blobs.map(blobToDataUrl)) : [];
+        retryBatch && ocrLayout === "full" ? await Promise.all(blobs.map(blobToDataUrl)) : [];
       if (!retryBatch) {
         for (const file of files) {
           const compressed = await compressImage(file);
@@ -378,7 +406,7 @@ function Generate() {
             toast.error(t("genUploadFailed"));
             return;
           }
-          if (!detailedOcr) dataUrls.push(await blobToDataUrl(compressed));
+          if (ocrLayout === "full") dataUrls.push(await blobToDataUrl(compressed));
         }
         preparedBatch = { blobs, names };
         setOcrRetryBatch(preparedBatch);
@@ -387,14 +415,15 @@ function Generate() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const res: SourceOcrResult = detailedOcr
-        ? await transcribeInSections(blobs, session?.access_token ?? "")
-        : await ocrSourceImages({
-            data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
-          });
+      const res: SourceOcrResult =
+        ocrLayout !== "full"
+          ? await transcribeInSections(blobs, session?.access_token ?? "", ocrLayout)
+          : await ocrSourceImages({
+              data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
+            });
       if (
         !res.ok &&
-        !detailedOcr &&
+        ocrLayout === "full" &&
         (res.message.includes("408") || res.code === "VISION_TIMEOUT")
       ) {
         // A timeout may mean the full page is too dense for one pass.
@@ -621,16 +650,25 @@ function Generate() {
                 />
                 <p className="text-xs text-muted-foreground">{t("genUploadDocHint")}</p>
               </div>
-              <div className="flex items-start gap-2 rounded-md bg-muted/50 p-2">
-                <Checkbox
-                  id="g-ocr-detailed"
-                  checked={detailedOcr}
-                  onCheckedChange={(checked) => setDetailedOcr(!!checked)}
-                />
-                <div className="space-y-1">
-                  <Label htmlFor="g-ocr-detailed">{t("genOcrDetailed")}</Label>
-                  <p className="text-xs text-muted-foreground">{t("genOcrDetailedHint")}</p>
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="g-ocr-layout">{t("genOcrLayout")}</Label>
+                <select
+                  id="g-ocr-layout"
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={ocrLayout}
+                  onChange={(event) =>
+                    setOcrLayout(event.target.value as "full" | "sections" | "columns")
+                  }
+                >
+                  <option value="full">{t("genOcrNormal")}</option>
+                  <option value="sections">{t("genOcrDetailed")}</option>
+                  <option value="columns">{t("genOcrColumns")}</option>
+                </select>
+                {ocrLayout !== "full" && (
+                  <p className="text-xs text-muted-foreground">
+                    {ocrLayout === "columns" ? t("genOcrColumnsHint") : t("genOcrDetailedHint")}
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label>{t("genUploadImages")}</Label>
