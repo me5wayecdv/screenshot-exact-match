@@ -37,9 +37,11 @@ database dump (same date in the filename).
 
 1. Create the project, then apply the base migration
    (`drizzle/migrations/0000_migration.sql`) followed by **every** SQL file
-   in `supabase/migrations/` in timestamp order. The current sequence ends
-   with `20261030230000_harden_signup_and_exam_rls.sql`; do not use an older
-   abbreviated list.
+   in `supabase/migrations/` in timestamp order. Enumerate the exact files from
+   the checked-out release with:
+   `find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print | sort`.
+   Older abbreviated lists are incomplete. Verify the target migration history
+   and schema before restoring or enabling users.
 2. Restore the database dump.
 3. Restore bucket objects to their original paths (so existing `image_path`
    values resolve again).

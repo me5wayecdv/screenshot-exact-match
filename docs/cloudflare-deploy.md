@@ -60,15 +60,19 @@ are embedded at build time from the build environment, as before.
 ## Database migrations (required before the app deploy)
 
 Create/verify the Supabase migration history first: apply the base
-`drizzle/migrations/0000_migration.sql`, then **all** files in
-`supabase/migrations/` in timestamp order. The current final migration is
-`20261030230000_harden_signup_and_exam_rls.sql`; it removes public signup
-admin assignment and retires the legacy exam write paths. Verify it is marked
-applied in the target project's migration history before enabling real student
-accounts. The teacher assistant also requires
-`20261031044544_add_teacher_assistant_usage_kind.sql`, which allows assistant
-usage events while recording model/token counts only (never chat content). Do
-not rely on the abbreviated legacy list in older notes.
+`drizzle/migrations/0000_migration.sql`, then **every** file in
+`supabase/migrations/` in timestamp order. Older deployment notes may stop at
+`20261030230000_harden_signup_and_exam_rls.sql` or
+`20261031044544_add_teacher_assistant_usage_kind.sql`; those are not the full
+current sequence. For the exact list in the release being deployed, run:
+
+```sh
+find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print | sort
+```
+
+Compare every file against the target project's migration history and actual
+schema before enabling real student accounts. Repository migration files do
+not prove that a hosted Supabase database has applied them.
 
 ## Deploy
 

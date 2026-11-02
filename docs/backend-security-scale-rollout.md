@@ -4,7 +4,7 @@
 
 ## Review before any rollout
 
-1. Confirm the target database has applied every migration through `20261031044544_add_teacher_assistant_usage_kind.sql`, and verify the actual schema matches that history. The later school-removal migration drops school tables/functions; the hardening migration must not depend on them.
+1. Confirm the target database's migration history and actual schema before any rollout. To review/apply `20261031120000_backend_security_and_scale.sql`, its prerequisite history must include every migration through `20261031044544_add_teacher_assistant_usage_kind.sql`. The current app also depends on every later migration present in the checked-out release; applying only the older prerequisite list does not make the current application/database pair compatible. The school-removal migration drops school tables/functions, so the security/scale migration must not depend on them.
 2. Take and verify a recoverable backup. The migration tightens profile/RPC privileges, replaces attempt and review RPC bodies, creates quota/WhatsApp claim tables, adds indexes, hides teacher join codes behind a self-only RPC, and rotates legacy join codes to the required 12-character uppercase-hex format. Code rotation invalidates previously shared short codes.
 3. `ai_training_examples` rows are **preserved**, not deleted. The migration removes authenticated access and future inserts. Existing rows remain in the database pending a separately approved retention/disposition decision; this repository change does not inspect or remove live data.
 4. Deploy the matching application code in the same approved release. WhatsApp sends use the service-role client to claim/finalize sends; never expose that key to browser code.
