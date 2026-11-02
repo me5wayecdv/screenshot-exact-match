@@ -16,8 +16,8 @@ export function HeroGradeCard() {
 
   return (
     <div className="relative mx-auto w-full max-w-md pb-8">
-      {/* A single beam outline behind the card: depth without rotation. */}
-      <div className="absolute inset-x-4 top-5 bottom-4 rounded-xl bg-gradient-to-br from-primary/20 via-(--beam-violet)/15 to-accent/25 blur-[2px]" />
+      {/* A second hairline card behind the first: depth without effects. */}
+      <div className="absolute inset-x-3 top-3 bottom-6 rounded-lg border border-border" />
       <article className="relative overflow-hidden rounded-lg border bg-card shadow-lift">
         <header className="flex items-center justify-between gap-4 border-b px-5 py-4">
           <div className="min-w-0">
@@ -26,7 +26,7 @@ export function HeroGradeCard() {
               {t("demoQuestion")}
             </h2>
           </div>
-          <span className="shrink-0 rounded border bg-background px-2 py-1 font-display text-xs font-semibold text-muted-foreground">
+          <span className="figures shrink-0 rounded-sm border bg-background px-2 py-0.5 text-xs font-semibold text-muted-foreground">
             {t("demoQuestionNumber")}
           </span>
         </header>
@@ -54,7 +54,7 @@ export function HeroGradeCard() {
             {rubric.map(([criterion, score]) => (
               <li key={criterion} className="flex items-center justify-between gap-3 py-2 text-xs">
                 <span className="text-muted-foreground">{criterion}</span>
-                <span dir="ltr" className="shrink-0 font-display font-semibold tabular-nums">
+                <span dir="ltr" className="figures shrink-0 text-xs font-semibold text-foreground">
                   {score}
                 </span>
               </li>
@@ -70,7 +70,7 @@ export function HeroGradeCard() {
             </span>
             <span
               dir="ltr"
-              className="rounded border bg-card px-2 py-1 font-display text-sm font-bold text-foreground"
+              className="figures rounded-sm border bg-card px-2 py-0.5 text-sm font-semibold text-foreground"
             >
               {t("demoScore")}
             </span>
@@ -81,9 +81,9 @@ export function HeroGradeCard() {
         </section>
       </article>
 
-      <div className="animate-stamp absolute -bottom-0 end-4 flex items-center gap-2 rounded-lg border border-accent/60 bg-card/95 px-3.5 py-2 text-foreground shadow-glow backdrop-blur">
-        <span className="grid size-5 place-items-center rounded-md bg-gradient-to-br from-primary to-(--beam-violet) text-primary-foreground">
-          <Check className="size-3" strokeWidth={3} />
+      <div className="absolute end-4 -bottom-px flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-foreground">
+        <span className="grid size-4 place-items-center rounded-sm bg-accent text-accent-foreground">
+          <Check className="size-2.5" strokeWidth={3.5} />
         </span>
         <span className="font-display text-xs font-bold">{t("demoApproved")}</span>
       </div>

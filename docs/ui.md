@@ -1,4 +1,4 @@
-# UI rules: simple first, technical second
+# UI rules: simple first, quiet second
 
 Two goals, in this order. If a screen can be simpler, it is — decoration never
 buys complexity.
@@ -22,27 +22,27 @@ buys complexity.
 7. **Touch first.** Interactive rows are ≥44px (`min-h-11`), bottom nav items
    3.25rem, and inputs stay 16px on phones so iOS never zooms.
 
-## Technology, not paper
+## Quiet, not decorative
 
-The product is a calm console for learning — `docs/brand.md`. Paper, ink,
-highlighter, sticker and tilted-card metaphors are **not** used. The creative
-layer lives in `src/styles.css` and is pure surface treatment, never layout:
+Depth is a border. Colour is one accent. The creative layer lives in
+`src/styles.css` and is pure surface treatment, never layout:
 
-| Class                      | Use                                                                     |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `.console-hero`            | The dark indigo card: grid mesh, beam spine, soft glow. One per screen. |
-| `.chip-glow`               | Live pill with a glowing dot — kickers and "just now" states. One only. |
-| `.signal`                  | Cyan→indigo wash under one or two words. Never a whole line or heading. |
-| `.grid-mesh`               | Fine 32px mesh on a light section. One per screen.                      |
-| `.lift`                    | 2px hover lift + coloured glow on the _primary_ card only.              |
-| `.stat-chip`               | Quiet number + label, mono numerals.                                    |
-| `.tabbar` / `.tabbar-item` | Phone navigation.                                                       |
-| `.empty-card`              | Empty state with an action.                                             |
-| `.landing-rule`            | 24px beam rule used as a separator instead of another card.             |
+| Class                      | Use                                                                      |
+| -------------------------- | ------------------------------------------------------------------------ |
+| `.console-hero`            | The one dark graphite card on a page, with a 2 px bronze rule.           |
+| `.chip-glow`               | Small bordered caption. One per screen.                                  |
+| `.signal`                  | 2 px bronze underline under two words. Never a wash, never a whole line. |
+| `.lift`                    | Border darkens on hover. No shadow, no movement.                         |
+| `.stat-chip`               | Quiet number + label, mono figures.                                      |
+| `.figures`                 | Tabular mono numerals for anything compared down a column.               |
+| `.tabbar` / `.tabbar-item` | Phone navigation.                                                        |
+| `.empty-card`              | Empty state with an action.                                              |
+| `.nav-sheet`               | The "More" drawer.                                                       |
 
-Rules of taste: one beam gradient per view, at most one `chip-glow`, at most one
-highlighted phrase, no gradients on text, no tilt/rotation, no paper textures.
-Every animation must survive `prefers-reduced-motion` (handled globally).
+Banned, because they are what makes a site look machine-generated: multi-stop
+gradients, coloured glows, glassmorphism / `backdrop-blur`, radii over 12 px,
+letter-spaced uppercase kickers, emoji as icons, and hover movement. Arabic is
+never letter-spaced.
 
 ## When adding a page
 

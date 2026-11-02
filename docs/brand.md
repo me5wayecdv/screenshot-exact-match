@@ -11,11 +11,14 @@ The product promise is one line: **الكلمة الأخيرة للمعلّم** 
 The identity is built on the one detail of ق that tells that story: **its two dots** — now read as a _signal pair_, which is also the visual metaphor of the product.
 
 - the **first dot** (right, where Arabic reading starts) is the suggestion
-- the **second, cyan signal dot** is the teacher's last word
+- the **second, bronze dot** is the teacher's last word
 
-That pair is the signature. It appears in the logo, as a bullet (`<TwoDots />`), and in the interface as the **beam** (cyan → violet → indigo).
+That pair is the signature. It appears in the logo and as a bullet (`<TwoDots />`).
 
-The overall look is **technology-education, not paper**: a calm console that carries learning data between a teacher and a student. Fine grid meshes, soft glass surfaces, one beam gradient, mono numerals for figures.
+The look is deliberately **quiet**: graphite surfaces, hairline borders, one deep teal
+for the product's voice, bronze for the teacher's decision, and nothing else. No
+gradients as decoration, no glow, no glassmorphism, no oversized radii. Depth is a 1px
+border and one hairline shadow. Restraint is the brand: a real product, not a demo.
 
 ## Logo
 
@@ -38,26 +41,24 @@ The overall look is **technology-education, not paper**: a calm console that car
 
 Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static assets.
 
-| Name                 | Token                                       | Approx. hex                       | Role                                                    |
-| -------------------- | ------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
-| **Canvas** · شاشة    | `--background`                              | `#F6F7FB`                         | Cool near-white page canvas                             |
-| **White** · أبيض     | `--card`                                    | `#FFFFFF`                         | Cards, forms, popovers                                  |
-| **Ink** · حبر نص     | `--foreground`                              | `#181B2D`                         | Text (15.9 : 1 on Canvas)                               |
-| **Signal** · إشارة   | `--primary`                                 | `#515DDF`                         | The product's voice: buttons, links, headings (5.3 : 1) |
-| **Node** · عقدة      | `--sidebar`                                 | `#13162E`                         | Console surfaces, sidebar, auth panel                   |
-| **Beam Cyan** · شعاع | `--accent`                                  | `#0DCFDF`                         | Live data, suggestions, highlights (9.3 : 1 on Node)    |
-| **Beam Violet**      | `--beam-violet`                             | `#9B61EA`                         | Second beam stop only — gradients, never text           |
-| **Signal Deep**      | `--accent-foreground`                       | `#001E2E`                         | Text on cyan (9.0 : 1)                                  |
-| **Halo**             | `--secondary`                               | `#E8ECFF`                         | Tints, pills, quiet fills                               |
-| Clay / Mint / Amber  | `--destructive` / `--success` / `--warning` | `#D73240` / `#008559` / `#EBAE42` | Status only                                             |
+| Name                | Token                                       | Approx. hex                       | Role                                                    |
+| ------------------- | ------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
+| **Canvas** · شاشة   | `--background`                              | `#F9F9F7`                         | Warm near-white page canvas                             |
+| **White** · أبيض    | `--card`                                    | `#FFFFFF`                         | Cards, forms, popovers                                  |
+| **Graphite** · فحمي | `--foreground` / `--sidebar`                | `#1B1E22` / `#171A1D`             | Text (15.9 : 1) and dark surfaces                       |
+| **Ink** · حبر أخضر  | `--primary`                                 | `#1F4F4F`                         | The product's voice: buttons, links, headings (9.2 : 1) |
+| **Bronze** · نحاس   | `--accent`                                  | `#C9A46B`                         | The teacher's decision; fill only, under 5% of a screen |
+| **Bronze Ink**      | `--accent-foreground`                       | `#39230F`                         | Text on bronze (6.3 : 1)                                |
+| **Halo**            | `--secondary`                               | `#EDF3F3`                         | Tints, quiet fills                                      |
+| Clay / Pine / Amber | `--destructive` / `--success` / `--warning` | `#AC312E` / `#1B6A4C` / `#A67537` | Status only                                             |
 
 **Rules**
 
-1. **Cyan is a signal, never body text on white.** It belongs on Node/dark surfaces, or as a fill with Signal Deep on it.
-2. **Cyan means "live".** Suggestions, in-progress, just-arrived. Released and approved states use Mint; warnings use Amber.
-3. **One beam per view.** A single gradient (cyan → violet → indigo) marks the primary surface; do not repeat it on every card.
-4. Balance ≈ 70% Canvas + White, 20% Node and Signal, 10% everything else. Gradients stay under 15% of the screen.
-5. Contrast is checked, not eyeballed: body text ≥ 4.5 : 1, large text ≥ 3 : 1. Numerals are set in **IBM Plex Mono** so tables line up.
+1. **Bronze is never text on Canvas** (2.2 : 1). It is a fill, a 2 px rule, or a dot — nothing else.
+2. **One accent per view.** If bronze marks the primary action, nothing else on that screen is bronze.
+3. **No gradients as decoration, no glow, no blur.** A surface may be flat, bordered, or tinted at ≤10% — those are the three options.
+4. Balance ≈ 70% Canvas + White, 20% Graphite and Ink, 10% everything else.
+5. Contrast is checked, not eyeballed: body text ≥ 4.5 : 1, large text ≥ 3 : 1. `--warning-foreground` is a dark ink because it is used as text on amber tints.
 
 ## Typography
 
@@ -73,10 +74,10 @@ Tokens live in `src/styles.css` (OKLCH). Hex is for design tools and static asse
 
 ## Shape and motion
 
-- Radius 12 px (`--radius`); the mark's tile is a 28% squircle. Cards use `shadow-soft`; the hero and hover use `shadow-glow` (a coloured, not grey, glow).
-- **Texture:** `grid-mesh` — a 32 px fine mesh at 7% indigo. One mesh surface per screen; dark surfaces draw their own mesh inside the beam.
-- **Beam:** `linear-gradient(cyan → violet → indigo)`. It appears as the hero spine, the active-nav bar, and the landing rule. Nothing else.
-- **Motion:** approval drops in with a small overshoot (`animate-stamp`). Everything else is 120–200 ms colour/shadow transitions. All animation is disabled under `prefers-reduced-motion`.
+- Radius 6 px (`--radius`). Nothing larger than 10 px except a dark hero panel (12 px). Squared-off is the point: it separates a product from a template.
+- **Borders over shadows.** `border` (1 px, `--border`) is the default separator; `shadow-soft` is a hairline and optional; `shadow-lift` belongs to popovers and sheets only.
+- **Numbers** are set in IBM Plex Mono with tabular figures (`.figures`), so columns of marks line up.
+- **Motion:** 120–200 ms colour and border transitions. Nothing moves, spins, bounces or scales on load. All animation is disabled under `prefers-reduced-motion`.
 
 ## Voice
 
