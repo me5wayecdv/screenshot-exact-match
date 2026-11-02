@@ -4,11 +4,114 @@ export type Lang = "ar" | "en";
 
 const dict = {
   ar: {
-    brand: "قِمّيني",
-    tagline: "منصة تقييم وتعلم ذكية للمعلم والطالب",
-    heroTitle: "تقييم أدق، وقت أقل، وتعلّم يفهم كل طالب",
+    brand: "قَيّمني",
+    tagline: "مساحة المعلم لإعداد الاختبارات ومراجعة الإجابات",
+    heroEyebrow: "تصحيح أوضح، وقرار يبقى بيد المعلم",
+    heroTitle: "راجع إجابات طلابك. واعتمد الدرجة بنفسك.",
     heroBody:
-      "أنشئ الاختبارات، صحّح الإجابات الموضوعية تلقائياً، واحصل على اقتراحات ذكية لتصحيح الإجابات المقالية — والقرار النهائي دائماً للمعلم.",
+      "أنشئ اختباراً بمعايير واضحة، ثم راجع اقتراح التصحيح ودليله لكل إجابة. لا تُنشر درجة قبل اعتمادك.",
+    brandPromise: "اقتراح للمراجعة — والاعتماد بيد المعلم.",
+    heroReviewNote: "مراجعة بحسب معيار",
+    heroReleaseNote: "لا نشر دون اعتماد",
+    workflowKicker: "طريقة العمل",
+    featuresKicker: "أدوات عملية",
+    featuresTitle: "كل ما تحتاجه للمراجعة، بلا ضجيج",
+    assistantTitle: "مساعد المعلم",
+    assistantSubtitle:
+      "مساعد عملي لتحضير الدروس والاختبارات ومراجعة مؤشرات الصف، من دون الوصول إلى أسماء الطلاب أو إجاباتهم الفردية.",
+    assistantTeacherOnly: "مساعد المعلم متاح لحسابات المعلمين والمدرسين فقط.",
+    assistantWorkspaceSummary: "ملخص مساحة العمل",
+    assistantAssessments: "الاختبارات",
+    assistantDrafts: "مسودات",
+    assistantPending: "تسليمات بانتظار المراجعة أو النشر",
+    assistantReleased: "نتائج منشورة",
+    assistantAverageReleased: "متوسط النتائج المنشورة",
+    assistantAveragePrivacy:
+      "يُعرض المتوسط فقط عند توفر خمس نتائج منشورة أو أكثر، ويُحسب من الدرجات الإجمالية دون عرض درجات فردية.",
+    assistantNotConfigured:
+      "المساعد غير مفعّل على الخادم بعد. يمكنك استخدام أدوات الاختبارات والتصحيح أدناه.",
+    assistantDataError: "تعذر تحميل مؤشرات مساحة العمل. حاول تحديث الصفحة.",
+    assistantConversation: "المحادثة",
+    assistantSessionOnly: "لا تُحفظ المحادثة بعد مغادرة الصفحة.",
+    assistantNewChat: "محادثة جديدة",
+    assistantWelcome:
+      "اسأل عن تخطيط درس أو إعداد أسئلة أو كتابة معيار تصحيح. يعتمد المساعد على أعداد إجمالية من مساحة عملك فقط؛ لا تُدخل أسماء طلاب أو بيانات تعريفية.",
+    assistantPromptLesson:
+      "حضّر خطة درس مدتها ٤٠ دقيقة عن دورة الماء للصف الثامن، مع هدف تعلم ونشاط ختامي.",
+    assistantPromptQuestions:
+      "اكتب خمسة أسئلة متنوعة عن دورة الماء للصف الثامن مع تحديد هدف كل سؤال.",
+    assistantPromptRubric:
+      "صغ معيار تصحيح من أربعة مستويات لإجابة قصيرة تشرح التبخر والتكاثف والهطول.",
+    assistantPromptFeedback:
+      "اكتب ملاحظة بناءة وقصيرة لطالب أتقن الفكرة الأساسية ويحتاج إلى توضيح خطوات الحل.",
+    assistantPromptResults:
+      "اقترح طريقة لمراجعة نتائج الصف من المؤشرات الإجمالية دون افتراض أسباب لا تظهر في البيانات.",
+    assistantBuildAssessment: "إعداد اختبار",
+    assistantOpenGrading: "مراجعة التسليمات",
+    assistantOpenAnalytics: "تحليل النتائج",
+    assistantTools: "أدوات المعلم",
+    assistantReminderTitle: "المعلم صاحب القرار",
+    assistantReminderBody:
+      "الاقتراحات مسودات للمراجعة فقط. لا ينشئ المساعد اختباراً أو يحفظه، ولا يعتمد درجات أو ينشر نتائج.",
+    assistantMessageLabel: "اكتب سؤالك للمساعد",
+    assistantPlaceholder: "اكتب سؤالك… (Ctrl + Enter للإرسال)",
+    assistantPrivacyNote: "تجنب إدخال أسماء الطلاب أو أي بيانات شخصية.",
+    assistantSend: "إرسال الرسالة",
+    assistantThinking: "المساعد يجهّز رداً…",
+    assistantCopy: "نسخ الرد",
+    assistantCopied: "تم نسخ الرد.",
+    assistantCopyFailed: "تعذر نسخ الرد.",
+    assistantRateLimit: "وصلت الخدمة إلى حد الطلبات مؤقتاً. انتظر قليلاً ثم حاول مجدداً.",
+    assistantTimeout: "استغرق الرد وقتاً أطول من المتوقع. حاول مرة أخرى.",
+    assistantError: "تعذر الحصول على رد الآن. حاول مرة أخرى بعد قليل.",
+    lessonExplainTitle: "شرح درس من ملف",
+    lessonExplainDescription:
+      "ارفع ملف الدرس (PDF أو Word أو صورة) وسيشرحه المساعد من نص الملف نفسه — لا من خطة عامة.",
+    lessonExplainChooseFile: "اختر ملف الدرس",
+    lessonExplainFileHint: "PDF أو Word حتى 10 ميجابايت، أو صورة حتى 8 ميجابايت.",
+    lessonExplainExplain: "اشرح الدرس",
+    lessonExplainExplaining: "جارٍ استخراج النص وشرح الدرس…",
+    lessonExplainTruncated:
+      "تم اقتطاع نص الدرس من {original} حرفاً إلى {capped} حرفاً قبل الشرح، فالشرح يغطي الجزء الأول فقط.",
+    lessonExplainTooShort:
+      "النص المستخرج من الملف قصير جداً لشرحه. تأكد أن الملف يحتوي على نص درس واضح.",
+    lessonExplainUploadFailed: "تعذر رفع الملف. حاول مرة أخرى.",
+    lessonExplainExtractFailed: "تعذر استخراج نص من الملف. جرب ملفاً أوضح.",
+    lessonExplainUnsupported: "نوع الملف غير مدعوم. ارفع PDF أو Word أو صورة.",
+    lessonExplainFileTooBig: "حجم الملف أكبر من المسموح.",
+    lessonExplainSafety:
+      "الشرح مسودة للمراجعة فقط: المساعد لا ينشئ اختبارات ولا يعتمد درجات ولا ينشر نتائج.",
+    lessonExplainCopy: "نسخ الشرح",
+    lessonExplainCopied: "تم نسخ الشرح.",
+    workflowTitle: "من إجابة الطالب إلى نتيجة معتمدة",
+    workflowIntro: "خطوات واضحة، من إعداد الاختبار إلى مشاركة النتيجة.",
+    step1Label: "حدّد المطلوب",
+    step1Body: "اكتب السؤال ومعايير التصحيح والدرجة لكل معيار قبل بدء الاختبار.",
+    step2Label: "راجع الإجابة والدليل",
+    step2Body: "يظهر اقتراح الدرجة بجانب إجابة الطالب وما يدعمه من نصها.",
+    step3Label: "اعتمد ثم انشر",
+    step3Body: "عدّل الدرجة أو الملاحظة، ثم قرر متى تظهر النتيجة للطالب.",
+    closingTitle: "كل إجابة لها سياقها. وكل درجة لها صاحب قرار.",
+    closingBody: "قَيّمني يرتّب المراجعة؛ أما الحكم النهائي فيبقى للمعلم.",
+    demoAssessment: "اختبار العلوم · الصف الثامن",
+    demoQuestion: "فسّر كيف تتكوّن الأمطار في دورة الماء.",
+    demoQuestionNumber: "السؤال ٣",
+    demoAnswerTitle: "إجابة تدريبية",
+    demoAnswerText: "تسخّن الشمس الماء فيتبخّر، ثم يبرد بخار الماء ويتكاثف، وبعدها يسقط مطراً.",
+    demoEvidence: "الدليل: «يتبخّر… ويتكاثف… ثم يسقط مطراً»",
+    demoRubric: "معايير السؤال",
+    demoTotal: "المجموع: ٥ درجات",
+    demoCriterion1: "ذكر التبخر والتكاثف والهطول",
+    demoCriterion1Score: "٢ / ٢",
+    demoCriterion2: "ترتيب المراحل وشرح العلاقة بينها",
+    demoCriterion2Score: "١ / ٢",
+    demoCriterion3: "ربط التبخر بحرارة الشمس",
+    demoCriterion3Score: "١ / ١",
+    demoSuggest: "اقتراح للمراجعة",
+    demoScore: "٤ / ٥",
+    demoSuggestNote:
+      "الإجابة تذكر المراحل وتربط التبخر بحرارة الشمس؛ ينقصها تفصيل واحد في ترتيبها.",
+    demoApproved: "اعتماد المعلم",
     getStarted: "ابدأ الآن",
     signIn: "تسجيل الدخول",
     signUp: "إنشاء حساب",
@@ -34,6 +137,12 @@ const dict = {
     assessments: "الاختبارات",
     grading: "التصحيح",
     students: "الطلاب",
+    profile: "الملف الشخصي",
+    profileSaved: "تم حفظ الاسم.",
+    memberSince: "عضو منذ",
+    accountType: "نوع الحساب",
+    profileSubject: "المادة الدراسية",
+    profileSubjectPlaceholder: "مثال: الرياضيات",
     myAssessments: "اختباراتي",
     results: "النتائج",
     feature1: "منشئ اختبارات متكامل",
@@ -59,6 +168,34 @@ const dict = {
     gradeLevel: "الصف الدراسي",
     dueAt: "الموعد النهائي",
     noAssessments: "لا توجد اختبارات بعد.",
+    // Start-here checklist + grouped nav + landing journey strip
+    navWork: "شغلي",
+    navAssistant: "المساعد الذكي",
+    navFollow: "المتابعة",
+    navAccount: "حسابي",
+    startHere: "ابدأ هنا",
+    startProgress: "خطوة {done} من 3",
+    startDone: "تم",
+    startAssessmentTitle: "أنشئ أول اختبار",
+    startAssessmentBody: "من نص درس أو ملف أو صورة، في دقيقتين",
+    startAssessmentAction: "أنشئ اختبار",
+    startStudentsTitle: "ضيف طلابك",
+    startStudentsBody: "ابعت لهم كود الدعوة من صفحة الطلاب",
+    startStudentsAction: "صفحة الطلاب",
+    startReleaseTitle: "صحح واعتمد",
+    startReleaseBody: "الذكاء يقترح الدرجة وانت صاحب القرار الأخير",
+    startReleaseAction: "صفحة التصحيح",
+    startLessonTitle: "أنشئ أول درس",
+    startLessonBody: "درس واحد يكفي للبداية",
+    startPublishTitle: "انشر أول اختبار",
+    startPublishBody: "أنشئ اختبارًا وانشره لطلابك",
+    journeyTitle: "ازاي الموقع بيشتغل؟",
+    journey1Title: "أنشئ اختبارك",
+    journey1Body: "من نص درس أو ملف أو صورة.",
+    journey2Title: "الطلاب يحلوا",
+    journey2Body: "ابعت كود الدعوة وخليهم يحلوا من أي جهاز.",
+    journey3Title: "صحح واعتمد",
+    journey3Body: "راجع اقتراح الذكاء واعتمد الدرجة بنفسك.",
     status: "الحالة",
     st_draft: "مسودة",
     st_published: "منشور",
@@ -143,6 +280,8 @@ const dict = {
     submitted: "تم استلام تسليمك بنجاح.",
     next: "التالي",
     prev: "السابق",
+    page: "الصفحة",
+    pagination: "التنقل بين الصفحات",
     question: "سؤال",
     of: "من",
     unanswered: "بدون إجابة",
@@ -201,7 +340,7 @@ const dict = {
     hwRetryUpload: "إعادة رفع الصورة",
     hwViewPaper: "عرض الورقة",
     hwHidePaper: "إخفاء الورقة",
-    auditHistory: "سجل المراجعة",
+    auditHistory: "سجل التصحيح",
     auditSubtitle: "كل تغييرات الدرجات والنشر اللي عملتها، بالدرجة القديمة والجديدة.",
     auditEmpty: "لسه مفيش أحداث مسجلة.",
     auditTeacherOnly: "سجل المراجعة متاح للمعلمين فقط.",
@@ -368,7 +507,7 @@ const dict = {
     reportExportGrades: "تصدير الدرجات (CSV)",
     schoolSharingNote:
       "مشاركة المدرسة: معلمو نفس المدرسة يرون تقارير بعضهم (قراءة فقط) — بلا تعديل ولا تصحيح ولا اعتماد ولا إرسال واتساب، وبلا مفاتيح إجابة أبداً.",
-    reviewsTitle: "مراجعة الدرجات",
+    reviewsTitle: "طلبات مراجعة الدرجات",
     reviewsSubtitle: "الطالب يطلب مراجعة درجة معتمدة، والمعلم يرد عليها ويغلقها.",
     reviewsRoleNote: "هذه الصفحة للطلاب والمعلمين.",
     reviewsNew: "طلب مراجعة جديد",
@@ -397,7 +536,10 @@ const dict = {
     hwVisionUnsupported:
       "النموذج الحالي لا يدعم قراءة الصور — اضبط AI_VISION_MODEL على نموذج يدعم الصور (Vision).",
     hwOcrFailed: "تعذّر استخراج النص — حاول مجدداً أو اكتب النص يدوياً.",
-    hwNeedImage: "ارفع صورة ورقة الإجابة أولاً.",
+    hwNeedImage:
+      "ارفع صورة أو PDF أو ملف Word بصيغة .docx لورقة الإجابة (صيغة .doc القديمة غير مدعومة).",
+    hwSinglePageOnly:
+      "الملف يحتوي أكثر من صفحة - استخدم لوحة مطابقة الأوراق المتعددة حتى لا تضيع أي صفحة.",
     hwNeedText: "أدخل نص السؤال ونص الإجابة قبل اقتراح الدرجة أو الحفظ.",
     hwNeedSuggestion: "اطلب اقتراح الدرجة أولاً — الدرجة النهائية يحددها الذكاء الاصطناعي.",
     hwAiFinalNote:
@@ -491,7 +633,7 @@ const dict = {
       "نجمع المعلومات التي تقدمها عند إنشاء حسابك، مثل الاسم والبريد الإلكتروني ودورك كمعلم أو طالب، إضافة إلى البيانات الناتجة عن استخدامك للمنصة مثل الاختبارات والإجابات والدرجات والملاحظات.",
     privacyCollectTitle: "البيانات التي نجمعها",
     privacyIntro:
-      "توضح هذه السياسة البيانات التي تجمعها قِمّيني وكيف نستخدمها ونحميها. المنصة مصممة للتعامل مع بيانات الطلاب بحذر، ولا تُعرض النتائج للطالب إلا بعد اعتماد معلمه لها.",
+      "توضح هذه السياسة البيانات التي تجمعها قَيّمني وكيف نستخدمها ونحميها. المنصة مصممة للتعامل مع بيانات الطلاب بحذر، ولا تُعرض النتائج للطالب إلا بعد اعتماد معلمه لها.",
     privacyRetentionBody:
       "نحتفظ بالبيانات فقط طالما كانت لازمة لتقديم الخدمة أو للوفاء بالتزامات قانونية، ثم تُحذف أو تُجهَّل هويتها.",
     privacyRetentionTitle: "الاحتفاظ بالبيانات",
@@ -525,13 +667,13 @@ const dict = {
       "قد نحدّث هذه الشروط من وقت لآخر، ويعني استمرارك في استخدام المنصة بعد أي تحديث موافقتك على الشروط المحدّثة.",
     termsChangesTitle: "تغيير الشروط",
     termsContentBody:
-      "يحتفظ المعلمون بملكية المحتوى الذي ينشئونه، ويمنحون قِمّيني ترخيصاً لاستضافته وعرضه على طلابهم لغرض تقديم الخدمة فقط. تظل إجابات الطلاب أعمالهم الخاصة، ويطّلع عليها معلموهم لغرض التقييم.",
+      "يحتفظ المعلمون بملكية المحتوى الذي ينشئونه، ويمنحون قَيّمني ترخيصاً لاستضافته وعرضه على طلابهم لغرض تقديم الخدمة فقط. تظل إجابات الطلاب أعمالهم الخاصة، ويطّلع عليها معلموهم لغرض التقييم.",
     termsContentTitle: "محتوى المعلمين وإجابات الطلاب",
     termsFairUseBody:
       "لا يجوز إساءة استخدام المنصة أو محاولة الوصول إلى بيانات مستخدمين آخرين أو تعطيل الخدمة أو استخدامها لأي غرض غير قانوني.",
     termsFairUseTitle: "الاستخدام المقبول",
     termsIntro:
-      "تنظّم هذه الشروط استخدامك لمنصة قِمّيني، وهي منصة تقييم وتعلّم للمعلمين والطلاب. باستخدامك المنصة فأنت توافق على هذه الشروط.",
+      "تنظّم هذه الشروط استخدامك لمنصة قَيّمني، وهي منصة تقييم وتعلّم للمعلمين والطلاب. باستخدامك المنصة فأنت توافق على هذه الشروط.",
     termsRolesBody:
       "ينشئ المعلمون الاختبارات ويديرونها ويعتمدون الدرجات، ويجيب الطلاب على الاختبارات المسندة إليهم فقط. القرار النهائي في أي درجة أو نتيجة هو دائماً للمعلم.",
     termsRolesTitle: "الأدوار والمسؤوليات",
@@ -565,6 +707,8 @@ const dict = {
     genOpenBuilder: "مراجعة المسودة وتحريرها",
     genGenerateAnother: "توليد مسودة أخرى",
     genDraftSaved: "تم حفظ {count} سؤالاً كمسودة غير منشورة.",
+    genDraftSavedPartial:
+      "تنبيه: طلبت {requested} سؤالاً وحُفظ {saved} فقط — الأسئلة الناقصة لم تكن صالحة من رد الذكاء. راجع المسودة وأضف الناقص يدوياً قبل النشر.",
     genBackToAssessments: "العودة إلى الاختبارات",
     genFileNote:
       "الملفات المرفوعة تُحفظ على الخادم أولاً، ويُستخرج نصها إلى خانة النص — راجع النص وعدّله قبل التوليد.",
@@ -578,6 +722,13 @@ const dict = {
       "الملف يُحفظ على الخادم أولاً ثم يُستخرج نصه إلى خانة النص (حتى 10 ميجابايت).",
     genUploadImages: "أو ارفع صور صفحات المنهج",
     genUploadImagesHint: "حتى 5 صور؛ يُستخرج النص منها بالذكاء الاصطناعي إلى خانة النص.",
+    genOcrLayout: "طريقة قراءة الصورة",
+    genOcrNormal: "عادية — صفحة كاملة",
+    genOcrDetailed: "نص كثيف — 4 أجزاء أفقية",
+    genOcrDetailedHint: "تستخدم نحو 4 مدخلات AI لكل صفحة.",
+    genOcrColumns: "صفحة متعددة الأعمدة — 5 أعمدة من اليمين لليسار",
+    genOcrColumnsHint:
+      "مناسبة للصفحات متعددة الأعمدة مثل هذه الصفحة؛ تستخدم نحو 5 مدخلات AI لكل صفحة.",
     genExtracting: "جارٍ استخراج النص…",
     genExtracted: "تم استخراج النص من {name} ({count} حرفاً).",
     genUploadFailed: "فشل رفع الملف إلى الخادم.",
@@ -590,6 +741,11 @@ const dict = {
     genVisionUnsupported:
       "النموذج المضبوط لا يقرأ الصور — اضبط AI_VISION_MODEL على نموذج يدعم الصور.",
     genOcrFailed: "تعذّر استخراج النص من الصورة.",
+    genVisionBusy: "خدمة قراءة الصور مشغولة مؤقتاً. لم يُستخرج النص بعد؛ أعد المحاولة بعد قليل.",
+    genVisionUpstream: "تعذّر الاتصال بخدمة قراءة الصور. حاول مرة أخرى بعد قليل.",
+    genVisionTimeout: "استغرق استخراج النص وقتاً أطول من المتوقع. أعد المحاولة.",
+    genVisionRateLimit: "وصلنا إلى الحد المؤقت لطلبات استخراج الصور. انتظر قليلاً ثم أعد المحاولة.",
+    genOcrRetry: "إعادة المحاولة",
     genTooLong: "نص المصدر أطول من 30,000 حرف — اختصره قبل التوليد.",
     // Question bank (builder)
     bankTitle: "بنك الأسئلة",
@@ -608,14 +764,6 @@ const dict = {
     genNotTeacher: "هذا الإجراء للمعلمين فقط.",
     genInvalidInput:
       "تحقق من المدخلات: نص لا يقل عن 50 حرفاً، ونوع سؤال واحد على الأقل، وعدد أسئلة بين 1 و 20.",
-    genAiAuth:
-      "الخادم وصل لمزوّد الذكاء الاصطناعي لكن المفتاح مرفوض (401/403). تحقق من صلاحية سر AI_API_KEY (Workers AI: Read).",
-    genRateLimit:
-      "تم الوصول لحد استخدام الذكاء الاصطناعي (429). انتظر قليلاً أو تحقق من حصة Workers AI اليومية في لوحة Cloudflare.",
-    genBadRequest:
-      "المزوّد رفض الطلب نفسه (400/404/422) — غالباً اسم الموديل في AI_MODEL غير صحيح أو غير متاح.",
-    genEmptyReply: "المزوّد رجع رداً فارغاً. أعد المحاولة بنص أقصر.",
-    genDbError: "تعذّر حفظ المسودة في قاعدة البيانات. أعد المحاولة أو أبلغ مسؤول المنصة.",
     genNeedSource: "الصق نص الدرس أولاً (50 حرفاً على الأقل).",
     genNeedType: "اختر نوع سؤال واحد على الأقل.",
     // USP slice 3 — integrity signals
@@ -632,8 +780,9 @@ const dict = {
     integrityReportHeading: "إشارات المراجعة لكل تسليم",
     // USP slice 4 — WhatsApp parent reports
     parentPhone: "رقم هاتف ولي الأمر",
-    parentPhoneHint: "بالصيغة الدولية: يبدأ بـ + ثم كود الدولة، مثل +20…",
-    parentPhoneInvalid: "رقم غير صحيح. استخدم الصيغة الدولية: + ثم كود الدولة ثم الرقم.",
+    parentPhoneHint: "رقم مصري: يبدأ بـ 010 أو 011 أو 012 أو 015، أو بالصيغة الدولية +20…",
+    parentPhoneInvalid: "رقم غير صحيح. لازم رقم موبايل مصري يبدأ بـ 010 أو 011 أو 012 أو 015.",
+    parentPhoneRequired: "رقم ولي الأمر مطلوب.",
     whatsappConsent: "أوافق على إرسال نتيجة الطالب لولي الأمر عبر واتساب",
     whatsappConsentHint: "لن تُرسل أي نتيجة بدون هذا الإذن، حتى لو كان الرقم مسجّلًا.",
     whatsappSendToParent: "إرسال النتيجة لولي الأمر",
@@ -655,11 +804,116 @@ const dict = {
     termsTitle: "شروط الاستخدام",
   },
   en: {
-    brand: "Qemmini",
-    tagline: "Intelligent assessment and learning for teachers and students",
-    heroTitle: "Sharper assessment, less time, learning that understands every student",
+    brand: "Qayyimni",
+    tagline: "A teacher's workspace for building assessments and reviewing answers",
+    heroEyebrow: "Clearer review. The final decision stays with the teacher.",
+    heroTitle: "Review each answer. Keep the final mark in your hands.",
     heroBody:
-      "Build tests, auto-grade objective answers, and get AI grading suggestions for written answers — the teacher always has the final word.",
+      "Set clear criteria, then review each suggested mark alongside the evidence in the student's answer. No result is released until you approve it.",
+    brandPromise: "A suggestion to review — approval stays with the teacher.",
+    heroReviewNote: "Criterion-by-criterion review",
+    heroReleaseNote: "No release without approval",
+    workflowKicker: "HOW IT WORKS",
+    featuresKicker: "BUILT FOR THE CLASSROOM",
+    featuresTitle: "The review tools you need, without the noise",
+    assistantTitle: "Teacher assistant",
+    assistantSubtitle:
+      "A practical assistant for lesson planning, assessment drafting, and classroom indicators—with no access to student names or individual answers.",
+    assistantTeacherOnly: "The teacher assistant is available to teacher and tutor accounts only.",
+    assistantWorkspaceSummary: "Workspace summary",
+    assistantAssessments: "Assessments",
+    assistantDrafts: "Drafts",
+    assistantPending: "Submissions awaiting review or release",
+    assistantReleased: "Results released",
+    assistantAverageReleased: "Average released score",
+    assistantAveragePrivacy:
+      "The average appears only when at least five results have been released; it is computed from aggregate marks, not individual scores.",
+    assistantNotConfigured:
+      "The assistant is not configured on the server yet. You can still use the assessment and grading tools below.",
+    assistantDataError: "Could not load workspace indicators. Try refreshing the page.",
+    assistantConversation: "Conversation",
+    assistantSessionOnly: "This conversation is not saved after you leave the page.",
+    assistantNewChat: "New chat",
+    assistantWelcome:
+      "Ask about lesson planning, drafting questions, or writing a marking criterion. The assistant only receives aggregate workspace counts; do not enter student names or identifying details.",
+    assistantPromptLesson:
+      "Plan a 40-minute Grade 8 lesson on the water cycle, with one learning objective and a short exit activity.",
+    assistantPromptQuestions:
+      "Draft five varied Grade 8 questions about the water cycle and state the objective for each.",
+    assistantPromptRubric:
+      "Write a four-level marking criterion for a short answer explaining evaporation, condensation, and precipitation.",
+    assistantPromptFeedback:
+      "Write brief, constructive feedback for a learner who understands the main idea but needs to show their working more clearly.",
+    assistantPromptResults:
+      "Suggest a way to review class results from aggregate indicators without assuming causes the data does not show.",
+    assistantBuildAssessment: "Build an assessment",
+    assistantOpenGrading: "Review submissions",
+    assistantOpenAnalytics: "View analytics",
+    assistantTools: "Teacher tools",
+    assistantReminderTitle: "The teacher stays in control",
+    assistantReminderBody:
+      "Suggestions are drafts for review. The assistant cannot create or save an assessment, approve marks, or release results.",
+    assistantMessageLabel: "Write a message to the assistant",
+    assistantPlaceholder: "Ask a question… (Ctrl + Enter to send)",
+    assistantPrivacyNote: "Avoid entering student names or personal information.",
+    assistantSend: "Send message",
+    assistantThinking: "Preparing a response…",
+    assistantCopy: "Copy reply",
+    assistantCopied: "Reply copied.",
+    assistantCopyFailed: "Could not copy the reply.",
+    assistantRateLimit: "The service is temporarily rate-limited. Wait a moment and try again.",
+    assistantTimeout: "The response took longer than expected. Please try again.",
+    assistantError: "Could not get a response right now. Try again shortly.",
+    lessonExplainTitle: "Explain a lesson from a file",
+    lessonExplainDescription:
+      "Upload a lesson file (PDF, Word, or an image) and the assistant will explain it from the file's own text — not from a generic plan.",
+    lessonExplainChooseFile: "Choose a lesson file",
+    lessonExplainFileHint: "PDF or Word up to 10 MB, or an image up to 8 MB.",
+    lessonExplainExplain: "Explain the lesson",
+    lessonExplainExplaining: "Extracting text and explaining the lesson…",
+    lessonExplainTruncated:
+      "Lesson text was truncated from {original} to {capped} characters before explaining, so the explanation covers only the first part.",
+    lessonExplainTooShort:
+      "The text extracted from the file is too short to explain. Make sure the file contains clear lesson text.",
+    lessonExplainUploadFailed: "Could not upload the file. Please try again.",
+    lessonExplainExtractFailed: "Could not extract text from the file. Try a clearer file.",
+    lessonExplainUnsupported: "Unsupported file type. Upload a PDF, Word document, or image.",
+    lessonExplainFileTooBig: "The file is larger than allowed.",
+    lessonExplainSafety:
+      "This explanation is a draft for your review: the assistant creates no assessments, approves no marks, and releases no results.",
+    lessonExplainCopy: "Copy explanation",
+    lessonExplainCopied: "Explanation copied.",
+    workflowTitle: "From a student's answer to an approved result",
+    workflowIntro: "A clear path from setting the assessment to sharing the result.",
+    step1Label: "Set the criteria",
+    step1Body:
+      "Write the question, scoring criteria, and marks for each criterion before the assessment.",
+    step2Label: "Review answer and evidence",
+    step2Body: "See a suggested mark beside the student's response and the text that supports it.",
+    step3Label: "Approve, then release",
+    step3Body: "Adjust the mark or feedback, then decide when the student can see the result.",
+    closingTitle: "Every answer has context. Every mark has an owner.",
+    closingBody: "Qayyimni organizes the review; the teacher makes the final call.",
+    demoAssessment: "Science assessment · Grade 8",
+    demoQuestion: "Explain how rain forms in the water cycle.",
+    demoQuestionNumber: "Question 3",
+    demoAnswerTitle: "Sample response",
+    demoAnswerText:
+      "The sun warms water so it evaporates. The vapour cools and condenses, then falls as rain.",
+    demoEvidence: "Evidence: “evaporates … condenses … then falls as rain”",
+    demoRubric: "Question criteria",
+    demoTotal: "Total: 5 marks",
+    demoCriterion1: "Names evaporation, condensation, and precipitation",
+    demoCriterion1Score: "2 / 2",
+    demoCriterion2: "Orders the stages and explains their link",
+    demoCriterion2Score: "1 / 2",
+    demoCriterion3: "Connects evaporation to the sun's heat",
+    demoCriterion3Score: "1 / 1",
+    demoSuggest: "Suggested for review",
+    demoScore: "4 / 5",
+    demoSuggestNote:
+      "The response names the stages and links evaporation to the sun's heat; one detail in the sequence is missing.",
+    demoApproved: "Teacher approved",
     getStarted: "Get started",
     signIn: "Sign in",
     signUp: "Create account",
@@ -685,6 +939,12 @@ const dict = {
     assessments: "Assessments",
     grading: "Grading",
     students: "Students",
+    profile: "Profile",
+    profileSaved: "Name saved.",
+    memberSince: "Member since",
+    accountType: "Account type",
+    profileSubject: "Subject",
+    profileSubjectPlaceholder: "e.g. Mathematics",
     myAssessments: "My assessments",
     results: "Results",
     feature1: "Complete assessment builder",
@@ -711,6 +971,34 @@ const dict = {
     gradeLevel: "Grade level",
     dueAt: "Deadline",
     noAssessments: "No assessments yet.",
+    // Start-here checklist + grouped nav + landing journey strip
+    navWork: "My work",
+    navAssistant: "AI assistant",
+    navFollow: "Follow-up",
+    navAccount: "My account",
+    startHere: "Start here",
+    startProgress: "Step {done} of 3",
+    startDone: "Done",
+    startAssessmentTitle: "Create your first assessment",
+    startAssessmentBody: "From lesson text, a file, or a photo — in minutes",
+    startAssessmentAction: "Create assessment",
+    startStudentsTitle: "Add your students",
+    startStudentsBody: "Share your join code from the Students page",
+    startStudentsAction: "Students page",
+    startReleaseTitle: "Grade and approve",
+    startReleaseBody: "AI suggests the mark; you make the final call",
+    startReleaseAction: "Grading page",
+    startLessonTitle: "Create your first lesson",
+    startLessonBody: "One lesson is enough to start",
+    startPublishTitle: "Publish your first assessment",
+    startPublishBody: "Create an assessment and publish it for your students",
+    journeyTitle: "How does it work?",
+    journey1Title: "Create your assessment",
+    journey1Body: "From lesson text, a file, or a photo.",
+    journey2Title: "Students take it",
+    journey2Body: "Share the join code; they answer from any device.",
+    journey3Title: "Grade and approve",
+    journey3Body: "Review the AI suggestion and approve the mark yourself.",
     status: "Status",
     st_draft: "Draft",
     st_published: "Published",
@@ -795,6 +1083,8 @@ const dict = {
     submitted: "Your submission was received.",
     next: "Next",
     prev: "Previous",
+    page: "Page",
+    pagination: "Pagination",
     question: "Question",
     of: "of",
     unanswered: "Unanswered",
@@ -856,7 +1146,7 @@ const dict = {
     hwRetryUpload: "Retry upload",
     hwViewPaper: "View paper",
     hwHidePaper: "Hide paper",
-    auditHistory: "Review history",
+    auditHistory: "Grading log",
     auditSubtitle: "Every grade change and release you made, with old and new scores.",
     auditEmpty: "No events recorded yet.",
     auditTeacherOnly: "Review history is available to teachers only.",
@@ -1026,7 +1316,7 @@ const dict = {
     reportExportGrades: "Export grades (CSV)",
     schoolSharingNote:
       "School sharing: teachers in the same school can read each other's reports (read-only) — no editing, grading, releasing, or WhatsApp sends, and never answer keys.",
-    reviewsTitle: "Grade reviews",
+    reviewsTitle: "Grade review requests",
     reviewsSubtitle:
       "Students request a review of a released grade; teachers respond and close it.",
     reviewsRoleNote: "This page is for students and teachers.",
@@ -1056,7 +1346,10 @@ const dict = {
     hwVisionUnsupported:
       "The current model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
     hwOcrFailed: "Could not extract the text — try again or type the text manually.",
-    hwNeedImage: "Upload an answer paper photo first.",
+    hwNeedImage:
+      "Upload an answer paper image, PDF or Word .docx file (legacy .doc is not supported).",
+    hwSinglePageOnly:
+      "This file has multiple pages - use the multi-page match panel so no pages are lost.",
     hwNeedText: "Enter the question text and the answer text before suggesting a grade or saving.",
     hwNeedSuggestion: "Request a grade suggestion first — the AI sets the final grade.",
     hwAiFinalNote:
@@ -1150,7 +1443,7 @@ const dict = {
       "We collect information you provide when creating an account, such as your name, email address, and role as teacher or student, plus data generated by your use of the platform, such as assessments, answers, grades, and feedback.",
     privacyCollectTitle: "Data we collect",
     privacyIntro:
-      "This policy explains what data Qemmini collects, how we use it, and how we protect it. The platform is designed to handle student data carefully, and results are shown to a student only after their teacher approves them.",
+      "This policy explains what data Qayyimni collects, how we use it, and how we protect it. The platform is designed to handle student data carefully, and results are shown to a student only after their teacher approves them.",
     privacyRetentionBody:
       "We keep data only as long as needed to provide the service or meet legal obligations, after which it is deleted or anonymised.",
     privacyRetentionTitle: "Data retention",
@@ -1184,13 +1477,13 @@ const dict = {
       "We may update these terms from time to time; continuing to use the platform after an update means you accept the updated terms.",
     termsChangesTitle: "Changes to these terms",
     termsContentBody:
-      "Teachers keep ownership of the content they create and grant Qemmini a licence to host and show it to their students solely to provide the service. Student answers remain the students' own work, viewed by their teachers for assessment purposes.",
+      "Teachers keep ownership of the content they create and grant Qayyimni a licence to host and show it to their students solely to provide the service. Student answers remain the students' own work, viewed by their teachers for assessment purposes.",
     termsContentTitle: "Teacher content and student answers",
     termsFairUseBody:
       "You must not misuse the platform, attempt to access other users' data, disrupt the service, or use it for any unlawful purpose.",
     termsFairUseTitle: "Acceptable use",
     termsIntro:
-      "These terms govern your use of Qemmini, an assessment and learning platform for teachers and students. By using the platform, you agree to these terms.",
+      "These terms govern your use of Qayyimni, an assessment and learning platform for teachers and students. By using the platform, you agree to these terms.",
     termsRolesBody:
       "Teachers create and manage assessments and approve grades; students answer only the assessments assigned to them. The final decision on any grade or result always belongs to the teacher.",
     termsRolesTitle: "Roles and responsibilities",
@@ -1225,6 +1518,8 @@ const dict = {
     genOpenBuilder: "Review and edit draft",
     genGenerateAnother: "Generate another draft",
     genDraftSaved: "{count} questions saved as an unpublished draft.",
+    genDraftSavedPartial:
+      "Heads up: you asked for {requested} questions but only {saved} were saved - the rest were invalid in the AI reply. Review the draft and add the missing ones yourself before publishing.",
     genBackToAssessments: "Back to assessments",
     genFileNote:
       "Uploaded files are saved on the server first, and their text is extracted into the source box — review and edit it before generating.",
@@ -1238,6 +1533,12 @@ const dict = {
       "The file is saved on the server first, then its text is extracted into the source box (up to 10 MB).",
     genUploadImages: "Or upload curriculum page photos",
     genUploadImagesHint: "Up to 5 photos; their text is extracted by AI into the source box.",
+    genOcrLayout: "Photo reading mode",
+    genOcrNormal: "Standard — full page",
+    genOcrDetailed: "Dense text — 4 horizontal sections",
+    genOcrDetailedHint: "Uses about 4 AI inputs per page.",
+    genOcrColumns: "Multi-column page — 5 right-to-left columns",
+    genOcrColumnsHint: "For multi-column pages like this sample; uses about 5 AI inputs per page.",
     genExtracting: "Extracting text…",
     genExtracted: "Text extracted from {name} ({count} characters).",
     genUploadFailed: "Failed to upload the file to the server.",
@@ -1250,6 +1551,13 @@ const dict = {
     genVisionUnsupported:
       "The configured model cannot read images — set AI_VISION_MODEL to a vision-capable model.",
     genOcrFailed: "Could not extract text from the photo.",
+    genVisionBusy:
+      "Photo reading is temporarily busy. The text was not extracted; please try again shortly.",
+    genVisionUpstream: "Could not reach the photo-reading service. Please try again shortly.",
+    genVisionTimeout: "Text extraction took longer than expected. Please try again.",
+    genVisionRateLimit:
+      "The temporary photo-extraction limit was reached. Wait a little, then try again.",
+    genOcrRetry: "Retry extraction",
     genTooLong: "Source text is longer than 30,000 characters — shorten it before generating.",
     // Question bank (builder)
     bankTitle: "Question bank",
@@ -1269,15 +1577,6 @@ const dict = {
     genNotTeacher: "This action is for teachers only.",
     genInvalidInput:
       "Check your inputs: text of at least 50 characters, at least one question type, and 1–20 questions.",
-    genAiAuth:
-      "The server reached the AI provider but the key was rejected (401/403). Check the AI_API_KEY secret permissions (Workers AI: Read).",
-    genRateLimit:
-      "AI usage limit reached (429). Wait a moment, or check the daily Workers AI quota in the Cloudflare dashboard.",
-    genBadRequest:
-      "The provider rejected the request itself (400/404/422) — usually an invalid or unavailable AI_MODEL id.",
-    genEmptyReply: "The provider returned an empty reply. Try again with shorter text.",
-    genDbError:
-      "The draft could not be saved to the database. Try again or tell the platform admin.",
     genNeedSource: "Paste the lesson text first (at least 50 characters).",
     genNeedType: "Select at least one question type.",
     // USP slice 3 — integrity signals
@@ -1294,9 +1593,10 @@ const dict = {
     integrityReportHeading: "Review signals per submission",
     // USP slice 4 — WhatsApp parent reports
     parentPhone: "Parent phone number",
-    parentPhoneHint: "International format: starts with + and the country code, e.g. +20…",
+    parentPhoneHint: "Egyptian number: starts with 010, 011, 012 or 015, or international +20…",
     parentPhoneInvalid:
-      "Invalid number. Use international format: + followed by the country code and number.",
+      "Invalid number. It must be an Egyptian mobile starting with 010, 011, 012 or 015.",
+    parentPhoneRequired: "Parent phone number is required.",
     whatsappConsent: "I agree to send the student's result to the parent via WhatsApp",
     whatsappConsentHint: "No result is sent without this consent, even if a number is saved.",
     whatsappSendToParent: "Send result to parent",
@@ -1364,6 +1664,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     en: "All questions must be graded before release.",
   },
   already_released: { ar: "تم نشر النتيجة بالفعل.", en: "Result already released." },
+  parent_phone_required: {
+    ar: "سجّل رقم هاتف ولي الأمر أولاً من لوحة التحكم قبل بدء الامتحان.",
+    en: "Add a parent phone number from your dashboard before starting the exam.",
+  },
 };
 
 export function translateError(err: unknown, lang: Lang): string {

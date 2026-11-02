@@ -28,6 +28,8 @@
 
 import { buildAiGradingPrompt, type AiGradingPromptInput } from "./ai-grading-prompt";
 import { resolveAiConfig } from "./ai-config";
+import { extractOpenAiUsage, logAiUsage, openAiProvider, type AiUsageSink } from "./ai-usage";
+import { cleanAiOutputText } from "@/lib/ai-output";
 
 export type AiConfidence = "high" | "medium" | "low";
 
@@ -68,30 +70,34 @@ function parseSuggestion(raw: unknown, maxMarks: number): AiGradeSuggestion {
     throw new Error("Model response was not a JSON object.");
   }
   const obj = raw as Record<string, unknown>;
-  const scoreRaw = obj.suggested_score ?? obj.score;
+  const scoreRaw = obj["suggested_score"] ?? obj["score"];
   const score = typeof scoreRaw === "number" ? scoreRaw : Number(scoreRaw);
   if (!Number.isFinite(score)) {
     throw new Error("Model response had no usable suggested_score.");
   }
   const feedback =
-    typeof obj.feedback === "string"
-      ? obj.feedback
-      : typeof obj.explanation === "string"
-        ? obj.explanation
+    typeof obj["feedback"] === "string"
+      ? obj["feedback"]
+      : typeof obj["explanation"] === "string"
+        ? obj["explanation"]
         : "";
-  const confidenceRaw = obj.confidence;
+  const cleanFeedback = cleanAiOutputText(feedback);
+  const confidenceRaw = obj["confidence"];
   const confidence: AiConfidence =
     confidenceRaw === "high" || confidenceRaw === "low" ? confidenceRaw : "medium";
-  return { suggestedScore: clampScore(score, maxMarks), feedback, confidence };
+  return { suggestedScore: clampScore(score, maxMarks), feedback: cleanFeedback, confidence };
 }
 
 /**
  * Ask the provider for one grading suggestion. Returns a discriminated
  * result instead of throwing for expected failures, so the UI can show a
  * distinct "AI not configured" state rather than a generic error.
+ * When `usage` is supplied, a successful call is logged for pilot cost
+ * measurement (best-effort: logging never fails the suggestion).
  */
 export async function suggestGradeWithAi(
   input: AiGradingPromptInput,
+  usage?: AiUsageSink,
 ): Promise<{ ok: true; suggestion: AiGradeSuggestion } | { ok: false; error: AiClientError }> {
   const config = resolveAiConfig();
   if (!config) {
@@ -114,7 +120,7 @@ export async function suggestGradeWithAi(
     // OpenAI-specific and would break other compatible endpoints; the
     // prompt demands JSON-only output and extractJson() tolerates fences.
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+    if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
     const res = await fetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
@@ -140,6 +146,7 @@ export async function suggestGradeWithAi(
     }
     const payload = (await res.json()) as {
       choices?: Array<{ message?: { content?: string | null } }>;
+      usage?: unknown;
     };
     const content = payload.choices?.[0]?.message?.content ?? "";
     if (!content) {
@@ -149,6 +156,14 @@ export async function suggestGradeWithAi(
       };
     }
     const suggestion = parseSuggestion(extractJson(content), input.maxMarks);
+    if (usage) {
+      await logAiUsage(usage.client, usage.teacherId, {
+        kind: "grade",
+        provider: openAiProvider(config.baseUrl),
+        model: config.model,
+        usage: extractOpenAiUsage(payload),
+      });
+    }
     return { ok: true, suggestion };
   } catch (error) {
     const message =

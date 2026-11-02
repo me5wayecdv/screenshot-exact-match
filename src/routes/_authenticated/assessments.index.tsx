@@ -6,13 +6,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
+import { DataPager } from "@/components/data-pager";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/_authenticated/assessments/")({
   head: () => ({
     meta: [
-      { title: "Assessments · Qemmini" },
+      { title: "Assessments · Qayyimni" },
       { name: "description", content: "Create and manage assessments." },
     ],
   }),
@@ -33,27 +34,32 @@ function AssessmentsList() {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
-  // The query used to swallow its error (`(await ...).data ?? []`), so any
-  // failure — an RLS denial, a broken embedded subject join, a missing
-  // column — rendered as "no assessments yet". Surface it instead.
+  // Main's pagination, plus two things it still lacked: (a) the cosmetic
+  // subjects(name) embed is retried without the join instead of taking the
+  // whole page down, and (b) a real error renders as an error — an empty
+  // list used to be indistinguishable from a failed read.
+  const [page, setPage] = useState(0);
+  const pageSize = 20;
   const { data, isLoading, error } = useQuery({
-    queryKey: ["assessments"],
-    queryFn: async (): Promise<AssessmentRow[]> => {
+    queryKey: ["assessments", page],
+    queryFn: async (): Promise<{ rows: AssessmentRow[]; hasNext: boolean }> => {
       const base = "id, title, status, due_at, created_at";
-      const first = await supabase
-        .from("assessments")
-        .select(`${base}, subjects(name)`)
-        .order("created_at", { ascending: false });
-      if (!first.error) return (first.data ?? []) as AssessmentRow[];
-      // The embedded subject join is cosmetic. If PostgREST cannot resolve
-      // it (an FK it does not know about), the list used to collapse to
-      // "no assessments yet" and look like vanished data; retry plain.
-      const plain = await supabase
-        .from("assessments")
-        .select(base)
-        .order("created_at", { ascending: false });
+      const run = (select: string) =>
+        supabase
+          .from("assessments")
+          .select(select)
+          .order("created_at", { ascending: false })
+          .range(page * pageSize, page * pageSize + pageSize);
+      const first = await run(`${base}, subjects(name)`);
+      if (!first.error) {
+        const rows = (first.data ?? []) as unknown as AssessmentRow[];
+        return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
+      }
+      const plain = await run(base);
       if (plain.error) throw plain.error;
-      return (plain.data ?? []).map((r) => ({ ...r, subjects: null })) as AssessmentRow[];
+      const plainRows = (plain.data ?? []) as unknown as Omit<AssessmentRow, "subjects">[];
+      const rows: AssessmentRow[] = plainRows.map((r) => ({ ...r, subjects: null }));
+      return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
     },
   });
   async function create(e: FormEvent) {
@@ -101,11 +107,11 @@ function AssessmentsList() {
           {t("assessmentsLoadFailed")}{" "}
           <span className="text-muted-foreground">({translateError(error, lang)})</span>
         </p>
-      ) : data && data.length === 0 ? (
+      ) : data && data.rows.length === 0 && page === 0 ? (
         <Empty>{t("noAssessments")}</Empty>
       ) : (
         <div className="divide-y rounded-lg border bg-card">
-          {data?.map((a) => (
+          {data?.rows.map((a) => (
             <div
               key={a.id}
               className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-muted"
@@ -131,6 +137,15 @@ function AssessmentsList() {
           ))}
         </div>
       )}
+      {data && (page > 0 || data.hasNext) ? (
+        <DataPager
+          page={page}
+          hasPrevious={page > 0}
+          hasNext={data.hasNext}
+          onPrevious={() => setPage((current) => Math.max(0, current - 1))}
+          onNext={() => setPage((current) => current + 1)}
+        />
+      ) : null}
     </>
   );
 }

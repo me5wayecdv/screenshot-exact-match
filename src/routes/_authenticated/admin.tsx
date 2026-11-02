@@ -6,7 +6,7 @@ import { useI18n } from "@/lib/i18n";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
 
 export const Route = createFileRoute("/_authenticated/admin")({
-  head: () => ({ meta: [{ title: "Admin · Qemmini" }] }),
+  head: () => ({ meta: [{ title: "Admin · Qayyimni" }] }),
   component: Admin,
 });
 

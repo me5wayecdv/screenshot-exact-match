@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { sendWhatsAppReport } from "@/lib/whatsapp.functions";
 import { WhatsAppSendButton } from "@/components/whatsapp-send-button";
+import { DataPager } from "@/components/data-pager";
 
 type Q = Database["public"]["Tables"]["questions"]["Row"] & {
   question_keys: Database["public"]["Tables"]["question_keys"]["Row"] | null;
@@ -28,7 +29,7 @@ type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
 export const Route = createFileRoute("/_authenticated/grading")({
   head: () => ({
     meta: [
-      { title: "Grading · Qemmini" },
+      { title: "Grading · Qayyimni" },
       { name: "description", content: "Review submissions awaiting grading." },
     ],
   }),
@@ -62,54 +63,57 @@ function autoFor(q: Q, answerText: string): number | null {
   return null;
 }
 
-function useGradingList(teacherId: string | undefined) {
+function useGradingList(teacherId: string | undefined, openPage: number, releasedPage: number) {
+  const openPageSize = 30;
+  const releasedPageSize = 20;
   return useQuery({
-    queryKey: ["grading-list", teacherId],
+    queryKey: ["grading-list", teacherId, openPage, releasedPage],
     enabled: !!teacherId,
     queryFn: async () => {
-      const aRes = await supabase
-        .from("assessments")
-        .select("id, title")
-        .eq("teacher_id", teacherId!);
-      if (aRes.error) throw aRes.error;
-      const assessments = aRes.data ?? [];
-      const byId = new Map(assessments.map((a) => [a.id, a.title]));
-      if (assessments.length === 0)
-        return {
-          submissions: [] as Submission[],
-          released: [] as Submission[],
-          titles: byId,
-          names: new Map<string, string>(),
-        };
-      const sRes = await supabase
-        .from("submissions")
-        .select("*")
-        .in(
-          "assessment_id",
-          assessments.map((a) => a.id),
-        )
-        .eq("status", "awaiting_review")
-        .order("submitted_at", { ascending: false });
-      if (sRes.error) throw sRes.error;
-      const submissions = (sRes.data ?? []) as Submission[];
-      const rRes = await supabase
-        .from("submissions")
-        .select("*")
-        .in(
-          "assessment_id",
-          assessments.map((a) => a.id),
-        )
-        .eq("status", "released")
-        .order("submitted_at", { ascending: false });
-      if (rRes.error) throw rRes.error;
-      const released = (rRes.data ?? []) as Submission[];
-      const studentIds = [...new Set([...submissions, ...released].map((s) => s.student_id))];
-      let names = new Map<string, string>();
-      if (studentIds.length > 0) {
-        const pRes = await supabase.from("profiles").select("id, full_name").in("id", studentIds);
-        if (!pRes.error) names = new Map((pRes.data ?? []).map((p) => [p.id, p.full_name || "—"]));
-      }
-      return { submissions, released, titles: byId, names };
+      const [openResult, releasedResult] = await Promise.all([
+        supabase.rpc("teacher_grading_page", {
+          _status: "awaiting_review",
+          _offset: openPage * openPageSize,
+          _limit: openPageSize + 1,
+        }),
+        supabase.rpc("teacher_grading_page", {
+          _status: "released",
+          _offset: releasedPage * releasedPageSize,
+          _limit: releasedPageSize + 1,
+        }),
+      ]);
+      if (openResult.error) throw openResult.error;
+      if (releasedResult.error) throw releasedResult.error;
+      const openRows = (openResult.data ?? []) as Submission[];
+      const releasedRows = (releasedResult.data ?? []) as Submission[];
+      const submissions = openRows.slice(0, openPageSize);
+      const released = releasedRows.slice(0, releasedPageSize);
+      const visibleRows = [...submissions, ...released];
+      const assessmentIds = [...new Set(visibleRows.map((row) => row.assessment_id))];
+      const studentIds = [...new Set(visibleRows.map((row) => row.student_id))];
+      const [assessmentResult, profileResult] = await Promise.all([
+        assessmentIds.length
+          ? supabase.from("assessments").select("id, title").in("id", assessmentIds)
+          : Promise.resolve({ data: [], error: null }),
+        studentIds.length
+          ? supabase.from("profiles").select("id, full_name").in("id", studentIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (assessmentResult.error) throw assessmentResult.error;
+      const titles = new Map(
+        (assessmentResult.data ?? []).map((assessment) => [assessment.id, assessment.title]),
+      );
+      const names = new Map(
+        (profileResult.data ?? []).map((profile) => [profile.id, profile.full_name || "—"]),
+      );
+      return {
+        submissions,
+        released,
+        hasMoreSubmissions: openRows.length > openPageSize,
+        hasMoreReleased: releasedRows.length > releasedPageSize,
+        titles,
+        names,
+      };
     },
   });
 }
@@ -142,12 +146,20 @@ function Grading() {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
   const { data: me, isLoading: meLoading } = useMe();
+  const [openPage, setOpenPage] = useState(0);
+  const [releasedPage, setReleasedPage] = useState(0);
+  const gradingTeacherId =
+    me && (me.role === "school_teacher" || me.role === "tutor") ? me.id : undefined;
+  const canGrade = gradingTeacherId !== undefined;
   const { data: list, isLoading: listLoading } = useGradingList(
-    me?.role === "school_teacher" ? me.id : undefined,
+    gradingTeacherId,
+    openPage,
+    releasedPage,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected =
     list?.submissions.find((s) => s.id === selectedId) ?? list?.submissions[0] ?? null;
+  const isReleased = selected?.status === "released";
   const { data: detail, isLoading: detailLoading } = useGradingDetail(selected);
   const [scores, setScores] = useState<Record<string, string>>({});
   const [feedbacks, setFeedbacks] = useState<Record<string, string>>({});
@@ -172,7 +184,14 @@ function Grading() {
   // auto_score only where the stored value differs from the computed one,
   // so this effect never loops. Teacher scores are never touched here.
   useEffect(() => {
-    if (!detail || !selected || autoDone.current.has(selected.id)) return;
+    if (
+      !detail ||
+      !selected ||
+      selected.status === "released" ||
+      autoDone.current.has(selected.id)
+    ) {
+      return;
+    }
     const jobs = detail.answers.flatMap((a) => {
       const q = detail.questions.find((qq) => qq.id === a.question_id);
       if (!q) return [];
@@ -199,11 +218,9 @@ function Grading() {
   }, [detail, selected, qc, lang]);
 
   if (meLoading || listLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
-  // School teachers grade their own assessments' submissions. (The
-  // segmentation slice converts legacy 'teacher' rows to 'school_teacher'
-  // in the DB and session.ts maps any leftover defensively, so only
-  // 'school_teacher' is checked here.)
-  if (!me || me.role !== "school_teacher") return <Empty>{t("gradingTeacherOnly")}</Empty>;
+  // Teachers and tutors may grade only assessments they own; the bounded
+  // RPC applies the same owner check independently of this UI gate.
+  if (!me || !canGrade) return <Empty>{t("gradingTeacherOnly")}</Empty>;
 
   const submissions = list?.submissions ?? [];
   const released = list?.released ?? [];
@@ -217,8 +234,8 @@ function Grading() {
     return { value: n, error: Number.isNaN(n) || n < 0 || n > marks };
   }
 
-  /** Save all teacher scores + feedback. Returns false on validation error. */
-  async function saveAll(): Promise<boolean> {
+  /** Save teacher scores + feedback through the audited, owner-scoped RPC. */
+  async function saveAll(force = false): Promise<boolean> {
     if (!detail || !selected) return false;
     for (const q of detail.questions) {
       const a = answerByQuestion.get(q.id);
@@ -233,8 +250,15 @@ function Grading() {
       if (!a) return [];
       const { value } = scoreOf(a.id, Number(q.marks));
       const fb = feedbacks[a.id] ?? "";
-      if (value === a.final_score && fb === (a.feedback ?? "")) return [];
-      return [supabase.from("answers").update({ final_score: value, feedback: fb }).eq("id", a.id)];
+      if (!force && value === a.final_score && fb === (a.feedback ?? "")) return [];
+      return [
+        supabase.rpc("review_answer", {
+          _answer: a.id,
+          _score: value,
+          _feedback: fb,
+          _decision: value === null ? "reject" : "approve",
+        }),
+      ];
     });
     const results = await Promise.all(writes);
     const failed = results.find((r) => r.error);
@@ -251,11 +275,12 @@ function Grading() {
     setBusy(false);
     if (!ok) return;
     toast.success(t("gradingSaved"));
+    await qc.invalidateQueries({ queryKey: ["grading-list", me?.id] });
     await qc.invalidateQueries({ queryKey: ["grading-detail", selected?.id] });
   }
 
   async function release() {
-    if (!detail || !selected) return;
+    if (!me || !detail || !selected || isReleased) return;
     // Teacher-final-word: every question needs an explicit teacher score
     // (auto scores alone never release a submission).
     for (const q of detail.questions) {
@@ -266,24 +291,17 @@ function Grading() {
       }
     }
     setBusy(true);
-    const ok = await saveAll();
+    // Force a review RPC for every answer so legacy drafts with previously
+    // saved direct scores are promoted through the current audited state path.
+    const ok = await saveAll(true);
     if (!ok) {
       setBusy(false);
       return;
     }
-    const final = detail.questions.reduce((s, q) => {
-      const a = answerByQuestion.get(q.id);
-      return s + (a ? (scoreOf(a.id, Number(q.marks)).value ?? 0) : 0);
-    }, 0);
-    const { error } = await supabase
-      .from("submissions")
-      .update({
-        status: "released",
-        final_score: final,
-        total_possible: totalPossible,
-        released_at: new Date().toISOString(),
-      })
-      .eq("id", selected.id);
+    const { error } = await supabase.rpc("release_submission", {
+      _sub: selected.id,
+      _feedback: "",
+    });
     setBusy(false);
     if (error) return void toast.error(translateError(error, lang));
     toast.success(t("released"));
@@ -351,7 +369,22 @@ function Grading() {
               ))}
             </ul>
           )}
-          {released.length > 0 && (
+          {list && (openPage > 0 || list.hasMoreSubmissions) ? (
+            <DataPager
+              page={openPage}
+              hasPrevious={openPage > 0}
+              hasNext={list.hasMoreSubmissions}
+              onPrevious={() => {
+                setSelectedId(null);
+                setOpenPage((current) => Math.max(0, current - 1));
+              }}
+              onNext={() => {
+                setSelectedId(null);
+                setOpenPage((current) => current + 1);
+              }}
+            />
+          ) : null}
+          {(released.length > 0 || releasedPage > 0) && (
             <div className="mt-6">
               <h3 className="mb-3 font-semibold">{t("released")}</h3>
               <ul className="space-y-3">
@@ -369,6 +402,15 @@ function Grading() {
                   </li>
                 ))}
               </ul>
+              {list && (releasedPage > 0 || list.hasMoreReleased) ? (
+                <DataPager
+                  page={releasedPage}
+                  hasPrevious={releasedPage > 0}
+                  hasNext={list.hasMoreReleased}
+                  onPrevious={() => setReleasedPage((current) => Math.max(0, current - 1))}
+                  onNext={() => setReleasedPage((current) => current + 1)}
+                />
+              ) : null}
             </div>
           )}
         </Panel>
@@ -455,6 +497,7 @@ function Grading() {
                             step={0.5}
                             dir="ltr"
                             value={scores[a.id] ?? ""}
+                            disabled={isReleased}
                             onChange={(e) => setScores({ ...scores, [a.id]: e.target.value })}
                           />
                         </div>
@@ -464,13 +507,14 @@ function Grading() {
                             id={`fb-${a.id}`}
                             rows={2}
                             value={feedbacks[a.id] ?? ""}
+                            disabled={isReleased}
                             maxLength={2000}
                             onChange={(e) => setFeedbacks({ ...feedbacks, [a.id]: e.target.value })}
                           />
                         </div>
                       </div>
                     )}
-                    {a && q.type === "written" && (
+                    {a && q.type === "written" && !isReleased && (
                       <AiGradeSuggestion
                         key={a.id}
                         answerId={a.id}
@@ -490,10 +534,10 @@ function Grading() {
                 );
               })}
               <div className="flex flex-wrap gap-2">
-                <Button onClick={save} disabled={busy}>
+                <Button onClick={save} disabled={busy || isReleased}>
                   {busy ? t("saving") : t("gradingSaveScores")}
                 </Button>
-                <Button variant="outline" onClick={release} disabled={busy}>
+                <Button variant="outline" onClick={release} disabled={busy || isReleased}>
                   {t("release")}
                 </Button>
               </div>

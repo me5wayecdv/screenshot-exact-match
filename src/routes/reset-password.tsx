@@ -11,9 +11,9 @@ import { useI18n, translateError } from "@/lib/i18n";
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
-      { title: "Reset password · Qemmini" },
-      { name: "description", content: "Set a new password for your Qemmini account." },
-      { property: "og:title", content: "Reset password · Qemmini" },
+      { title: "Reset password · Qayyimni" },
+      { name: "description", content: "Set a new password for your Qayyimni account." },
+      { property: "og:title", content: "Reset password · Qayyimni" },
       { property: "og:description", content: "Set a new password." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

@@ -20,9 +20,31 @@ export function isValidE164(phone: string): boolean {
   return E164_REGEX.test(phone.trim());
 }
 
-/** Strip spaces/dashes the user may have typed; never invents a "+" prefix. */
+/**
+ * Egyptian mobile numbers: +20 followed by 010/011/012/015 and 8 more
+ * digits (12 digits total after the "+"). Enforced client-side, in the
+ * server function AND by the DB CHECK constraint — never trust the
+ * client check alone.
+ */
+export const EGYPT_MOBILE_REGEX = /^\+20(10|11|12|15)\d{8}$/;
+
+export function isValidEgyptianMobile(phone: string): boolean {
+  return EGYPT_MOBILE_REGEX.test(phone.trim());
+}
+
+/**
+ * Strip spaces/dashes the user may have typed, then normalize common
+ * Egyptian local forms to international +20… form:
+ *   01012345678   -> +201012345678
+ *   201012345678  -> +201012345678
+ * Anything else is returned cleaned but unchanged, so validation can
+ * reject it instead of silently inventing a wrong number.
+ */
 export function normalizePhoneInput(raw: string): string {
-  return raw.replace(/[\s\-()]/g, "");
+  const cleaned = raw.replace(/[\s\-()]/g, "");
+  if (/^01[0125]\d{8}$/.test(cleaned)) return "+2" + cleaned;
+  if (/^201[0125]\d{8}$/.test(cleaned)) return "+" + cleaned;
+  return cleaned;
 }
 
 export type WhatsAppSendTrigger = "manual" | "auto";

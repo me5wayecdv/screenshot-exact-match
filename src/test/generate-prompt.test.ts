@@ -19,6 +19,9 @@ describe("buildGeneratePrompt difficulty", () => {
     expect(prompt).toContain("مستويات الصعوبة");
     expect(prompt).toContain('"difficulty": "medium"');
     expect(prompt).toContain("easy أو medium أو hard");
+    expect(prompt).toContain("عربية فصحى سهلة وواضحة");
+    expect(prompt).toContain("التنوين غير الضروريين");
+    expect(prompt).toContain("علامتي النجمتين **");
   });
 
   it("pins a single level when requested", () => {
@@ -98,6 +101,30 @@ describe("extractJsonObject resilience", () => {
   });
 });
 
+describe("parseGeneratedDraft display cleanup", () => {
+  it("removes bold markers and excess tanween from generated Arabic text", () => {
+    const draft = parseGeneratedDraft(
+      {
+        title: "**اختبارٌ**",
+        questions: [
+          {
+            type: "mcq",
+            prompt: "**ما الماءُ؟**",
+            options: ["تبخرٌ", "جريان"],
+            correct_answer: "تبخرٌ",
+            marks: 1,
+          },
+        ],
+      },
+      20,
+    );
+    expect(draft.title).toBe("اختبار");
+    expect(draft.questions[0]?.prompt).toBe("ما الماءُ؟");
+    expect(draft.questions[0]?.options[0]).toBe("تبخر");
+    expect(draft.questions[0]?.correct_answer).toBe("تبخر");
+  });
+});
+
 describe("parseGeneratedDraft title tolerance", () => {
   it("keeps a valid question set even when the model omits the title", () => {
     const draft = parseGeneratedDraft(
@@ -106,5 +133,47 @@ describe("parseGeneratedDraft title tolerance", () => {
     );
     expect(draft.title).toBe("");
     expect(draft.questions).toHaveLength(1);
+  });
+});
+describe("extractJsonObject rescue passes", () => {
+  it("rescues literal control characters inside strings (pdfjs form feeds)", () => {
+    // The model echoes PDF-extracted source text with raw control bytes
+    // (form feed, literal newline) inside string values: invalid JSON.
+    const raw =
+      '{"title":"اختبار","questions":[{"type":"mcq","prompt":"ما الملخص؟","options":["أ","ب","ج","د"],"correct_answer":"أ","marks":1,"explanation":"سطر أول' +
+      String.fromCharCode(0x0c) +
+      "سطر\nثانٍ" +
+      '"}]}';
+    const draft = parseGeneratedDraft(extractJsonObject(raw), 5);
+    expect(draft.questions).toHaveLength(1);
+    expect(draft.questions[0]?.explanation).toContain("سطر");
+  });
+
+  it("rejects invalid backslash escapes instead of guessing the value", () => {
+    // "C:\dir" is not a valid JSON escape, and the model's intended value
+    // is ambiguous (path vs. mistyped escape). The reply must fail cleanly
+    // rather than accept a repaired answer key we cannot prove lossless.
+    const raw =
+      '{"questions":[{"type":"mcq","prompt":"أين الملف؟","options":["C:\\dir","D:\\data"],"correct_answer":"C:\\dir","marks":1}]}';
+    expect(() => extractJsonObject(raw)).toThrow("AI_PARSE_FAILED");
+  });
+
+  it("drops trailing commas outside strings", () => {
+    const raw =
+      '{"title":"t","questions":[{"type":"true_false","prompt":"صح؟","correct_answer":"true","marks":1,},],}';
+    const draft = parseGeneratedDraft(extractJsonObject(raw), 5);
+    expect(draft.questions).toHaveLength(1);
+  });
+
+  it("keeps rejecting genuinely unparseable replies, with position only", () => {
+    expect(() => extractJsonObject("no json here at all")).toThrow("AI_PARSE_FAILED");
+    try {
+      extractJsonObject('{"title":"عنوان خاص","questions": `broken');
+      expect.unreachable();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      // Position is best-effort (runtime-dependent); content never leaks.
+      expect(msg).not.toContain("عنوان");
+    }
   });
 });

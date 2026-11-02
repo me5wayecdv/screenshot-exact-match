@@ -1,4 +1,4 @@
-# AI models for Qemmini (grading suggestions + assessment generation + handwritten OCR)
+# AI models for Qayyimni (grading suggestions + assessment generation + handwritten OCR)
 
 All AI features (grading suggestions on `/grading`, assessment generation on
 `/assessments/generate`, handwritten-paper OCR on `/handwritten`) are
@@ -47,7 +47,56 @@ Any OpenAI-compatible provider works. Free/open options to point at:
   - `AI_MODEL` to `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (text: grading
     suggestions + assessment generation).
   - `AI_VISION_MODEL` to `@cf/meta/llama-3.2-11b-vision-instruct` (vision:
-    handwritten-paper OCR).
+    handwritten-paper OCR, curriculum-page OCR, paper matching).
+    Restored 2026-10-29: on an agreement error the server now
+    submits the documented `{"prompt": "agree"}` form with the
+    Worker's own Workers-AI-scoped key, then retries once (see
+    `src/server/handwritten.ts`). Earlier chat-message agrees
+    (Playground + server) all failed. LLaVA (the 2026-10-29 switch)
+    stays in code as the fallback — it answers but cannot read
+    handwriting (returned "..." then "[unclear]" live).
+  - Dense pages: the provider enforces a ~120s per-call budget
+    (HTTP 408, code 3046 — unchangeable from the client). Both the
+    handwritten and generate client flows fall back on 408/timeout
+    to transcribing overlapping quarters (0–30%, 25–55%, 50–80%,
+    75–100%) and joining them with overlap dedup; paper-matching
+    is excluded (matching needs whole pages). Halves (0–55%,
+    45–100%) were tried first and proved insufficient live
+    2026-10-29: the dense Arabic page still exceeded the budget.
+    Quarters run sequentially on both paths: parallel quarters
+    timed out on handwritten the same evening while sequential
+    quarters succeeded on generate (1663 chars). An ok-but-useless
+    result (empty or "...") also triggers the fallback on
+    handwritten instead of ending silently: live 2026-10-29 the
+    single call returned "..." with no error and the fallback
+    never engaged.
+  - Moondream A/B 2026-10-29/30: `@cf/moondream/moondream3.1-9B-A2B`
+    via a task payload (`task: "query"`, byte-array image,
+    `max_tokens: 4000` → `result.description`), no license
+    agreement required. VERDICT 30 Oct: FAILED — identical
+    provider HTTP 400 (`/image` string-not-in-array-binary) on
+    both paths across two runs (Worker 7b8fe479 and fresh
+    rebuild/redeploy 0b81e65a), so the REST task shape does not
+    work from this Worker despite correct-looking code; root
+    cause of the mismatch unexplained. REVERTED to Llama
+    (main f204a042, Worker b39ec2d9, verified live 00:59 by a
+    successful English extraction). Moondream branches stay in
+    code, gated by the model var; do not retry without a new
+    theory (binding-based call or chat-completions vision
+    shape). Revert remains a one-var switch, no code removal.
+  - Gemini vision branch: `runGeminiQuery` in handwritten.ts calls the
+    Developer API `generateContent` endpoint (base64 inlineData + text
+    prompt, `maxOutputTokens: 8192`, temperature 0; response text from
+    `candidates[0].content.parts`). It is selected only when
+    `VISION_PROVIDER=gemini` AND `GEMINI_API_KEY` are set (model from
+    `GEMINI_MODEL`, default `gemini-2.5-flash`). The key is a Worker
+    secret, never stored in code. The user reported intermittent HTTP
+    503 high-demand errors while extracting exam images. The source-OCR
+    path now retries Gemini 503s twice, then falls back to the configured
+    `AI_VISION_MODEL` Workers AI path; this code change has not yet been
+    test-run or deployed. Other Gemini vision paths do not yet have this
+    Cloudflare fallback. Verify Workers AI quota/cost and Arabic OCR
+    quality before relying on the fallback in production.
   - `AI_API_KEY` to a Cloudflare API token with Account > Workers AI > Read
     permission, set as a Worker secret — never in code or in wrangler.jsonc.
   These model ids come from Cloudflare's Workers AI catalog; confirm they
@@ -83,9 +132,14 @@ self-hosted model needs a machine with enough RAM/VRAM for the model size.
 
 ## Handwritten paper grading (OCR) — needs a vision-capable model
 
-The `/handwritten` page sends the paper photo to the same OpenAI-compatible
-endpoint as a multimodal chat completion (text + image). One extra
-server-side variable controls which model reads the photos:
+The `/handwritten` page sends the paper photo to the vision model
+through the native Workers AI run endpoint. Chat-capable vision
+models take a messages payload; image-to-text models (LLaVA
+fallback) take a byte-array image + text prompt and answer in
+`result.description` — see `runImageToTextModel` in
+`src/server/handwritten.ts`, shared by handwritten OCR, source OCR,
+and paper matching. One extra server-side variable controls which
+model reads the photos:
 
 | Variable          | Required | Meaning |
 | ----------------- | -------- | ------- |
@@ -135,10 +189,13 @@ raw extraction):
 - PDF: parsed in the browser with pdfjs-dist (dynamically imported).
 - Word (.docx): parsed in the browser with mammoth (dynamically
   imported). Legacy .doc binaries are not supported.
-- Curriculum page photos (up to 5): compressed to ≤1600px JPEG, saved
-  to the private `generation-sources` bucket, then OCR'd by the vision
-  server function `src/server/source-ocr.ts`, which reuses the same
-  vision config and error codes as handwritten OCR
+- Curriculum page photos (up to 5): compressed to up to 2400px JPEG with
+  adaptive quality/size bounds, saved to the private `generation-sources`
+  bucket, then OCR'd by `src/server/source-ocr.ts`. Teachers can optionally
+  split dense pages into four overlapping horizontal sections (about four
+  vision inputs per page) or multi-column pages into five right-to-left
+  columns (about five inputs per page). Timeout fallback uses horizontal
+  sections. OCR reuses the vision config and error codes from handwritten OCR
   (`AI_VISION_MODEL`, else `AI_MODEL`; `VISION_NOT_CONFIGURED` /
   `VISION_UNSUPPORTED` / `VISION_TIMEOUT` / `VISION_UPSTREAM` /
   `VISION_PARSE_FAILED`).
@@ -237,7 +294,7 @@ framework in production — so the teacher saw a button that "did nothing".
 | `AI_UPSTREAM`       | 5xx or transport failure (detail carries the cause)           | retry; check provider status |
 | `AI_TIMEOUT`        | no reply within 120 s                                         | shorter source text; retry |
 | `AI_EMPTY_REPLY`    | 200 with empty content (detail carries `finish_reason`)       | retry with shorter text |
-| `AI_PARSE_FAILED`   | reply had no usable JSON/questions (detail carries its head)   | retry; shorter/cleaner source |
+| `AI_PARSE_FAILED`   | reply had no usable JSON/questions (detail is bounded metadata only: replyLen/finish/parseErrorAt — never reply content)   | retry; shorter/cleaner source |
 | `DB_ERROR`          | Supabase insert failed (detail carries the row/column error)   | RLS or schema problem |
 | `NOT_TEACHER`       | caller role is not school_teacher/tutor                       | expected |
 | `VALIDATION`        | payload rejected (source < 50 chars, no type, bad count)      | expected |
@@ -251,3 +308,14 @@ Two hardening changes ship with it:
    object that arrived complete, closes the array/object) instead of
    failing the whole generation; a missing model `title` no longer
    discards a valid question set (the teacher's title is used instead).
+3. 2026-11-01: syntax-only rescue for the SUSPECTED failure class behind the
+   teacher-reported AI_PARSE_FAILED with a PDF-uploaded CV (hypothesis,
+   not yet reproduced): pdfjs-extracted text can carry C0 control bytes
+   (form feeds etc.) that the model may echo raw into JSON strings. Source text is stripped of C0 controls at input
+   validation, `sanitizeModelJson()` escapes control bytes INSIDE string
+   literals only (invalid backslash escapes are left to fail cleanly -
+   guessing the intended value could change an answer key), `dropTrailingCommas()`
+   removes pre-brace/bracket commas outside strings, and the success
+   payload carries `requestedCount` so the UI must say "saved X of Y"
+   instead of presenting a partial draft as complete. Strict per-question
+   validation is unchanged: nothing invalid is ever repaired into place.

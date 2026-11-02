@@ -35,10 +35,13 @@ database dump (same date in the filename).
 
 ## Restore order (new or repaired project)
 
-1. Create the project, then apply migrations **in order**: base
-   (`drizzle/migrations/0000_migration.sql`) → `20261026120000` →
-   `20261026130000` → `20261026140000` → `20261027010000` →
-   `20261027020000` → `20261027030000`.
+1. Create the project, then apply the base migration
+   (`drizzle/migrations/0000_migration.sql`) followed by **every** SQL file
+   in `supabase/migrations/` in timestamp order. Enumerate the exact files from
+   the checked-out release with:
+   `find supabase/migrations -maxdepth 1 -type f -name '*.sql' -print | sort`.
+   Older abbreviated lists are incomplete. Verify the target migration history
+   and schema before restoring or enabling users.
 2. Restore the database dump.
 3. Restore bucket objects to their original paths (so existing `image_path`
    values resolve again).

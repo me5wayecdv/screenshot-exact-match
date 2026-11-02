@@ -1,0 +1,24 @@
+-- Verification runbook for 20261101010000_audience_auto_all.sql
+-- (finding 3, user-approved option B: late joiners see OPEN general
+-- exams; explicit cohorts are never widened).
+--
+-- Verified live 2026-11-01 via the real UI plus direct checks:
+--   1. Publish a draft with NO assignment rows
+--      -> audience_mode='auto_all'; every currently linked student gets
+--         an assessment_assignments row.
+--   2. Publish a draft WITH assignment rows (teacher ticked students)
+--      -> audience_mode='explicit'; no rows added.
+--   3. join_teacher by a new student
+--      -> assignment rows for the teacher's published, not-past-due
+--         'auto_all' exams ONLY; 'explicit' exams untouched.
+--   4. closed -> published re-publish keeps the stored audience_mode
+--      (no re-assignment, no widening).
+--   5. Pre-migration rows all read audience_mode='explicit'
+--      (conservative default; old audiences unchanged).
+--
+-- Spot checks:
+--   select id, status, audience_mode from public.assessments order by created_at desc;
+--   select aa.assessment_id, a.audience_mode
+--     from public.assessment_assignments aa
+--     join public.assessments a on a.id = aa.assessment_id
+--     where aa.student_id = '<student uuid>';

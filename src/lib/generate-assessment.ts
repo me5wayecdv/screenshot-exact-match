@@ -38,6 +38,12 @@ import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { resolveAiConfig } from "@/server/ai-config";
+import {
+  consumeAiRateQuota,
+  extractOpenAiUsage,
+  logAiUsage,
+  openAiProvider,
+} from "@/server/ai-usage";
 import type { Database } from "@/integrations/supabase/types";
 import {
   buildGeneratePrompt,
@@ -76,7 +82,12 @@ export type GenerateAssessmentSuccess = {
   ok: true;
   assessmentId: string;
   title: string;
+  /** Questions actually saved (<= requestedCount when some were invalid
+   *  or the reply was truncated). */
   questionCount: number;
+  /** Questions the teacher asked for — the UI must say so explicitly when
+   *  fewer were saved, never present a partial draft as complete. */
+  requestedCount: number;
 };
 
 export type GenerateAssessmentFailure = {
@@ -107,26 +118,35 @@ function validateGenerateInput(data: unknown): GenerateAssessmentInput {
     throw new Error("VALIDATION");
   }
   const d = data as Record<string, unknown>;
-  const sourceText = typeof d.sourceText === "string" ? d.sourceText.trim() : "";
+  // Strip C0 control characters (except tab/newline/CR) and DEL at the
+  // boundary: PDF text extraction (pdfjs) emits form feeds and similar
+  // bytes, and the model echoes them raw into its JSON reply, which used
+  // to make the reply unparseable (AI_PARSE_FAILED).
+  const sourceText = (typeof d["sourceText"] === "string" ? d["sourceText"] : "")
+    // eslint-disable-next-line no-control-regex -- deliberately strip disallowed C0 bytes from extracted source text.
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .trim();
   if (sourceText.length < SOURCE_MIN_CHARS) throw new Error("VALIDATION");
-  const types = Array.isArray(d.types) ? [...new Set(d.types.filter(isGenerateQuestionType))] : [];
+  const types = Array.isArray(d["types"])
+    ? [...new Set(d["types"].filter(isGenerateQuestionType))]
+    : [];
   if (types.length === 0) throw new Error("VALIDATION");
-  const rawCount = typeof d.questionCount === "number" ? d.questionCount : NaN;
+  const rawCount = typeof d["questionCount"] === "number" ? d["questionCount"] : NaN;
   if (!Number.isFinite(rawCount)) throw new Error("VALIDATION");
   return {
-    title: typeof d.title === "string" ? d.title.trim().slice(0, 200) : "",
-    subjectId: typeof d.subjectId === "string" && d.subjectId ? d.subjectId : null,
-    gradeLevel: typeof d.gradeLevel === "string" ? d.gradeLevel.trim().slice(0, 60) : "",
+    title: typeof d["title"] === "string" ? d["title"].trim().slice(0, 200) : "",
+    subjectId: typeof d["subjectId"] === "string" && d["subjectId"] ? d["subjectId"] : null,
+    gradeLevel: typeof d["gradeLevel"] === "string" ? d["gradeLevel"].trim().slice(0, 60) : "",
     sourceText: sourceText.slice(0, SOURCE_MAX_CHARS),
     questionCount: Math.min(20, Math.max(1, Math.floor(rawCount))),
     types,
-    difficulty: isGenerateDifficulty(d.difficulty) ? d.difficulty : "mixed",
+    difficulty: isGenerateDifficulty(d["difficulty"]) ? d["difficulty"] : "mixed",
   };
 }
 
 type AiChatResponse = {
   choices?: { message?: { content?: string | null } }[];
-  usage?: { completion_tokens?: number; total_tokens?: number };
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 };
 
 /**
@@ -144,6 +164,7 @@ const FALLBACK_TITLE = "اختبار مولَّد";
 
 export const generateAssessment = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
+  .validator((data: unknown) => data)
   .handler(async ({ data, context }): Promise<GenerateAssessmentResult> => {
     // Failures are RETURNED, never thrown: a thrown error is re-serialised
     // by the framework in production and the teacher sees a dead button
@@ -197,6 +218,9 @@ export const generateAssessment = createServerFn({ method: "POST" })
     // provider is a configuration state, not a silent failure.
     const aiConfig = resolveAiConfig();
     if (!aiConfig) return fail("AI_NOT_CONFIGURED");
+    if (!(await consumeAiRateQuota(supabase, Math.ceil(input.questionCount / 5)))) {
+      return fail("AI_RATE_LIMIT");
+    }
     const { baseUrl, model, apiKey } = aiConfig;
 
     const counts = distributeCounts(input.questionCount, input.types);
@@ -213,11 +237,12 @@ export const generateAssessment = createServerFn({ method: "POST" })
     // other OpenAI-compatible endpoints behind AI_BASE_URL; the prompt
     // demands JSON-only output and extractJsonObject() tolerates fences.
     let replyText = "";
+    let finishReason = "";
     try {
       // No Authorization header when the key is empty (local endpoints
       // without auth, e.g. Ollama).
       const headers: Record<string, string> = { "content-type": "application/json" };
-      if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+      if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers,
@@ -252,11 +277,19 @@ export const generateAssessment = createServerFn({ method: "POST" })
       }
       const json = (await res.json()) as AiChatResponse;
       replyText = json.choices?.[0]?.message?.content ?? "";
+      finishReason =
+        (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
       if (!replyText.trim()) {
-        const finish = (json as { choices?: { finish_reason?: string }[] }).choices?.[0]
-          ?.finish_reason;
-        return fail("AI_EMPTY_REPLY", finish ? `finish_reason=${finish}` : "");
+        return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
       }
+      // Pilot cost measurement (best-effort, never fails generation):
+      // one row per successful generation call, attributed to the teacher.
+      await logAiUsage(supabase, userId, {
+        kind: "generate",
+        provider: openAiProvider(baseUrl),
+        model,
+        usage: extractOpenAiUsage(json),
+      });
     } catch (e) {
       const name = e instanceof Error ? e.name : "";
       if (name === "TimeoutError" || name === "AbortError") return fail("AI_TIMEOUT");
@@ -268,10 +301,22 @@ export const generateAssessment = createServerFn({ method: "POST" })
     let draft: GeneratedDraft;
     try {
       draft = parseGeneratedDraft(extractJsonObject(replyText), input.questionCount);
-    } catch {
-      // Ship the head of the reply so the failure is diagnosable from the
-      // error panel instead of "something went wrong".
-      return fail("AI_PARSE_FAILED", `reply: ${describeThrown(replyText, 160)}`);
+    } catch (e) {
+      // Bounded, content-free diagnostics only: reply length, provider
+      // finish_reason and the first JSON parse offset. The raw reply can
+      // carry private lesson/student content and is never echoed to the
+      // UI or the logs.
+      const pos = e instanceof Error ? / at position (\d+)$/.exec(e.message)?.[1] : undefined;
+      return fail(
+        "AI_PARSE_FAILED",
+        [
+          `replyLen=${replyText.length}`,
+          finishReason ? `finish=${finishReason}` : "",
+          pos ? `parseErrorAt=${pos}` : "",
+        ]
+          .filter(Boolean)
+          .join("; "),
+      );
     }
 
     // Save as an UNPUBLISHED draft owned by the teacher. No assignments,
@@ -331,5 +376,6 @@ export const generateAssessment = createServerFn({ method: "POST" })
       assessmentId: assessment.id,
       title: assessment.title,
       questionCount: draft.questions.length,
+      requestedCount: input.questionCount,
     };
   });

@@ -1,69 +1,51 @@
-# Institutional features (Phase 7)
+# Institutional and collaboration scope
 
-## School-wide read sharing
+This document describes the current repository, not the earlier school-workspace
+prototype. The school-removal migration (`20261028020000_remove_schools.sql`)
+removed school organizations and memberships. There is no `/school` route,
+organization/tenant boundary, school-wide administration, or institution-level
+billing/SSO in the current application. Do not advertise those capabilities as
+implemented.
 
-Teachers in the same school (`school_teachers`) can now READ each
-other's assessments, questions, submissions, answers, classes, and
-class members — via the `same_school()` helper and colleague SELECT
-policies in migration `20261027050000_phase7_institutional.sql`.
+## Current access model
 
-What colleagues can do: open a colleague's report from the school
-workspace (assessments link to their report pages), see stats,
-per-question breakdowns, integrity summaries, and export CSVs.
-Colleagues also see student names, but only for students whose work
-they can already read (separate profile policy).
+- Teachers and tutors manage their own assessments and related records.
+- Students join a teacher or tutor using the applicable join/lesson flow.
+- Database RLS and owner-scoped server functions are the security boundary;
+  hiding a UI link is not authorization.
+- A tutor's lessons and assessment data remain within that tutor's owner scope.
+- School-wide colleague access is not part of the current product model.
 
-What colleagues CANNOT do (deliberate, unchanged):
-- Read `question_keys` — no colleague policy exists on that table.
-- Grade, release, edit, or change status — `review_answer` and
-  `release_submission` enforce `owns_assessment()`.
-- Send WhatsApp parent reports — the report page hides that section
-  for non-owners.
-- Tutors are not school members, so tutor assessments stay private.
-
-Discovery: the school workspace (`/school`) lists the school's
-assessments with links to their reports; the list page
-(`/assessments`) still shows only the teacher's own assessments.
+Before adding schools or organizations, design an explicit tenant identifier,
+validated membership lifecycle, role/permission model, tenant-scoped RLS and
+RPCs, data migration, and cross-tenant negative tests. Do not restore the old
+school tables or policies as a UI-only feature.
 
 ## Grade-review requests
 
-New table `grade_review_requests` + page `/reviews` (students,
-school teachers, tutors):
-- A student picks one of their RELEASED submissions, optionally one
-  of its questions, and writes a reason. The insert policy recomputes
-  ownership (released submission, the assessment's real owner, the
-  question belonging to that assessment) — client input is not
-  trusted.
-- A teacher lists requests for their own assessments and resolves
-  them through the SECURITY DEFINER function `resolve_review_request`
-  — there is deliberately NO direct UPDATE policy, so resolution can
-  change only status, response, and resolved_at.
+The `/reviews` page supports student requests about released work. Teachers
+resolve requests for assessments they own through the protected resolution
+function; the client does not receive a general-purpose update path for the
+request record. Review the associated RLS policies and RPC before changing this
+flow.
 
-## LMS export (report page)
+## LMS exports
 
-Two CSV downloads, both fetched through RLS:
-- Questions CSV: prompt, type, options, objective, marks, difficulty
-  — never answer keys.
-- Grades CSV: student, assessment, score, total, percentage, status.
-Both are BOM-prefixed RFC 4180, so Excel opens Arabic correctly.
+Report pages provide CSV exports through authenticated, RLS-scoped reads. The
+question export excludes answer keys; the grades export contains report data
+for work the current user is authorized to see. CSV output is BOM-prefixed and
+RFC 4180 formatted for spreadsheet compatibility.
 
-## Explicitly NOT built (with reasons)
+## Not built / decisions required
 
-- **SSO for schools**: Supabase SAML SSO requires a Pro plan; this
-  project is on the Free plan. OAuth (Google etc.) exists in the
-  stack but per-school SSO configuration is unproven and cannot be
-  completed on Free. Revisit after a plan upgrade.
-- **Email invites / CSV import of NEW students**: creating auth
-  users requires the Supabase Admin API (service_role key), which
-  this codebase deliberately never uses from the app. Students join
-  today via self-signup + class/school join codes. A service-role
-  backend (or Supabase Auth admin via a trusted server function with
-  a stored service key) is a separate security decision, not a UI
-  addition.
-- **Google Classroom / Teams / Moodle**: listed as future work in the
-  original list; no integration is built.
-- **Exam experience (§6 of the list — timer, autosave, multiple
-  attempts)**: not part of this phase. These touch the take/submit
-  core (including the single-submission unique constraint) and need
-  their own phase with end-to-end testing; they were not rushed into
-  the institutional phase. See the plan file's remaining items.
+- **Organization accounts and school-wide sharing:** intentionally absent from
+  the current schema and routes.
+- **SSO and school directory provisioning:** not implemented.
+- **Email invitations or bulk import that creates auth users:** not
+  implemented; creating auth users requires a trusted server-side Admin API
+  path and a service-role key, which must never be exposed to the browser.
+- **Billing and subscription entitlements:** not implemented.
+
+The exam timer, autosave, and multiple-attempt experience is implemented; see
+`docs/exam-experience.md`. Do not use older phase notes that describe it as
+unbuilt.

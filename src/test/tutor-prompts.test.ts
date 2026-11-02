@@ -24,10 +24,14 @@ describe("tutorSystemPrompt guardrails", () => {
     expect(ar).toContain("لا تكشف");
     expect(ar).toContain("تلميح");
     expect(ar).toContain("أجب بالعربية");
+    expect(ar).toContain("عربية فصحى سهلة");
+    expect(ar).toContain("التنوين غير الضروريين");
+    expect(ar).toContain("علامتي النجمتين **");
     const en = tutorSystemPrompt("en");
     expect(en).toContain("Never reveal");
     expect(en).toContain("hint");
     expect(en).toContain("Answer in English");
+    expect(en).toContain("without Markdown bold or **");
   });
 });
 

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
+import { uploadKind } from "@/lib/uploads";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -16,11 +17,7 @@ import { matchPaperPages } from "@/server/paper-matching";
 import { countUncertainSpans, parseUncertainSpans } from "@/lib/uncertain-text";
 import { groupSimilarAnswers } from "@/lib/similar-answers";
 import { matchProgress, nextUngradedMatch, pendingMatchItems } from "@/lib/paper-match";
-import {
-  logAiTrainingExample,
-  suggestGrade,
-  type AiGradeSuggestion as ServerSuggestion,
-} from "@/server/ai-grade";
+import { suggestGrade, type AiGradeSuggestion as ServerSuggestion } from "@/server/ai-grade";
 
 // Route file convention (same as assessments.generate.tsx): this file
 // maps to /handwritten. routeTree.gen.ts is auto-generated — do not edit
@@ -100,7 +97,7 @@ type HwRow = {
 export const Route = createFileRoute("/_authenticated/handwritten")({
   head: () => ({
     meta: [
-      { title: "Handwritten grading · Qemmini" },
+      { title: "Handwritten grading · Qayyimni" },
       {
         name: "description",
         content:
@@ -149,6 +146,109 @@ async function compressImage(file: File): Promise<{ dataUrl: string; blob: Blob 
   }
 }
 
+/** Max pages expanded from one uploaded PDF/Word file. */
+const MAX_FILE_PAGES = 10;
+
+/** Render extracted Word text onto white A4-ratio JPEG pages so the same
+ * image/OCR/storage pipeline (and its audit trail) handles .docx files. */
+function textToPageFiles(text: string, baseName: string): File[] {
+  const W = 1240;
+  const H = 1754;
+  const MARGIN = 72;
+  const LINE_H = 40;
+  const FONT = "28px system-ui, sans-serif";
+  const maxCharsPerLine = 55;
+  const isAr = /[\u0600-\u06FF]/.test(text);
+  // Greedy word wrap by character budget (canvas measureText is exact but
+  // per-word measuring is slower; a fixed budget is sufficient for a
+  // readable rendering of typed answers).
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    const next = cur ? cur + " " + w : w;
+    if (next.length > maxCharsPerLine && cur) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = next;
+    }
+  }
+  if (cur) lines.push(cur);
+  const linesPerPage = Math.floor((H - 2 * MARGIN) / LINE_H);
+  const pages: File[] = [];
+  const pageCount = Math.min(Math.ceil(lines.length / linesPerPage) || 1, MAX_FILE_PAGES);
+  for (let p = 0; p < pageCount; p++) {
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas unavailable");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#111111";
+    ctx.font = FONT;
+    ctx.direction = isAr ? "rtl" : "ltr";
+    ctx.textAlign = isAr ? "right" : "left";
+    const x = isAr ? W - MARGIN : MARGIN;
+    const pageLines = lines.slice(p * linesPerPage, (p + 1) * linesPerPage);
+    pageLines.forEach((line, i) => ctx.fillText(line, x, MARGIN + i * LINE_H + LINE_H / 2));
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    const byteString = atob(dataUrl.split(",")[1] ?? "");
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+    pages.push(new File([bytes], `${baseName}-p${p + 1}.jpg`, { type: "image/jpeg" }));
+  }
+  return pages;
+}
+
+/**
+ * Expand an uploaded file into image page Files for the grading pipeline:
+ * - image/* stays as-is;
+ * - PDF pages are rendered to JPEGs via pdfjs-dist (already a dependency);
+ * - .docx text is extracted via mammoth (already a dependency) and rendered
+ *   onto white pages.
+ * Returns [] for unsupported types so the caller can show the error toast.
+ */
+async function fileToPageFiles(file: File): Promise<File[]> {
+  const kind = uploadKind(file);
+  if (kind === "image") return [file];
+  if (kind === "pdf") {
+    const pdfjs = await import("pdfjs-dist");
+    const { default: workerUrl } = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+    pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    const pages: File[] = [];
+    const pageCount = Math.min(doc.numPages, MAX_FILE_PAGES);
+    for (let p = 1; p <= pageCount; p++) {
+      const page = await doc.getPage(p);
+      const viewport = page.getViewport({ scale: 2 });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvas, viewport }).promise;
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.9),
+      );
+      if (!blob) throw new Error("canvas toBlob failed");
+      pages.push(new File([blob], `${file.name}-p${p}.jpg`, { type: "image/jpeg" }));
+    }
+    return pages;
+  }
+  if (kind === "docx") {
+    const mammoth = await import("mammoth");
+    const { value } = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    const text = value.trim();
+    if (!text) return [];
+    return textToPageFiles(text, file.name);
+  }
+  return [];
+}
+
 function ocrErrorKey(code: string): string {
   if (code === "VISION_NOT_CONFIGURED") return "hwOcrNotConfigured";
   if (code === "VISION_UNSUPPORTED") return "hwVisionUnsupported";
@@ -184,6 +284,10 @@ function Handwritten() {
   /** Optional teacher note attached to the saved grade (not the score). */
   const [teacherFeedback, setTeacherFeedback] = useState("");
   const [visionConfigured, setVisionConfigured] = useState<boolean | null>(null);
+  // Persistent OCR error: toasts auto-dismiss, so a failed extraction
+  // used to leave no trace. This panel stays until the next extraction
+  // attempt or a new photo, and keeps the raw code plus server detail.
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const [busyOcr, setBusyOcr] = useState(false);
   const [busySuggest, setBusySuggest] = useState(false);
   const [busySave, setBusySave] = useState(false);
@@ -313,18 +417,121 @@ function Handwritten() {
     return path;
   }
 
+  async function splitImageDataUrl(dataUrl: string): Promise<string[]> {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("image load failed"));
+      el.src = dataUrl;
+    });
+    const half = async (y0: number, y1: number): Promise<string> => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = Math.max(1, Math.round((y1 - y0) * img.height));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("canvas unavailable");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(
+        img,
+        0,
+        y0 * img.height,
+        img.width,
+        (y1 - y0) * img.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/jpeg", 0.85),
+      );
+      if (!blob) throw new Error("canvas toBlob failed");
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.readAsDataURL(blob);
+      });
+    };
+    // Four overlapping quarters: halves proved insufficient live
+    // (dense Arabic page still exceeded the provider budget).
+    return [await half(0, 0.3), await half(0.25, 0.55), await half(0.5, 0.8), await half(0.75, 1)];
+  }
+
+  function joinSplitTexts(a: string, b: string): string {
+    const aLines = a.split("\n");
+    const bLines = b.split("\n");
+    const norm = (s: string) => s.trim().replace(/\s+/g, " ");
+    const max = Math.min(aLines.length, bLines.length, 10);
+    let overlap = 0;
+    for (let k = max; k > 0; k--) {
+      const aTail = aLines.slice(-k).map(norm);
+      const bHead = bLines.slice(0, k).map(norm);
+      if (aTail.every((line, i) => line !== "" && line === bHead[i])) {
+        overlap = k;
+        break;
+      }
+    }
+    return [...aLines, ...bLines.slice(overlap)].join("\n");
+  }
+
+  // A transcription of only dots/whitespace is a degenerate model
+  // output, not text. Treat it as a failure so the split fallback
+  // runs instead of ending silently with an empty box.
+  function isUselessText(t: string): boolean {
+    return t.replace(/[\s.]+/g, "") === "";
+  }
+
+  async function trySplitOcr(
+    dataUrl: string,
+    accessToken: string,
+    assessmentId: string | undefined,
+  ): Promise<{ text: string; model: string } | null> {
+    try {
+      const quarters = await splitImageDataUrl(dataUrl);
+      // Sequential on purpose: parallel quarter calls timed out on
+      // this path live 2026-10-29, while sequential quarters
+      // succeeded on the generate path the same evening.
+      let model = "";
+      const texts: string[] = [];
+      for (const imageDataUrl of quarters) {
+        const r = await ocrHandwrittenImage({ data: { imageDataUrl, accessToken, assessmentId } });
+        if (!r.ok) return null;
+        if (!model) model = r.model;
+        texts.push(r.text);
+      }
+      return { text: texts.reduce((acc, t) => joinSplitTexts(acc, t)), model };
+    } catch {
+      return null;
+    }
+  }
+
   async function onFileChange(file: File | undefined) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error(t("hwNeedImage"));
-      return;
-    }
-    if (file.size > 8 * 1024 * 1024) {
+    if (file.size > 20 * 1024 * 1024) {
       toast.error(t("hwOcrFailed"));
       return;
     }
     try {
-      const { dataUrl, blob } = await compressImage(file);
+      const pages = await fileToPageFiles(file);
+      if (pages.length === 0) {
+        toast.error(t("hwNeedImage"));
+        return;
+      }
+      // The single-paper panel grades exactly one page. Reject multi-page
+      // files so no answers are silently dropped; the match panel above
+      // handles multi-page papers page by page.
+      if (pages.length > 1) {
+        toast.error(t("hwSinglePageOnly"));
+        return;
+      }
+      const page = pages[0];
+      if (!page) {
+        toast.error(t("hwNeedImage"));
+        return;
+      }
+      const { dataUrl, blob } = await compressImage(page);
       setImageDataUrl(dataUrl);
       setImageName(file.name);
       setPaperBlob(blob);
@@ -334,6 +541,7 @@ function Handwritten() {
       setCorrectedText("");
       setOcrModel("");
       setSuggestion(null);
+      setOcrError(null);
       // PLATFORM RULE: every uploaded photo is persisted server-side.
       // The paper is uploaded immediately on select, not only on save.
       setUploadingImage(true);
@@ -375,39 +583,51 @@ function Handwritten() {
     const picked = files.slice(0, room);
     if (files.length > room) toast.error(t("hwMatchTooMany"));
     for (const file of picked) {
-      if (!file.type.startsWith("image/") || file.size > 8 * 1024 * 1024) {
+      if (file.size > 20 * 1024 * 1024) {
         toast.error(t("hwNeedImage"));
         continue;
       }
+      let pageFiles: File[];
       try {
-        const { dataUrl, blob } = await compressImage(file);
-        const id = `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-        setMatchItems((prev) => [
-          ...prev,
-          {
-            id,
-            dataUrl,
-            blob,
-            imagePath: "",
-            fileName: file.name,
-            text: "",
-            questionId: null,
-            confidence: "none",
-            method: "none",
-            model: "",
-            studentName: "",
-            graded: false,
-          },
-        ]);
-        // PLATFORM RULE: the page is persisted server-side on select.
-        const path = await uploadPaper(blob);
-        if (!path) {
-          toast.error(t("hwImageUploadFailed"));
-          continue;
-        }
-        updateMatchItem(id, { imagePath: path });
+        pageFiles = await fileToPageFiles(file);
       } catch {
-        toast.error(t("hwOcrFailed"));
+        pageFiles = [];
+      }
+      if (pageFiles.length === 0) {
+        toast.error(t("hwNeedImage"));
+        continue;
+      }
+      for (const pageFile of pageFiles.slice(0, room)) {
+        try {
+          const { dataUrl, blob } = await compressImage(pageFile);
+          const id = `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+          setMatchItems((prev) => [
+            ...prev,
+            {
+              id,
+              dataUrl,
+              blob,
+              imagePath: "",
+              fileName: pageFile.name,
+              text: "",
+              questionId: null,
+              confidence: "none",
+              method: "none",
+              model: "",
+              studentName: "",
+              graded: false,
+            },
+          ]);
+          // PLATFORM RULE: the page is persisted server-side on select.
+          const path = await uploadPaper(blob);
+          if (!path) {
+            toast.error(t("hwImageUploadFailed"));
+            continue;
+          }
+          updateMatchItem(id, { imagePath: path });
+        } catch {
+          toast.error(t("hwOcrFailed"));
+        }
       }
     }
   }
@@ -495,6 +715,7 @@ function Handwritten() {
 
   /** Prefill the single-grade form from a matched page (same save path). */
   function applyMatchItem(item: MatchItem) {
+    setOcrError(null);
     if (item.questionId) setQuestionId(item.questionId);
     setImageDataUrl(item.dataUrl);
     setImageName(item.fileName);
@@ -514,21 +735,61 @@ function Handwritten() {
       return;
     }
     setBusyOcr(true);
+    setOcrError(null);
     try {
       const accessToken = await getAccessToken();
       const result = await ocrHandwrittenImage({
         data: { imageDataUrl, accessToken, assessmentId: assessmentId || undefined },
       });
-      if (!result.ok) {
-        if (result.code === "VISION_NOT_CONFIGURED") setVisionConfigured(false);
-        toast.error(t(ocrErrorKey(result.code) as never));
-        return;
+      const useless = result.ok && isUselessText(result.text);
+      const shouldSplit =
+        useless ||
+        (!result.ok && (result.message.includes("408") || result.code === "VISION_TIMEOUT"));
+      if (result.ok && !useless) {
+        setExtractedText(result.text);
+        setCorrectedText(result.text);
+        setOcrModel(result.model);
+        setSuggestion(null);
+      } else {
+        // Fallback: the provider enforces a ~120s per-call budget
+        // that a dense page's transcription exceeds (HTTP 408, code
+        // 3046 — unchangeable from the client), so transcribe
+        // overlapping quarters (each ~a third of the output) and
+        // join them. It also runs when the single call returns an
+        // ok-but-useless result, which used to end silently with
+        // an empty box and no error. Normal pages never take this
+        // path.
+        let recovered = false;
+        if (shouldSplit) {
+          const split = await trySplitOcr(imageDataUrl, accessToken, assessmentId || undefined);
+          if (split && !isUselessText(split.text)) {
+            setExtractedText(split.text);
+            setCorrectedText(split.text);
+            setOcrModel(split.model);
+            setSuggestion(null);
+            recovered = true;
+          }
+        }
+        if (!recovered) {
+          if (!result.ok && result.code === "VISION_NOT_CONFIGURED") setVisionConfigured(false);
+          // Persistent panel: toasts auto-dismiss, so a failed extraction
+          // used to leave no trace. Keep the mapped message plus the raw
+          // code and server detail for diagnosis. An ok-but-useless
+          // result has no error code, so it gets the generic failure
+          // message instead of silence.
+          if (result.ok) {
+            setOcrError(t("hwOcrFailed"));
+            toast.error(t("hwOcrFailed"));
+          } else {
+            setOcrError(
+              `${t(ocrErrorKey(result.code) as never)} [${result.code}] ${result.message}`,
+            );
+            toast.error(t(ocrErrorKey(result.code) as never));
+          }
+        }
       }
-      setExtractedText(result.text);
-      setCorrectedText(result.text);
-      setOcrModel(result.model);
-      setSuggestion(null);
     } catch (err) {
+      setOcrError(translateError(err, lang));
       toast.error(translateError(err, lang));
     } finally {
       setBusyOcr(false);
@@ -583,6 +844,7 @@ function Handwritten() {
   }
 
   async function save() {
+    if (!me) return;
     if (!questionPrompt.trim() || !correctedText.trim()) {
       toast.error(t("hwNeedText"));
       return;
@@ -616,29 +878,6 @@ function Handwritten() {
       };
       const { error } = await supabase.from("handwritten_grades").insert(row);
       if (error) throw error;
-      // Best-effort anonymized training log: every saved AI grade is
-      // logged with suggestion == final (by design). The student name
-      // is deliberately NOT sent.
-      if (suggestion) {
-        try {
-          await logAiTrainingExample({
-            data: {
-              questionPrompt: questionPrompt.trim(),
-              rubric,
-              studentAnswer: correctedText.trim(),
-              aiSuggestedScore: suggestion.suggestedScore,
-              aiFeedback: suggestion.feedback,
-              teacherFinalScore: suggestion.suggestedScore,
-              teacherFeedback: teacherFeedback.trim(),
-              maxMarks,
-              assessmentId: assessmentId || undefined,
-              accessToken,
-            },
-          });
-        } catch {
-          // Ignored by design: logging must never block grading.
-        }
-      }
       toast.success(t("hwSaved"));
       setImageDataUrl("");
       setImageName("");
@@ -684,6 +923,7 @@ function Handwritten() {
   }
 
   async function removeRow(row: HwRow) {
+    if (!me) return;
     const { error } = await supabase.from("handwritten_grades").delete().eq("id", row.id);
     if (error) {
       toast.error(translateError(error, lang));
@@ -741,6 +981,7 @@ function Handwritten() {
                   setAssessmentId(e.target.value);
                   setQuestionId("");
                   setSuggestion(null);
+                  setOcrError(null);
                 }}
               >
                 <option value="">{t("hwAdHoc")}</option>
@@ -761,6 +1002,7 @@ function Handwritten() {
                   onChange={(e) => {
                     setQuestionId(e.target.value);
                     setSuggestion(null);
+                    setOcrError(null);
                   }}
                 >
                   <option value="">—</option>
@@ -829,7 +1071,7 @@ function Handwritten() {
               <Label>{t("hwMatchTitle")}</Label>
               <Input
                 type="file"
-                accept="image/*"
+                accept="image/*,application/pdf,.docx"
                 multiple
                 onChange={(e) => {
                   const fs = [...(e.target.files ?? [])];
@@ -953,7 +1195,7 @@ function Handwritten() {
             <Input
               id="hw-file"
               type="file"
-              accept="image/*"
+              accept="image/*,application/pdf,.docx"
               onChange={(e) => void onFileChange(e.target.files?.[0])}
             />
             <p className="text-xs text-muted-foreground">{t("hwUploadHint")}</p>
@@ -980,6 +1222,11 @@ function Handwritten() {
             </div>
           )}
           <p className="rounded-md bg-warning/20 p-3 text-sm">{t("hwOcrNote")}</p>
+          {ocrError ? (
+            <p role="alert" className="rounded-md bg-destructive/15 p-3 text-sm">
+              {ocrError}
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={runOcr}

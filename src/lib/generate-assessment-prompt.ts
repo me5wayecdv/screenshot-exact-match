@@ -14,6 +14,8 @@
 // reviews/edits it in the existing builder route before publishing.
 // Nothing here ever publishes.
 
+import { cleanAiOutputText } from "./ai-output";
+
 export type GenerateQuestionType = "mcq" | "true_false" | "short_answer" | "written";
 
 export const GENERATE_QUESTION_TYPES: GenerateQuestionType[] = [
@@ -123,7 +125,9 @@ export function buildGeneratePrompt(input: GeneratePromptInput): string {
       : `مستوى صعوبة كل الأسئلة: ${input.difficulty === "easy" ? "سهل" : input.difficulty === "hard" ? "صعب" : "متوسط"} (اذكر القيمة نفسها في حقل difficulty لكل سؤال).`;
   return [
     "أنت معلم خبير يصيغ اختبارات من نصوص المناهج. أجب بصيغة JSON فقط، بدون أي نص خارج JSON وبدون أسوار كود (code fences).",
-    "اكتب الأسئلة بنفس لغة النص المصدر. استخدم النص المصدر فقط: لا تخترع حقائق أو أسئلة عن معلومات غير موجودة فيه.",
+    "اكتب الأسئلة بنفس لغة النص المصدر. إذا كان عربياً فاستخدم عربية فصحى سهلة وواضحة، وإذا كان إنجليزياً فاستخدم إنجليزية بسيطة وواضحة. لا تخلط اللغتين إلا لمصطلح ضروري تشرحه.",
+    "تجنب التشكيل والتنوين غير الضروريين في العربية. لا تستخدم Markdown أو علامتي النجمتين ** داخل قيم JSON.",
+    "استخدم النص المصدر فقط: لا تخترع حقائق أو أسئلة عن معلومات غير موجودة فيه.",
     `${subjectLine}${gradeLine}أنشئ اختباراً بالمواصفات التالية:`,
     countLines,
     difficultyLine,
@@ -173,7 +177,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function cleanStr(v: unknown, max: number): string {
-  return typeof v === "string" ? v.trim().slice(0, max) : "";
+  return typeof v === "string" ? cleanAiOutputText(v).slice(0, max) : "";
 }
 
 function cleanStrArray(v: unknown, maxItem: number, maxCount: number): string[] {
@@ -181,7 +185,7 @@ function cleanStrArray(v: unknown, maxItem: number, maxCount: number): string[] 
   const out: string[] = [];
   for (const item of v) {
     if (typeof item !== "string") continue;
-    const s = item.trim();
+    const s = cleanAiOutputText(item);
     if (s && !out.includes(s)) out.push(s.slice(0, maxItem));
     if (out.length >= maxCount) break;
   }
@@ -201,24 +205,24 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
   // title (or a neutral one). Only the questions decide if a reply is
   // usable — failing here used to throw away a perfectly good set of
   // questions just because the model skipped the title line.
-  const title = cleanStr(raw.title, 200);
-  if (!Array.isArray(raw.questions)) throw new Error("AI_PARSE_FAILED");
+  const title = cleanStr(raw["title"], 200);
+  if (!Array.isArray(raw["questions"])) throw new Error("AI_PARSE_FAILED");
 
   const questions: GeneratedQuestion[] = [];
-  for (const item of raw.questions) {
+  for (const item of raw["questions"]) {
     if (questions.length >= maxQuestions) break;
     if (!isRecord(item)) continue;
-    if (!isGenerateQuestionType(item.type)) continue;
-    const prompt = cleanStr(item.prompt, 4000);
+    if (!isGenerateQuestionType(item["type"])) continue;
+    const prompt = cleanStr(item["prompt"], 4000);
     if (!prompt) continue;
-    const marks = cleanMarks(item.marks);
-    const objective = cleanStr(item.objective, 300);
-    const explanation = cleanStr(item.explanation, 1000);
-    const type = item.type;
+    const marks = cleanMarks(item["marks"]);
+    const objective = cleanStr(item["objective"], 300);
+    const explanation = cleanStr(item["explanation"], 1000);
+    const type = item["type"];
 
     if (type === "mcq") {
-      const options = cleanStrArray(item.options, 500, 6);
-      const correct = cleanStr(item.correct_answer, 500);
+      const options = cleanStrArray(item["options"], 500, 6);
+      const correct = cleanStr(item["correct_answer"], 500);
       if (options.length < 2 || !correct || !options.includes(correct)) continue;
       questions.push({
         type,
@@ -230,10 +234,10 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     } else if (type === "true_false") {
-      const correct = cleanStr(item.correct_answer, 10);
+      const correct = cleanStr(item["correct_answer"], 10);
       if (correct !== "true" && correct !== "false") continue;
       questions.push({
         type,
@@ -245,27 +249,27 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     } else if (type === "short_answer") {
-      const correct = cleanStr(item.correct_answer, 500);
+      const correct = cleanStr(item["correct_answer"], 500);
       if (!correct) continue;
       questions.push({
         type,
         prompt,
         options: [],
         correct_answer: correct,
-        accepted_alternatives: cleanStrArray(item.accepted_alternatives, 500, 10),
+        accepted_alternatives: cleanStrArray(item["accepted_alternatives"], 500, 10),
         rubric: "",
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     } else {
       // written: the rubric is the key; a written question without one is
       // unusable for grading, so drop it rather than saving a blank rubric.
-      const rubric = cleanStr(item.rubric, 4000);
+      const rubric = cleanStr(item["rubric"], 4000);
       if (!rubric) continue;
       questions.push({
         type,
@@ -277,7 +281,7 @@ export function parseGeneratedDraft(raw: unknown, maxQuestions: number): Generat
         explanation,
         marks,
         objective,
-        difficulty: cleanDifficulty(item.difficulty),
+        difficulty: cleanDifficulty(item["difficulty"]),
       });
     }
   }
@@ -335,29 +339,156 @@ export function repairTruncatedJson(text: string): string | null {
 }
 
 /**
+ * Syntax-only JSON rescue for model replies. NEVER invents, reorders or
+ * rewrites values:
+ * (a) literal control characters inside string literals are escaped —
+ *     PDF-extracted lesson text carries form feeds and other C0 controls
+ *     (pdfjs text items are joined verbatim), and the model echoes source
+ *     fragments with those bytes raw, which is invalid JSON;
+ * Everything runs INSIDE string literals only, and only escapes that
+ * encode the SAME string value are applied (lossless JSON transport).
+ * Ambiguous defects — invalid backslash escapes, mangled quotes — are
+ * left alone so the reply fails cleanly instead of guessing an answer
+ * key. Every question still passes the strict parseGeneratedDraft
+ * validation afterwards, so nothing corrupt is repaired into place.
+ */
+export function sanitizeModelJson(text: string): string {
+  let out = "";
+  let inString = false;
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i]!;
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inString = false;
+      out += ch;
+      i++;
+      continue;
+    }
+    if (ch === "\\") {
+      // Valid escapes pass through untouched. An INVALID escape makes the
+      // model's intended string ambiguous (is "\t" a tab or a literal
+      // "	"?), so it is left as-is and JSON.parse stays the judge: the
+      // reply fails cleanly rather than accepting a guessed answer key.
+      const next = text[i + 1];
+      if (next !== undefined && '\\"/bfnrtu'.includes(next)) {
+        out += ch + next;
+        i += 2;
+        continue;
+      }
+      out += ch;
+      i++;
+      continue;
+    }
+    const code = ch.charCodeAt(0);
+    if (code < 0x20) {
+      switch (code) {
+        case 0x08:
+          out += "\\b";
+          break;
+        case 0x09:
+          out += "\\t";
+          break;
+        case 0x0a:
+          out += "\\n";
+          break;
+        case 0x0c:
+          out += "\\f";
+          break;
+        case 0x0d:
+          out += "\\r";
+          break;
+        default:
+          out += "\\u" + code.toString(16).padStart(4, "0");
+      }
+      i++;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Remove commas that sit directly before a closing ] or } OUTSIDE string
+ * literals — a frequent model slip. Structural only: no value is touched.
+ */
+export function dropTrailingCommas(text: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inString) {
+      out += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < text.length && /\s/.test(text[j]!)) j++;
+      if (text[j] === "}" || text[j] === "]") continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/** First V8 "position N" from a JSON.parse error message, or "". */
+function parseErrorPosition(error: unknown): string {
+  const m = error instanceof Error ? /position (\d+)/.exec(error.message) : null;
+  return m?.[1] ?? "";
+}
+
+/**
  * Extract the JSON object from a model reply. Tolerates ```json fences and
- * leading prose, and repairs a reply truncated at the provider's output cap
- * instead of failing the whole generation.
+ * leading prose, rescues syntax-only defects (control characters in strings,
+ * trailing commas) and repairs a reply
+ * truncated at the provider's output cap instead of failing the whole
+ * generation. The thrown error carries the first parse offset (a NUMBER
+ * only — never reply content) for bounded diagnostics.
  */
 export function extractJsonObject(text: string): unknown {
   const start = text.indexOf("{");
   if (start === -1) throw new Error("AI_PARSE_FAILED");
   const body = text.slice(start);
   const end = body.lastIndexOf("}");
-  if (end > 0) {
-    try {
-      return JSON.parse(body.slice(0, end + 1));
-    } catch {
-      // fall through to the truncated-reply repair below
-    }
-  }
+  const candidates: string[] = [];
+  if (end > 0) candidates.push(body.slice(0, end + 1));
   const repaired = repairTruncatedJson(body);
-  if (repaired) {
+  if (repaired) candidates.push(repaired);
+  // Always attempt the raw body too: even a doomed parse can yield the
+  // first error offset (numeric diagnostics only, never content).
+  if (candidates.length === 0) candidates.push(body);
+
+  let firstPos = "";
+  for (const candidate of candidates) {
     try {
-      return JSON.parse(repaired);
-    } catch {
-      // fall through: genuinely unparseable
+      return JSON.parse(candidate);
+    } catch (e) {
+      if (!firstPos) firstPos = parseErrorPosition(e);
+    }
+    const rescued = dropTrailingCommas(sanitizeModelJson(candidate));
+    if (rescued !== candidate) {
+      try {
+        return JSON.parse(rescued);
+      } catch {
+        // next candidate
+      }
     }
   }
-  throw new Error("AI_PARSE_FAILED");
+  throw new Error(`AI_PARSE_FAILED${firstPos ? ` at position ${firstPos}` : ""}`);
 }

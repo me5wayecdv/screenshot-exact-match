@@ -36,7 +36,7 @@ type ChatMsg = { role: "user" | "assistant"; content: string };
 export const Route = createFileRoute("/_authenticated/tutor")({
   head: () => ({
     meta: [
-      { title: "Smart tutor · Qemmini" },
+      { title: "Smart tutor · Qayyimni" },
       {
         name: "description",
         content: "Step-by-step explanations, hints and personal review plans.",

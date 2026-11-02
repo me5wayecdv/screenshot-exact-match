@@ -36,7 +36,7 @@ type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
 export const Route = createFileRoute("/_authenticated/assessments/take/$id")({
   head: () => ({
     meta: [
-      { title: "Take assessment · Qemmini" },
+      { title: "Take assessment · Qayyimni" },
       { name: "description", content: "Answer a published assessment assigned to you." },
     ],
   }),
@@ -81,6 +81,23 @@ function useTakeData(id: string, studentId: string | undefined) {
         if (ans.error) throw ans.error;
         for (const row of (ans.data ?? []) as AnswerRow[]) {
           (answersBySubmission[row.submission_id] ??= []).push(row);
+        }
+      }
+      // Pre-release, RLS hides submitted answer rows (scores and feedback
+      // stay teacher-only until release). The student's OWN response text
+      // is not secret from them, so fetch it through the security-definer
+      // function and merge it in for the history view only.
+      const latestSub = submissions[submissions.length - 1];
+      if (latestSub && latestSub.status !== "in_progress" && latestSub.status !== "released") {
+        const own = await supabase.rpc("own_submission_responses", {
+          _submission: latestSub.id,
+        });
+        if (!own.error && own.data) {
+          const rows = (answersBySubmission[latestSub.id] ??= []);
+          for (const r of own.data as { question_id: string; response: string | null }[]) {
+            if (!rows.some((x) => x.question_id === r.question_id))
+              rows.push({ question_id: r.question_id, response: r.response } as AnswerRow);
+          }
         }
       }
       return {
@@ -373,7 +390,9 @@ function Take() {
             </span>
           }
         />
-        <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">{t("takeLocked")}</p>
+        {latestSubmitted.status !== "released" && (
+          <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">{t("takeLocked")}</p>
+        )}
         <div className="space-y-6">
           {questions.map((q, i) => (
             <Panel key={q.id} className="space-y-3">

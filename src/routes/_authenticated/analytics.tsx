@@ -8,18 +8,18 @@ import { useI18n, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
+import { DataPager } from "@/components/data-pager";
 import { Label } from "@/components/ui/label";
 import {
-  computeAssessmentStats,
-  computeGroupStats,
   computeObjectiveStats,
-  computeQuestionStats,
-  computeStudentStats,
   formatPct,
   mostMissed,
   reteachTopics,
   toCsv,
-  type SubmissionInput,
+  type AssessmentStat,
+  type GroupStat,
+  type QuestionStat,
+  type StudentStat,
 } from "@/lib/analytics";
 
 // Phase 4 — analytics page. Read-only over existing tables, plus ONE
@@ -37,7 +37,7 @@ type Q = Database["public"]["Tables"]["questions"]["Row"];
 export const Route = createFileRoute("/_authenticated/analytics")({
   head: () => ({
     meta: [
-      { title: "Analytics · Qemmini" },
+      { title: "Analytics · Qayyimni" },
       {
         name: "description",
         content: "Strengths, weaknesses, most-missed questions and comparisons.",
@@ -66,114 +66,125 @@ function Analytics() {
   const isTeacher = role === "school_teacher" || role === "tutor" || role === "teacher";
 
   const [selectedId, setSelectedId] = useState("");
+  const [assessmentPage, setAssessmentPage] = useState(0);
+  const [studentPage, setStudentPage] = useState(0);
+  const [groupPage, setGroupPage] = useState(0);
   const [practiceBusy, setPracticeBusy] = useState(false);
+  const [studentExportBusy, setStudentExportBusy] = useState(false);
 
   const assessmentsQuery = useQuery({
-    queryKey: ["an-assessments", me?.id],
+    queryKey: ["an-assessments", me?.id, assessmentPage],
     enabled: !!me?.id && isTeacher,
     queryFn: async () => {
+      const pageSize = 100;
       const { data, error } = await supabase
         .from("assessments")
         .select("id, title, subject_id, grade_level, status, created_at")
         .eq("teacher_id", me!.id)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(assessmentPage * pageSize, assessmentPage * pageSize + pageSize);
       if (error) throw error;
-      return data ?? [];
+      const rows = data ?? [];
+      return { assessments: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
     },
   });
 
   const subjectsQuery = useQuery({
     queryKey: ["an-subjects"],
     enabled: isTeacher,
-    queryFn: async () =>
-      (await supabase.from("subjects").select("id, name").order("name")).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("subjects")
+        .select("id, name")
+        .order("name")
+        .limit(200);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
-  const assessments = useMemo(() => assessmentsQuery.data ?? [], [assessmentsQuery.data]);
+  const assessments = useMemo(
+    () => assessmentsQuery.data?.assessments ?? [],
+    [assessmentsQuery.data?.assessments],
+  );
   const subjects = subjectsQuery.data ?? [];
   const subjectNames = Object.fromEntries(subjects.map((s) => [s.id, s.name]));
 
   useEffect(() => {
-    if (!selectedId && assessments.length > 0) {
+    if (assessments.length > 0 && !assessments.some((assessment) => assessment.id === selectedId)) {
       setSelectedId(assessments[0]!.id);
+      setStudentPage(0);
     }
   }, [selectedId, assessments]);
 
   const selected = assessments.find((a) => a.id === selectedId) ?? null;
 
   const detailQuery = useQuery({
-    queryKey: ["an-detail", selectedId],
+    queryKey: ["an-detail", selectedId, studentPage, groupPage],
     enabled: !!selectedId,
     queryFn: async () => {
-      const { data: questions, error: qErr } = await supabase
-        .from("questions")
-        .select("id, position, type, prompt, marks, objective, difficulty, options")
-        .eq("assessment_id", selectedId)
-        .order("position");
-      if (qErr) throw qErr;
-      const { data: submissions, error: sErr } = await supabase
-        .from("submissions")
-        .select("id, student_id, status, final_score, total_possible")
-        .eq("assessment_id", selectedId);
-      if (sErr) throw sErr;
-      const submissionIds = (submissions ?? []).map((s) => s.id);
-      let answers: {
-        question_id: string;
-        auto_score: number | null;
-        final_score: number | null;
-      }[] = [];
-      if (submissionIds.length > 0) {
-        const { data: aData, error: aErr } = await supabase
-          .from("answers")
-          .select("question_id, auto_score, final_score")
-          .in("submission_id", submissionIds);
-        if (aErr) throw aErr;
-        answers = aData ?? [];
-      }
-      const studentIds = [...new Set((submissions ?? []).map((s) => s.student_id))];
-      let names: Record<string, string> = {};
-      if (studentIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("id, full_name")
-          .in("id", studentIds);
-        names = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.full_name || "—"]));
-      }
+      const [questionsResult, questionStatsResult, studentsResult, groupsResult] =
+        await Promise.all([
+          supabase
+            .from("questions")
+            .select("id, position, type, prompt, marks, objective, difficulty, options")
+            .eq("assessment_id", selectedId)
+            .order("position")
+            .limit(200),
+          supabase.rpc("teacher_analytics_question_stats", { _assessment: selectedId }),
+          supabase.rpc("teacher_analytics_student_page", {
+            _assessment: selectedId,
+            _offset: studentPage * 50,
+            _limit: 51,
+          }),
+          supabase.rpc("teacher_analytics_group_stats", {
+            _assessment: selectedId,
+            _offset: groupPage * 50,
+            _limit: 51,
+          }),
+        ]);
+      if (questionsResult.error) throw questionsResult.error;
+      if (questionStatsResult.error) throw questionStatsResult.error;
+      if (studentsResult.error) throw studentsResult.error;
+      if (groupsResult.error) throw groupsResult.error;
+      const questions = (questionsResult.data ?? []) as Q[];
+      const aggregates = new Map(
+        (questionStatsResult.data ?? []).map((row) => [row.question_id, row]),
+      );
+      const questionStats: QuestionStat[] = questions.map((q) => {
+        const stats = aggregates.get(q.id);
+        return {
+          questionId: q.id,
+          prompt: q.prompt,
+          type: q.type,
+          objective: q.objective ?? "",
+          difficulty: q.difficulty ?? "medium",
+          marks: Number(q.marks),
+          answered: stats?.answered ?? 0,
+          graded: stats?.graded ?? 0,
+          avgPct: stats?.avg_pct ?? null,
+          fullCreditPct: stats?.full_credit_pct ?? null,
+        };
+      });
+      const studentRows = studentsResult.data ?? [];
       return {
-        questions: (questions ?? []) as Q[],
-        submissions: (submissions ?? []) as SubmissionInput[],
-        answers,
-        names,
+        questions,
+        questionStats,
+        students: studentRows.slice(0, 50).map((row): StudentStat => ({
+          studentId: row.student_id,
+          name: row.full_name || "—",
+          released: row.released,
+          avgPct: row.avg_pct,
+        })),
+        hasMoreStudents: studentRows.length > 50,
+        groups: (groupsResult.data ?? []).slice(0, 50).map((row): GroupStat => ({
+          groupId: row.group_id,
+          name: row.name,
+          students: row.students,
+          avgPct: row.avg_pct,
+        })),
+        hasMoreGroups: (groupsResult.data ?? []).length > 50,
       };
-    },
-  });
-
-  const groupsQuery = useQuery({
-    queryKey: ["an-groups", me?.id, role],
-    enabled: !!me?.id && isTeacher,
-    queryFn: async () => {
-      // Groups are the teacher's lessons (tutor track).
-      const { data: lessons } = await supabase
-        .from("lessons")
-        .select("id, title")
-        .eq("tutor_id", me!.id);
-      if ((lessons ?? []).length === 0) return [];
-      const ids = lessons!.map((l) => l.id);
-      const { data: enrollments } = await supabase
-        .from("lesson_enrollments")
-        .select("lesson_id, student_id")
-        .in("lesson_id", ids);
-      const byLesson = new Map<string, string[]>();
-      for (const m of enrollments ?? []) {
-        const list = byLesson.get(m.lesson_id) ?? [];
-        list.push(m.student_id);
-        byLesson.set(m.lesson_id, list);
-      }
-      return lessons!.map((l) => ({
-        id: l.id,
-        name: l.title,
-        studentIds: byLesson.get(l.id) ?? [],
-      }));
     },
   });
 
@@ -181,25 +192,11 @@ function Analytics() {
     queryKey: ["an-overview", me?.id, assessments.map((a) => a.id).join(",")],
     enabled: assessments.length > 0,
     queryFn: async () => {
-      const ids = assessments.map((a) => a.id);
-      const { data, error } = await supabase
-        .from("submissions")
-        .select("assessment_id, student_id, status, final_score, total_possible")
-        .in("assessment_id", ids);
+      const { data, error } = await supabase.rpc("teacher_analytics_overview", {
+        _assessment_ids: assessments.map((assessment) => assessment.id),
+      });
       if (error) throw error;
-      const byAssessment: Record<string, SubmissionInput[]> = {};
-      for (const row of data ?? []) {
-        const list = byAssessment[row.assessment_id] ?? [];
-        list.push({
-          id: "",
-          student_id: row.student_id,
-          status: row.status,
-          final_score: row.final_score,
-          total_possible: row.total_possible,
-        });
-        byAssessment[row.assessment_id] = list;
-      }
-      return byAssessment;
+      return data ?? [];
     },
   });
 
@@ -207,19 +204,7 @@ function Analytics() {
   if (!me || !isTeacher) return <Empty>{t("anTeacherOnly")}</Empty>;
 
   const detail = detailQuery.data;
-  const questionStats = detail
-    ? computeQuestionStats(
-        detail.questions.map((q) => ({
-          id: q.id,
-          prompt: q.prompt,
-          type: q.type,
-          marks: Number(q.marks),
-          objective: q.objective ?? "",
-          difficulty: q.difficulty ?? "medium",
-        })),
-        detail.answers,
-      )
-    : [];
+  const questionStats = detail?.questionStats ?? [];
   const objectiveStats = computeObjectiveStats(questionStats);
   const strengths = [...objectiveStats]
     .filter((o) => o.avgPct !== null)
@@ -231,13 +216,22 @@ function Analytics() {
     .slice(0, 3);
   const reteach = reteachTopics(objectiveStats);
   const missed = mostMissed(questionStats, 5);
-  const studentStats = detail ? computeStudentStats(detail.submissions, detail.names) : [];
-  const groupStats = detail ? computeGroupStats(groupsQuery.data ?? [], detail.submissions) : [];
-  const assessmentStats = computeAssessmentStats(
-    assessments.map((a) => ({ id: a.id, title: a.title, subject_id: a.subject_id })),
-    overviewQuery.data ?? {},
-    subjectNames,
+  const studentStats = detail?.students ?? [];
+  const groupStats = detail?.groups ?? [];
+  const summaryByAssessment = new Map(
+    (overviewQuery.data ?? []).map((row) => [row.assessment_id, row]),
   );
+  const assessmentStats: AssessmentStat[] = assessments.map((assessment) => {
+    const summary = summaryByAssessment.get(assessment.id);
+    return {
+      assessmentId: assessment.id,
+      title: assessment.title,
+      subjectName: assessment.subject_id ? (subjectNames[assessment.subject_id] ?? "—") : "—",
+      released: summary?.released ?? 0,
+      avgPct: summary?.avg_pct ?? null,
+    };
+  });
+  const releasedCount = selectedId ? (summaryByAssessment.get(selectedId)?.released ?? 0) : 0;
   const subjectStats = (() => {
     const bySubject = new Map<string, { released: number; avgs: number[]; count: number }>();
     for (const st of assessmentStats) {
@@ -260,17 +254,12 @@ function Analytics() {
     if (b.avgPct === null) return -1;
     return a.avgPct - b.avgPct;
   });
-  const releasedCount = detail
-    ? detail.submissions.filter(
-        (s) => s.status === "released" && s.final_score !== null && Number(s.total_possible) > 0,
-      ).length
-    : 0;
-
   const diffLabel = (d: string) =>
     d === "easy" ? t("genDiffEasy") : d === "hard" ? t("genDiffHard") : t("genDiffMedium");
   const num = (v: number | null) => (v === null ? "" : Math.round(v * 10) / 10);
 
   async function createPractice() {
+    if (!me) return;
     if (!selected || missed.length === 0) {
       toast.error(t("anNoPractice"));
       return;
@@ -333,6 +322,45 @@ function Analytics() {
     }
   }
 
+  async function exportStudents() {
+    if (!selected) return;
+    setStudentExportBusy(true);
+    try {
+      const rows: StudentStat[] = [];
+      let offset = 0;
+      while (true) {
+        const { data, error } = await supabase.rpc("teacher_analytics_student_page", {
+          _assessment: selected.id,
+          _offset: offset,
+          _limit: 51,
+        });
+        if (error) throw error;
+        const pageRows = data ?? [];
+        rows.push(
+          ...pageRows.slice(0, 50).map((row) => ({
+            studentId: row.student_id,
+            name: row.full_name || "—",
+            released: row.released,
+            avgPct: row.avg_pct,
+          })),
+        );
+        if (pageRows.length <= 50) break;
+        offset += 50;
+      }
+      downloadCsv(
+        "qemmini-students.csv",
+        toCsv(
+          rows.map((row) => [row.name, row.released, num(row.avgPct)]),
+          [t("anStudent"), t("anReleased"), t("anAvgPct")],
+        ),
+      );
+    } catch (error) {
+      toast.error(translateError(error, lang));
+    } finally {
+      setStudentExportBusy(false);
+    }
+  }
+
   return (
     <>
       <PageHeader title={t("anTitle")} subtitle={t("anSubtitle")} />
@@ -353,7 +381,11 @@ function Analytics() {
                   id="an-assessment"
                   className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                   value={selectedId}
-                  onChange={(e) => setSelectedId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedId(e.target.value);
+                    setStudentPage(0);
+                    setGroupPage(0);
+                  }}
                 >
                   {assessments.map((a) => (
                     <option key={a.id} value={a.id}>
@@ -404,6 +436,21 @@ function Analytics() {
                   </tbody>
                 </table>
               </div>
+              {assessmentsQuery.data && (assessmentPage > 0 || assessmentsQuery.data.hasNext) ? (
+                <DataPager
+                  page={assessmentPage}
+                  hasPrevious={assessmentPage > 0}
+                  hasNext={assessmentsQuery.data.hasNext}
+                  onPrevious={() => {
+                    setSelectedId("");
+                    setAssessmentPage((current) => Math.max(0, current - 1));
+                  }}
+                  onNext={() => {
+                    setSelectedId("");
+                    setAssessmentPage((current) => current + 1);
+                  }}
+                />
+              ) : null}
             </Panel>
 
             {selected && (
@@ -539,11 +586,20 @@ function Analytics() {
                       </table>
                     </div>
                   )}
+                  {detail && (studentPage > 0 || detail.hasMoreStudents) ? (
+                    <DataPager
+                      page={studentPage}
+                      hasPrevious={studentPage > 0}
+                      hasNext={detail.hasMoreStudents}
+                      onPrevious={() => setStudentPage((current) => Math.max(0, current - 1))}
+                      onNext={() => setStudentPage((current) => current + 1)}
+                    />
+                  ) : null}
                 </Panel>
 
                 <Panel className="space-y-4">
                   <h2 className="font-semibold">{t("anGroups")}</h2>
-                  {groupStats.length === 0 ? (
+                  {groupStats.length === 0 && groupPage === 0 ? (
                     <p className="text-sm text-muted-foreground">{t("anNoGroups")}</p>
                   ) : releasedCount === 0 ? (
                     <p className="text-sm text-muted-foreground">{t("anNoReleased")}</p>
@@ -569,6 +625,15 @@ function Analytics() {
                       </table>
                     </div>
                   )}
+                  {detail && (groupPage > 0 || detail.hasMoreGroups) ? (
+                    <DataPager
+                      page={groupPage}
+                      hasPrevious={groupPage > 0}
+                      hasNext={detail.hasMoreGroups}
+                      onPrevious={() => setGroupPage((current) => Math.max(0, current - 1))}
+                      onNext={() => setGroupPage((current) => current + 1)}
+                    />
+                  ) : null}
                 </Panel>
 
                 <Panel className="space-y-4">
@@ -639,15 +704,8 @@ function Analytics() {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() =>
-                        downloadCsv(
-                          "qemmini-students.csv",
-                          toCsv(
-                            studentStats.map((st) => [st.name, st.released, num(st.avgPct)]),
-                            [t("anStudent"), t("anReleased"), t("anAvgPct")],
-                          ),
-                        )
-                      }
+                      disabled={studentExportBusy}
+                      onClick={() => void exportStudents()}
                     >
                       {t("anExportStudents")}
                     </Button>

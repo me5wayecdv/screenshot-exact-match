@@ -1,4 +1,4 @@
-# Qemmini · قِمّيني
+# Qayyimni · قَيّمني
 
 Arabic-first, RTL assessment and learning platform for teachers and students.
 
@@ -19,19 +19,32 @@ bun run dev
 
 ## Environment variables
 
-| Variable | Where | Purpose |
-| --- | --- | --- |
-| `VITE_SUPABASE_URL` | client / SSR | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | client / SSR | Supabase publishable (anon) key |
-| `SUPABASE_URL` | server | Supabase project URL for server code |
-| `SUPABASE_SERVICE_ROLE_KEY` | server only | Service-role key — never expose to the client |
-| `DATABASE_URL` | Drizzle CLI | Postgres connection string for migrations |
-| `CRON_SECRET` | server | Shared secret for cron endpoints (`CRON_SECRET_PREVIOUS` during rotation) |
+| Variable                    | Where        | Purpose                                                                   |
+| --------------------------- | ------------ | ------------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`         | client / SSR | Supabase project URL                                                      |
+| `VITE_SUPABASE_ANON_KEY`    | client / SSR | Supabase publishable (anon) key                                           |
+| `SUPABASE_URL`              | server       | Supabase project URL for server code                                      |
+| `SUPABASE_SERVICE_ROLE_KEY` | server only  | Service-role key — never expose to the client                             |
+| `DATABASE_URL`              | Drizzle CLI  | Postgres connection string for migrations                                 |
+| `CRON_SECRET`               | server       | Shared secret for cron endpoints (`CRON_SECRET_PREVIOUS` during rotation) |
+| `AI_BASE_URL`               | server       | OpenAI-compatible AI endpoint; optional until AI features are enabled     |
+| `AI_MODEL`                  | server       | Text model used for grading, tutoring, and generation                     |
+| `AI_API_KEY`                | server       | Provider credential; never expose through a `VITE_` variable              |
+| `AI_VISION_MODEL`           | server       | Optional vision model for OCR and paper matching                          |
+| `VISION_PROVIDER`           | server       | Optional vision provider selector; see the AI model runbook               |
+
+AI/provider setup and Cloudflare deployment details are documented in
+[`docs/ai-models.md`](docs/ai-models.md) and
+[`docs/cloudflare-deploy.md`](docs/cloudflare-deploy.md). Before real student
+use, follow [`docs/launch-readiness.md`](docs/launch-readiness.md). Do not copy
+secrets into client-side variables or commit them.
 
 ## Scripts
 
 - `bun run dev` — dev server
-- `bun run build` — production build
+- `bun run typecheck` — strict TypeScript check
+- `bun run build` — typecheck followed by the production build
 - `bun run preview` — preview the production build
 - `bun run test` — test suite (Vitest)
+- `bun run db:rehearse` — apply migrations to a data-free PGlite instance and check selected SQL/RPC invariants; not a full Supabase emulator
 - `bun run lint` / `bun run format` — lint / format

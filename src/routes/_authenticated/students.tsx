@@ -11,7 +11,7 @@ import { ParentContactForm } from "@/components/parent-contact-form";
 export const Route = createFileRoute("/_authenticated/students")({
   head: () => ({
     meta: [
-      { title: "Students · Qemmini" },
+      { title: "Students · Qayyimni" },
       { name: "description", content: "Manage your students." },
     ],
   }),
