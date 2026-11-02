@@ -1,36 +1,33 @@
 # Security review — source evidence and rollout status
 
-**Status: PARTIALLY VERIFIED (source only).** This document records static
-inspection of repository code and SQL. No tests, build, disposable-database
-migration rehearsal, live Supabase query, or deployment was performed in this
-session. Do not treat the described policies or fixes as active in a hosted
-database until its migration history and grants have been verified.
+**Status: PARTIALLY VERIFIED (source, CI, local PGlite, read-only hosted metadata).**
+The CI workflow passed typecheck, tests, lint, and build on PR #16. A local,
+data-free PGlite rehearsal applied the Drizzle baseline and all repository
+migrations, then passed synthetic signup and grading-RPC checks. PGlite is not
+Supabase: it does not validate hosted Auth/Storage behavior, actual RLS request
+contexts, or the target project's migration runner.
 
-The repository contains a Drizzle baseline at
-`drizzle/migrations/0000_migration.sql` followed by timestamped SQL under
-`supabase/migrations/`; the deployment history and schema equivalence have
-not been verified against a database. Apply nothing as part of this review.
-The current source migration sequence includes school-removal,
-security/scale, audience, own-response, and later grading changes. Enumerate the
-full sequence from the checked-out release; repository files do not prove that
-any hosted database has applied it.
-`20261031120000_backend_security_and_scale.sql` was corrected to remove
-references to dropped school objects, preserve and lock down existing
-`ai_training_examples` rows, enforce released-only question analytics, and
-require audited grading/release RPCs. It and the later migrations require a
-disposable-database rehearsal and explicit operator approval before any hosted
-rollout.
+A read-only Supabase check on 2026-11-02 reported Auth, DB, Storage, and REST as
+healthy. Its migration history did not include
+`20261101030000_canonical_submission_marks.sql`; read-only inspection also
+found the deployed `review_answer` and `release_submission` definitions lacked
+the canonical-marks logic. A new follow-up migration
+`20261101040000_fix_signup_join_code_entropy.sql` repairs a separate signup
+trigger regression caught by the local rehearsal. No hosted migration, data
+write, restore drill, or deployment was performed. The project must not be
+considered schema-current until these changes are rehearsed and approved for a
+non-production environment, then explicitly approved for production.
 
 ## What holds
 
-| List requirement | Mechanism |
-| ---------------- | --------- |
-| Students cannot read unreleased results | `answers`: teachers read via `owns_assessment`; students can read only their own `in_progress` draft (for resume) or `released` answers. The old broad own-answer SELECT policy is dropped by `20261030230000`. |
-| No access to answer keys or unreleased results | `question_keys`: teacher-only policy via `owns_assessment`; there is no student policy at all, so students cannot SELECT keys. A student's own submission row is visible before release, but its `final_score` stays NULL until `release_submission` sets it. |
-| No self-promotion to teacher | `profiles` has **no role column** (id, full_name, join_code, created_at). Roles live in `user_roles`, where `authenticated` holds only a SELECT grant and only SELECT policies exist — there is no INSERT/UPDATE path for a user to change their own role. Roles are set by the `handle_new_user` trigger at signup and otherwise only via `service_role`. |
-| Teacher ownership everywhere it matters | `owns_assessment(assessment_id)` gates teacher policies on assessments, assignments, questions, keys, submissions, and answers. The segmentation migration replaced the legacy `has_role('teacher')` checks with `school_teacher`/`tutor` variants. |
-| Secrets stay server-side | AI keys, WhatsApp tokens, and the service-role key are read from server env only (never `VITE_`-prefixed, never committed). `.env` is gitignored. The only keys ever committed belong to the abandoned Lovable-managed project — never reuse them. |
-| Grade history is append-only | `audit_log` grants `authenticated` SELECT only. Writes happen inside SECURITY DEFINER functions (`review_answer` with old/new/AI scores, `release`, `assessment_status`, `ai_suggestion`) and, since Phase 1, a SECURITY DEFINER trigger on `handwritten_grades` (insert + delete). Teachers read their own rows on the `/audit` page. |
+| List requirement                               | Mechanism                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Students cannot read unreleased results        | `answers`: teachers read via `owns_assessment`; students can read only their own `in_progress` draft (for resume) or `released` answers. The old broad own-answer SELECT policy is dropped by `20261030230000`.                                                                                                                                            |
+| No access to answer keys or unreleased results | `question_keys`: teacher-only policy via `owns_assessment`; there is no student policy at all, so students cannot SELECT keys. A student's own submission row is visible before release, but its `final_score` stays NULL until `release_submission` sets it.                                                                                              |
+| No self-promotion to teacher                   | `profiles` has **no role column** (id, full_name, join_code, created_at). Roles live in `user_roles`, where `authenticated` holds only a SELECT grant and only SELECT policies exist — there is no INSERT/UPDATE path for a user to change their own role. Roles are set by the `handle_new_user` trigger at signup and otherwise only via `service_role`. |
+| Teacher ownership everywhere it matters        | `owns_assessment(assessment_id)` gates teacher policies on assessments, assignments, questions, keys, submissions, and answers. The segmentation migration replaced the legacy `has_role('teacher')` checks with `school_teacher`/`tutor` variants.                                                                                                        |
+| Secrets stay server-side                       | AI keys, WhatsApp tokens, and the service-role key are read from server env only (never `VITE_`-prefixed, never committed). `.env` is gitignored. The only keys ever committed belong to the abandoned Lovable-managed project — never reuse them.                                                                                                         |
+| Grade history is append-only                   | `audit_log` grants `authenticated` SELECT only. Writes happen inside SECURITY DEFINER functions (`review_answer` with old/new/AI scores, `release`, `assessment_status`, `ai_suggestion`) and, since Phase 1, a SECURITY DEFINER trigger on `handwritten_grades` (insert + delete). Teachers read their own rows on the `/audit` page.                     |
 
 ## Explicit scope boundary: institutions and SaaS tenancy
 

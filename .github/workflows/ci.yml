@@ -33,6 +33,9 @@ jobs:
       - name: Run unit and component tests
         run: bun run test
 
+      - name: Rehearse database migrations in disposable PGlite
+        run: bun run db:rehearse
+
       - name: Lint
         run: bun run lint
 

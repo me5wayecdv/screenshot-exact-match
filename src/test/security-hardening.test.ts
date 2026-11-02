@@ -28,6 +28,13 @@ const gradingRoute = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), "../routes/_authenticated/grading.tsx"),
   "utf8",
 );
+const signupJoinCodeMigration = readFileSync(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../supabase/migrations/20261101040000_fix_signup_join_code_entropy.sql",
+  ),
+  "utf8",
+);
 
 describe("production security hardening migration", () => {
   it("never grants admin from user-controlled signup metadata", () => {
@@ -112,6 +119,17 @@ describe("production security hardening migration", () => {
     expect(scaleMigration).toMatch(/create or replace function public\.my_join_code\(\)/i);
     expect(scaleMigration).toMatch(/profiles_join_code_entropy_check/i);
     expect(scaleMigration).toMatch(/lessons_join_code_entropy_check/i);
+  });
+
+  it("keeps signup codes compatible with the 12-character entropy constraint", () => {
+    expect(signupJoinCodeMigration).toContain(
+      "create or replace function public.handle_new_user()",
+    );
+    expect(signupJoinCodeMigration).toContain("replace(gen_random_uuid()::text, '-', ''), 1, 12");
+    expect(signupJoinCodeMigration).toContain("profiles_join_code_entropy_check");
+    expect(signupJoinCodeMigration).toContain("~ '^\\+20(10|11|12|15)[0-9]{8}$'");
+    expect(signupJoinCodeMigration).not.toContain("md5(random()");
+    expect(signupJoinCodeMigration).not.toContain("raw_user_meta_data->>'role' = 'admin'");
   });
 
   it("uses a unique send claim and atomically writes server-only audit outcomes", () => {
