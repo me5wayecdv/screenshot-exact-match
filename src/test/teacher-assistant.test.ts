@@ -74,7 +74,7 @@ describe("teacher assistant system prompt", () => {
     expect(prompt).toContain("74% across 12 recent results");
     expect(prompt).toContain("لا تطلب أسماء الطلاب");
     expect(prompt).toContain("لا تعتمد درجات");
-    expect(prompt).toContain("عربية فصحى سهلة وواضحة");
+    expect(prompt).toContain("أجب بالعربية الفصحى السهلة والواضحة");
     expect(prompt).toContain("التشكيل والتنوين غير الضروريين");
     expect(prompt).toContain("علامتي النجمتين **");
     expect(prompt).not.toContain("student_id");

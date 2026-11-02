@@ -104,7 +104,7 @@ describe("lesson explain prompts", () => {
     expect(prompt).toContain("لا تنشئ اختباراً ولا تعتمد درجات ولا تنشر نتائج");
     expect(prompt).toContain("لا تخترع حقائق");
     expect(prompt).toContain("كل العناوين وكل الكلمات");
-    expect(prompt).toContain("لا تستخدم أي كلمة من لغة أخرى");
+    expect(prompt).toContain("ولا تخلط اللغتين إلا لمصطلح ضروري تشرحه.");
     expect(prompt).toContain("عربية فصحى سهلة وجملاً قصيرة وواضحة");
     expect(prompt).toContain("تجنب التشكيل والتنوين غير الضروريين");
     expect(prompt).toContain("علامتي النجمتين **");
@@ -124,7 +124,9 @@ describe("lesson explain prompts", () => {
     expect(prompt).toContain("create no assessments, approve no marks, and release no results");
     expect(prompt).toContain("Do not invent facts");
     expect(prompt).toContain("ENTIRE reply");
-    expect(prompt).toContain("another language");
+    expect(prompt).toContain(
+      "Do not mix languages unless a necessary technical term must be explained.",
+    );
     expect(prompt).toContain("clear, simple wording");
     expect(prompt).toContain("Do not use Markdown bold or **");
   });
