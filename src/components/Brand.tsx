@@ -1,9 +1,13 @@
+import { useId } from "react";
+
 import { useI18n } from "@/lib/i18n";
 
 /**
  * The Qayyimni mark: a geometric ق whose two dots tell the product story.
  * The first dot (right, where Arabic reading starts) is the suggestion; the
- * second, saffron dot is the teacher's last word. See docs/brand.md.
+ * second, cyan "signal" dot is the teacher's last word. The tile is the
+ * brand beam (indigo → violet) so the mark reads as technology, not paper.
+ * See docs/brand.md.
  *
  * Colours come from the design tokens in styles.css, so the mark follows the
  * theme. `onDark` swaps to the white tile for dark surfaces (sidebar,
@@ -20,8 +24,10 @@ export function BrandMark({
   /** `false` draws the bare glyph in currentColor (single colour). */
   tile?: boolean;
 }) {
-  const glyph = tile ? (onDark ? "stroke-sidebar" : "stroke-card") : "stroke-current";
-  const firstDot = tile ? (onDark ? "fill-primary" : "fill-card") : "fill-current";
+  // Unique gradient id per instance: several marks can share a page.
+  const gradientId = useId();
+  const glyph = tile ? "stroke-white" : "stroke-current";
+  const firstDot = tile ? "fill-white" : "fill-current";
   const lastDot = tile ? "fill-accent" : "fill-current";
   return (
     <svg
@@ -31,7 +37,15 @@ export function BrandMark({
       className={`h-8 w-8 shrink-0 ${className}`}
     >
       {tile && (
-        <rect width="64" height="64" rx="16" className={onDark ? "fill-card" : "fill-primary"} />
+        <>
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="var(--color-primary)" />
+              <stop offset="100%" stopColor="var(--beam-violet, var(--color-primary))" />
+            </linearGradient>
+          </defs>
+          <rect width="64" height="64" rx="18" fill={`url(#${gradientId})`} />
+        </>
       )}
       <g
         transform="translate(4 -1.5)"

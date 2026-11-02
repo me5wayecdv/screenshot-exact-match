@@ -5,21 +5,26 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Qayyimni design system — Arabic-first. See docs/brand.md for the full guide.
+ * Qayyimni design system — Arabic-first, technology-education identity.
+ * See docs/brand.md for the full guide.
  *
- *   Cloud     --background   a cool, near-white canvas
- *   Ink       --foreground   near-black teal for text
- *   Ink Teal  --primary      the brand colour (the "pen")
- *   Deep Ocean --sidebar      dark surfaces
- *   Saffron   --accent       the teacher's mark. Fill only, never text on paper (1.8:1).
+ * The metaphor is SIGNAL, not paper: a calm console that carries learning
+ * data between a teacher and a student.
  *
- * Signature motif: two dots (the dots of ق). The first suggests, the saffron
- * one is the teacher's last word.
+ *   Canvas    --background   cool near-white, the screen
+ *   Signal    --primary      electric indigo: the product's own voice
+ *   Beam      --accent       cyan: live data, suggestions, the "just now"
+ *   Node      --sidebar      deep indigo: the console surface
+ *   Mint      --success      a released, approved result
+ *
+ * Signature motif: the signal grid (fine mesh) and a two-stop beam
+ * (indigo → violet → cyan). Both are drawn with gradients, never images.
  */
 
 @theme inline {
   --font-sans: "IBM Plex Sans Arabic", "IBM Plex Sans", system-ui, sans-serif;
   --font-display: "Readex Pro", "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
   --radius-sm: calc(var(--radius) - 3px);
   --radius-md: calc(var(--radius) - 1px);
   --radius-lg: var(--radius);
@@ -61,46 +66,50 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --shadow-soft: var(--shadow-soft);
   --shadow-lift: var(--shadow-lift);
+  --shadow-glow: var(--shadow-glow);
 }
 
 :root {
-  --radius: 0.5rem;
-  --background: oklch(0.972 0.008 190);
-  --foreground: oklch(0.24 0.03 200);
+  --radius: 0.75rem;
+  --background: oklch(0.976 0.006 275);
+  --foreground: oklch(0.23 0.035 275);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.24 0.03 200);
+  --card-foreground: oklch(0.23 0.035 275);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.24 0.03 200);
-  --primary: oklch(0.506 0.084 200.3);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.937 0.027 185);
-  --secondary-foreground: oklch(0.29 0.064 205);
-  --muted: oklch(0.955 0.01 190);
-  --muted-foreground: oklch(0.49 0.025 205);
-  --accent: oklch(0.82 0.147 81);
-  --accent-foreground: oklch(0.27 0.05 60);
-  --accent-soft: oklch(0.955 0.05 90);
-  --destructive: oklch(0.56 0.19 28);
+  --popover-foreground: oklch(0.23 0.035 275);
+  --primary: oklch(0.545 0.196 274);
+  --primary-foreground: oklch(0.99 0.005 275);
+  --secondary: oklch(0.945 0.028 278);
+  --secondary-foreground: oklch(0.33 0.11 274);
+  --muted: oklch(0.962 0.011 275);
+  --muted-foreground: oklch(0.5 0.028 275);
+  --accent: oklch(0.78 0.132 205);
+  --accent-foreground: oklch(0.22 0.05 235);
+  --accent-soft: oklch(0.955 0.045 210);
+  --beam-violet: oklch(0.62 0.2 300);
+  --destructive: oklch(0.58 0.2 22);
   --destructive-foreground: oklch(0.99 0 0);
-  --success: oklch(0.55 0.12 155);
+  --success: oklch(0.535 0.135 165);
   --success-foreground: oklch(0.99 0 0);
-  --warning: oklch(0.75 0.14 70);
-  --warning-foreground: oklch(0.28 0.05 60);
-  --info: oklch(0.55 0.09 235);
+  --warning: oklch(0.79 0.14 78);
+  --warning-foreground: oklch(0.27 0.06 60);
+  --info: oklch(0.58 0.13 250);
   --info-foreground: oklch(0.99 0 0);
-  --border: oklch(0.91 0.016 185);
-  --input: oklch(0.88 0.02 185);
-  --ring: oklch(0.506 0.084 200.3);
-  --sidebar: oklch(0.329 0.059 226);
-  --sidebar-foreground: oklch(0.99 0 0);
-  --sidebar-primary: oklch(0.82 0.147 81);
-  --sidebar-primary-foreground: oklch(0.27 0.05 60);
-  --sidebar-accent: oklch(0.39 0.065 220);
-  --sidebar-accent-foreground: oklch(0.99 0 0);
-  --sidebar-border: oklch(0.4 0.06 220);
-  --sidebar-ring: oklch(0.82 0.147 81);
-  --shadow-soft: 0 1px 2px oklch(0.3 0.05 205 / 7%), 0 3px 10px oklch(0.3 0.05 205 / 6%);
-  --shadow-lift: 0 14px 36px -14px oklch(0.3 0.08 205 / 34%);
+  --border: oklch(0.912 0.018 275);
+  --input: oklch(0.885 0.022 275);
+  --ring: oklch(0.545 0.196 274);
+  --sidebar: oklch(0.212 0.048 277);
+  --sidebar-foreground: oklch(0.985 0.004 275);
+  --sidebar-primary: oklch(0.78 0.132 205);
+  --sidebar-primary-foreground: oklch(0.2 0.05 235);
+  --sidebar-accent: oklch(0.28 0.055 277);
+  --sidebar-accent-foreground: oklch(0.99 0.004 275);
+  --sidebar-border: oklch(0.32 0.05 277);
+  --sidebar-ring: oklch(0.78 0.132 205);
+  --shadow-soft: 0 1px 2px oklch(0.4 0.08 275 / 6%), 0 4px 16px -6px oklch(0.4 0.1 275 / 12%);
+  --shadow-lift: 0 18px 44px -20px oklch(0.35 0.14 275 / 42%);
+  --shadow-glow:
+    0 0 0 1px oklch(0.545 0.196 274 / 12%), 0 10px 36px -12px oklch(0.545 0.196 274 / 40%);
   --duration-fast: 120ms;
   --duration-base: 200ms;
 }
@@ -162,25 +171,15 @@
   }
 }
 
-@utility paper-grid {
+/* The signal grid: a fine mesh, the product's signature texture. */
+@utility grid-mesh {
   background-image:
-    linear-gradient(to right, oklch(0.506 0.084 200.3 / 7%) 1px, transparent 1px),
-    linear-gradient(to bottom, oklch(0.506 0.084 200.3 / 7%) 1px, transparent 1px);
-  background-size: 28px 28px;
+    linear-gradient(to right, oklch(0.545 0.196 274 / 7%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(0.545 0.196 274 / 7%) 1px, transparent 1px);
+  background-size: 32px 32px;
 }
 
-/* Brand pattern: pairs of dots (the dots of ق) on a staggered lattice. */
-@utility dots-pattern {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%230b7378' fill-opacity='.08'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 72px 72px;
-}
-/* Same pattern for deep-teal surfaces. */
-@utility dots-pattern-light {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%23ffffff' fill-opacity='.075'%3E%3Ccircle cx='14' cy='14' r='3'/%3E%3Ccircle cx='28' cy='14' r='3'/%3E%3Ccircle cx='50' cy='50' r='3'/%3E%3Ccircle cx='64' cy='50' r='3'/%3E%3C/g%3E%3C/svg%3E");
-  background-size: 72px 72px;
-}
-
-/* The teacher's approval lands like a stamp. Disabled for reduced motion. */
+/* The teacher's approval drops in: a soft, springy confirmation. */
 @keyframes stamp {
   0% {
     opacity: 0;
@@ -202,51 +201,65 @@
   }
 }
 
-/* Product pages: paper, ink, and a teacher's pencil — no glossy dashboard chrome. */
+/* Product surfaces: a learning console. Mesh, beam, glass — no paper. */
 .landing-page {
   background:
-    radial-gradient(
-      ellipse 54rem 34rem at 96% 0%,
-      color-mix(in oklab, var(--color-secondary) 66%, transparent),
-      transparent 72%
-    ),
+    radial-gradient(70rem 36rem at 88% -8%, oklch(0.62 0.2 300 / 12%), transparent 68%),
+    radial-gradient(52rem 30rem at 0% 4%, oklch(0.78 0.132 205 / 14%), transparent 64%),
     var(--color-background);
 }
 
 .landing-header {
   min-height: 4.5rem;
+  backdrop-filter: blur(8px);
 }
 
 .landing-hero,
 .landing-close {
   position: relative;
   overflow: hidden;
-  border-radius: 0.35rem;
+  border-radius: 1.25rem;
+  border: 1px solid color-mix(in oklab, var(--color-sidebar) 65%, var(--color-primary));
   background-color: var(--color-sidebar);
-  background-image: linear-gradient(
-    132deg,
-    var(--color-sidebar) 0%,
-    color-mix(in oklab, var(--color-sidebar) 76%, var(--color-primary)) 100%
-  );
+  background-image:
+    radial-gradient(38rem 22rem at 100% 0%, oklch(0.62 0.2 300 / 55%), transparent 62%),
+    radial-gradient(30rem 20rem at 0% 100%, oklch(0.78 0.132 205 / 42%), transparent 60%),
+    linear-gradient(
+      145deg,
+      var(--color-sidebar) 0%,
+      color-mix(in oklab, var(--color-sidebar) 82%, var(--color-primary)) 100%
+    );
   box-shadow: var(--shadow-lift);
 }
 
+/* The beam: a two-stop gradient spine that marks the primary surface. */
 .landing-hero::before,
 .landing-close::before {
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
-  width: 3px;
-  background: var(--color-accent);
+  width: 4px;
+  background: linear-gradient(
+    to bottom,
+    oklch(0.78 0.132 205),
+    oklch(0.62 0.2 300) 55%,
+    oklch(0.545 0.196 274)
+  );
   content: "";
 }
 
-.landing-rule {
-  display: inline-block;
-  width: 1.5rem;
-  height: 2px;
-  flex: 0 0 auto;
-  background: var(--color-accent);
+/* Fine mesh inside dark surfaces reads as "data", not decoration. */
+.landing-hero::after,
+.landing-close::after {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 5%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 5%) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(50rem 28rem at 70% 0%, black, transparent 78%);
+  content: "";
+  pointer-events: none;
 }
 
 .landing-hero-index {
@@ -254,34 +267,38 @@
   inset-inline-end: 2rem;
   inset-block-end: 1.25rem;
   color: var(--color-sidebar-foreground);
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
   font-size: 0.7rem;
-  font-weight: 700;
-  opacity: 0.28;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  opacity: 0.32;
 }
 
 .section-kicker {
   color: var(--color-primary);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
 .section-kicker-light {
-  color: var(--color-accent);
+  color: color-mix(in oklab, var(--color-accent) 88%, white);
 }
 
 .feature-panel {
-  transition: background-color var(--duration-base) ease;
+  transition:
+    background-color var(--duration-base) ease,
+    border-color var(--duration-base) ease;
 }
 
 .feature-panel:hover {
-  background-color: color-mix(in oklab, var(--color-secondary) 48%, transparent);
+  background-color: color-mix(in oklab, var(--color-secondary) 55%, transparent);
 }
 
 .landing-footer {
-  background: color-mix(in oklab, var(--color-card) 76%, var(--color-background));
+  background: color-mix(in oklab, var(--color-card) 70%, var(--color-background));
 }
 
 .auth-page {
@@ -293,32 +310,49 @@
   position: relative;
   overflow: hidden;
   background-color: var(--color-sidebar);
+  background-image:
+    radial-gradient(30rem 20rem at 100% 0%, oklch(0.62 0.2 300 / 45%), transparent 65%),
+    radial-gradient(24rem 18rem at 0% 100%, oklch(0.78 0.132 205 / 35%), transparent 62%);
 }
 
 .auth-aside::before {
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
-  width: 3px;
-  background: var(--color-accent);
+  width: 4px;
+  background: linear-gradient(
+    to bottom,
+    oklch(0.78 0.132 205),
+    oklch(0.62 0.2 300) 55%,
+    oklch(0.545 0.196 274)
+  );
   content: "";
   pointer-events: none;
 }
 
 .auth-main {
-  background-image: linear-gradient(
-    90deg,
-    color-mix(in oklab, var(--color-border) 35%, transparent) 1px,
-    transparent 1px
-  );
-  background-size: 48px 100%;
+  background-image:
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-border) 45%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-border) 45%, transparent) 1px,
+      transparent 1px
+    );
+  background-size:
+    48px 100%,
+    100% 48px;
 }
 
 .auth-card {
   border: 1px solid var(--color-border);
-  border-radius: 0.4rem;
-  background: var(--color-card);
-  box-shadow: var(--shadow-soft);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--color-card) 92%, transparent);
+  box-shadow: var(--shadow-glow);
+  backdrop-filter: blur(10px);
 }
 
 .auth-mode-button[aria-pressed="true"] {
@@ -334,6 +368,9 @@
 
 .app-sidebar {
   background-color: var(--color-sidebar);
+  background-image:
+    radial-gradient(26rem 16rem at 100% 0%, oklch(0.62 0.2 300 / 28%), transparent 62%),
+    radial-gradient(20rem 14rem at 0% 100%, oklch(0.78 0.132 205 / 22%), transparent 60%);
 }
 
 .app-nav-link {
@@ -345,17 +382,21 @@
 
 .app-nav-link[aria-current="page"]::before {
   position: absolute;
-  inset-block: 0.55rem;
+  inset-block: 0.5rem;
   inset-inline-start: 0;
   width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--color-accent);
+  border-radius: 0 3px 3px 0;
+  background: linear-gradient(to bottom, oklch(0.78 0.132 205), oklch(0.62 0.2 300));
   content: "";
 }
 
 .app-main {
   min-width: 0;
-  background-color: color-mix(in oklab, var(--color-background) 94%, var(--color-secondary));
+  background-image: radial-gradient(
+    60rem 30rem at 100% -12%,
+    color-mix(in oklab, var(--color-accent) 12%, transparent),
+    transparent 62%
+  );
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -380,7 +421,7 @@
   align-items: center;
   gap: 0.65rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.3rem;
+  border-radius: 0.75rem;
   padding: 0.65rem 0.75rem;
   color: var(--color-foreground);
   font-size: 0.875rem;
@@ -400,85 +441,106 @@
   color: var(--color-primary);
 }
 
-/* Horizontal nav strip on phones: scrollable, but with no visible bar. */
-@utility scrollbar-none {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
 /* ---------------------------------------------------------------------------
- * Simple-by-default layer (2026-11-03)
- * One idea per screen, one obvious action, and a hand-made look: ink cards,
- * a saffron highlighter, a slightly tilted sticker, dotted paper. Everything
- * here is decoration — no layout dependency, and all motion respects
- * prefers-reduced-motion (handled globally above).
+ * Technology layer (2026-11-03)
+ * The simple structure from the previous pass is kept — one hero, one action,
+ * quiet numbers — but the visual language is now "signal": deep-indigo
+ * consoles, a cyan→violet beam, a fine grid mesh and soft glass. Nothing here
+ * carries layout; it is all surface treatment.
  * ------------------------------------------------------------------------- */
 
-/* The "ink hero": the one thing that matters on a page. */
-.ink-hero {
+/* The console hero: the one thing that matters on a page. */
+.console-hero {
   position: relative;
   overflow: hidden;
-  border-radius: 0.6rem;
-  border: 1px solid color-mix(in oklab, var(--color-sidebar) 70%, var(--color-primary));
+  border-radius: 1.1rem;
+  border: 1px solid color-mix(in oklab, var(--color-sidebar) 62%, var(--color-primary));
   background-color: var(--color-sidebar);
   background-image:
-    radial-gradient(
-      ellipse 26rem 14rem at 100% 0%,
-      color-mix(in oklab, var(--color-primary) 55%, transparent),
-      transparent 70%
-    ),
-    radial-gradient(circle at 1px 1px, rgb(255 255 255 / 10%) 1px, transparent 0);
-  background-size:
-    auto,
-    22px 22px;
+    radial-gradient(30rem 18rem at 100% 0%, oklch(0.62 0.2 300 / 55%), transparent 62%),
+    radial-gradient(24rem 16rem at 0% 100%, oklch(0.78 0.132 205 / 40%), transparent 60%),
+    linear-gradient(
+      145deg,
+      var(--color-sidebar) 0%,
+      color-mix(in oklab, var(--color-sidebar) 80%, var(--color-primary)) 100%
+    );
   color: var(--color-sidebar-foreground);
   box-shadow: var(--shadow-lift);
 }
 
-.ink-hero::before {
+/* Grid mesh, faded out from the top-inline-start corner. */
+.console-hero::after {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 5%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 5%) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(38rem 22rem at 75% 0%, black, transparent 76%);
+  content: "";
+  pointer-events: none;
+}
+
+/* The beam spine. */
+.console-hero::before {
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
   width: 4px;
   background: linear-gradient(
     to bottom,
-    var(--color-accent),
-    color-mix(in oklab, var(--color-accent) 40%, transparent)
+    oklch(0.78 0.132 205),
+    oklch(0.62 0.2 300) 58%,
+    oklch(0.545 0.196 274)
   );
   content: "";
+  z-index: 1;
 }
 
-.ink-hero .section-kicker {
-  color: color-mix(in oklab, var(--color-accent) 85%, white);
+.console-hero > * {
+  position: relative;
+  z-index: 2;
 }
 
-@utility marker {
-  background-image: linear-gradient(
-    to top,
-    color-mix(in oklab, var(--color-accent) 55%, transparent) 0.34em,
-    transparent 0.34em
-  );
+.console-hero .section-kicker {
+  color: color-mix(in oklab, var(--color-accent) 90%, white);
+}
+
+/* Signal highlight: a soft cyan→indigo wash under one or two words. */
+@utility signal {
+  background-image: linear-gradient(100deg, oklch(0.78 0.132 205 / 40%), oklch(0.62 0.2 300 / 34%));
   background-repeat: no-repeat;
-  background-size: 100% 100%;
-  padding-inline: 0.08em;
+  background-size: 100% 42%;
+  background-position: 0 88%;
+  padding-inline: 0.1em;
+  border-radius: 2px;
 }
 
-@utility sticker {
+/* A live pill: small mono label with a glowing dot. */
+@utility chip-glow {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  rotate: -2.5deg;
-  border: 1px solid color-mix(in oklab, var(--color-accent-foreground) 25%, transparent);
+  gap: 0.4rem;
+  border: 1px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
   border-radius: 999px;
-  background: var(--color-accent);
-  padding: 0.15rem 0.6rem;
-  color: var(--color-accent-foreground);
-  font-size: 0.7rem;
-  font-weight: 700;
-  box-shadow: 0 1px 0 rgb(0 0 0 / 12%);
+  background: color-mix(in oklab, var(--color-accent) 22%, transparent);
+  padding: 0.22rem 0.7rem;
+  color: color-mix(in oklab, var(--color-accent) 92%, white);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  backdrop-filter: blur(6px);
+
+  &::before {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+    content: "";
+  }
 }
 
 @utility lift {
@@ -488,26 +550,28 @@
     border-color var(--duration-base) ease;
   &:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-lift);
-    border-color: color-mix(in oklab, var(--color-primary) 30%, var(--color-border));
+    box-shadow: var(--shadow-glow);
+    border-color: color-mix(in oklab, var(--color-primary) 35%, var(--color-border));
   }
 }
 
-/* Small, quiet number+label used instead of four big cards. */
+/* Quiet number+label used instead of four big cards. */
 .stat-chip {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.4rem;
+  gap: 0.45rem;
   border: 1px solid var(--color-border);
   border-radius: 999px;
-  background: var(--color-card);
-  padding: 0.3rem 0.75rem;
+  background: color-mix(in oklab, var(--color-card) 88%, transparent);
+  padding: 0.3rem 0.8rem;
   font-size: 0.8rem;
+  backdrop-filter: blur(6px);
 }
 
 .stat-chip strong {
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
   font-size: 1rem;
+  font-weight: 600;
   color: var(--color-primary);
 }
 
@@ -519,9 +583,9 @@
   display: flex;
   gap: 0.15rem;
   border-top: 1px solid var(--color-border);
-  background: color-mix(in oklab, var(--color-card) 92%, transparent);
+  background: color-mix(in oklab, var(--color-card) 88%, transparent);
   padding: 0.35rem 0.25rem calc(0.35rem + env(safe-area-inset-bottom));
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
 }
 
 .tabbar-item {
@@ -532,8 +596,8 @@
   align-items: center;
   justify-content: center;
   gap: 0.15rem;
-  border-radius: 0.5rem;
-  color: color-mix(in oklab, var(--color-foreground) 62%, transparent);
+  border-radius: 0.65rem;
+  color: color-mix(in oklab, var(--color-foreground) 60%, transparent);
   font-size: 0.68rem;
   font-weight: 600;
   line-height: 1.1;
@@ -544,7 +608,7 @@
 }
 
 .tabbar-item[aria-current="page"] {
-  background: var(--color-secondary);
+  background: color-mix(in oklab, var(--color-primary) 14%, transparent);
   color: var(--color-primary);
 }
 
@@ -555,10 +619,11 @@
 /* A collapsible drawer used by "more" in both navs. */
 .nav-sheet {
   border: 1px solid var(--color-border);
-  border-radius: 0.6rem;
-  background: var(--color-card);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--color-card) 96%, transparent);
   box-shadow: var(--shadow-lift);
   padding: 0.5rem;
+  backdrop-filter: blur(12px);
   animation: sheet-in var(--duration-base) ease both;
 }
 
@@ -579,26 +644,34 @@
   }
 }
 
-/* Dotted "paper" band for section separation without extra boxes. */
-.paper-band {
-  border-block: 1px solid var(--color-border);
-  background-image: radial-gradient(circle at 1px 1px, var(--color-border) 1px, transparent 0);
-  background-size: 18px 18px;
-}
-
 /* Friendlier empty state: an icon slot, one line, one action. */
 .empty-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.75rem;
-  border: 1px dashed color-mix(in oklab, var(--color-primary) 30%, var(--color-border));
-  border-radius: 0.6rem;
-  background: color-mix(in oklab, var(--color-card) 70%, transparent);
+  border: 1px dashed color-mix(in oklab, var(--color-primary) 32%, var(--color-border));
+  border-radius: 1rem;
+  background:
+    radial-gradient(
+      24rem 12rem at 50% 0%,
+      color-mix(in oklab, var(--color-secondary) 70%, transparent),
+      transparent 70%
+    ),
+    color-mix(in oklab, var(--color-card) 80%, transparent);
   padding: 2rem 1.25rem;
   text-align: center;
 }
 
 .empty-card svg {
-  color: color-mix(in oklab, var(--color-primary) 65%, transparent);
+  color: color-mix(in oklab, var(--color-primary) 70%, transparent);
+}
+
+/* Horizontal nav strip on phones: scrollable, but with no visible bar. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

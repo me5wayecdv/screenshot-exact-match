@@ -80,7 +80,7 @@ export function Empty({ children }: { children: ReactNode }) {
 }
 
 /**
- * The one card that tells a person what to do next. Used at the top of every
+ * The console hero: the one card that tells a person what to do next. Used at the top of every
  * home screen so the page has a single obvious action instead of a wall of
  * cards. Decorative only: `kicker`/`hint` are optional.
  */
@@ -98,7 +98,7 @@ export function Hero({
   hint?: ReactNode;
 }) {
   return (
-    <section className="ink-hero mb-6 p-5 sm:p-7">
+    <section className="console-hero mb-6 p-5 sm:p-7">
       {kicker ? <p className="section-kicker mb-2">{kicker}</p> : null}
       <h1 className="max-w-2xl text-xl font-bold leading-snug text-sidebar-foreground sm:text-2xl md:text-[1.7rem]">
         {title}

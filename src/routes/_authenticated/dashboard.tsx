@@ -156,7 +156,7 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
         title={
           nextStep ? (
             <>
-              {t("heroNext")} <span className="marker">{nextStep.title}</span>
+              {t("heroNext")} <span className="signal">{nextStep.title}</span>
             </>
           ) : (
             `${t("welcome")}، ${name}`
@@ -288,7 +288,7 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
         title={
           nextStep ? (
             <>
-              {t("heroNext")} <span className="marker">{nextStep.title}</span>
+              {t("heroNext")} <span className="signal">{nextStep.title}</span>
             </>
           ) : (
             `${t("welcome")}، ${name}`
