@@ -363,7 +363,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   const { data, error: studentError } = useQuery({
     queryKey: ["student-home", studentId, assignmentPage, lessonPage],
     queryFn: async () => {
-      const [a, le, pc] = await Promise.all([
+      const [a, le, pc, links] = await Promise.all([
         supabase
           .from("assessments")
           .select("id, title, instructions, due_at, starts_at, status")
@@ -379,6 +379,10 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           .select("parent_phone, whatsapp_consent")
           .eq("id", studentId)
           .maybeSingle(),
+        // RLS lets a student read their own teacher links. The count tells
+        // "not linked to anyone" apart from "linked, but nothing assigned
+        // yet" — the two very different reasons an exam list is empty.
+        supabase.from("teacher_students").select("teacher_id").eq("student_id", studentId),
       ]);
       if (a.error) throw a.error;
       if (le.error) throw le.error;
@@ -412,6 +416,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
         lessons,
         hasMoreLessons: lessonRows.length > pageSize,
         parentContact: pc.data ?? null,
+        teacherLinks: links.data?.length ?? 0,
       };
     },
   });
@@ -476,7 +481,14 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
         </p>
       ) : null}
       {data && !studentError && data.assessments.length === 0 ? (
-        <Empty>{t("noAssigned")}</Empty>
+        <Empty>
+          <p>{t("noAssigned")}</p>
+          <p className="mt-2">
+            {data.teacherLinks === 0
+              ? t("noTeacherLinked")
+              : t("linkedButNothingAssigned", { count: String(data.teacherLinks) })}
+          </p>
+        </Empty>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {data?.assessments.map((a) => {

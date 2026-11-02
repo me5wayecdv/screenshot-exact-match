@@ -297,6 +297,16 @@ const dict = {
       "الاختبار منشور لكنه غير معيّن لأي طالب — الطلاب مش هيشوفوه. علّم على أسماء الطلاب هنا تحت.",
     draftNotVisible: "الاختبار مسودة — لن يظهر للطلاب قبل النشر.",
     assignedCount: "معيّن لـ {assigned} من {total} طالب",
+    publishNoStudents:
+      "مفيش طالب مرتبط بكودك لسه — انشر مش هيفيد حد. شارك كود الانضمام، وخلي الطالب يضغط «انضم»، وبعدها انشر.",
+    publishPartial: "هتنشر لـ {assigned} من {total} طالب — الباقي مش هيشوف الامتحان.",
+    publishReach: "تم النشر — {count} طالب هيشوف الامتحان الآن.",
+    noTeacherLinked: "لسه مش مرتبط بأي معلم: اطلب كود الانضمام من معلمك واكتبه في الخانة فوق.",
+    linkedButNothingAssigned:
+      "أنت مرتبط بـ {count} معلم، لكن مفيش امتحان منشور ومعيّن لك الآن — اطلب من معلمك ينشر ويعيّنك من صفحة الاختبار.",
+    audienceHasNewStudents: "فيه طلاب جداد انضموا بعد النشر ومش معيّنين للامتحان ده.",
+    audienceSyncNow: "أضف الطلاب الجدد للامتحان",
+    audienceSynced: "تمت إضافة {count} طالب للامتحان.",
     notFound: "غير موجود",
     summaryActive: "اختبارات منشورة",
     summaryPending: "بانتظار التصحيح",
@@ -1100,6 +1110,19 @@ const dict = {
       "This assessment is published but assigned to no student — no student can see it. Tick their names below.",
     draftNotVisible: "This assessment is a draft — students can't see it until you publish.",
     assignedCount: "Assigned to {assigned} of {total} students",
+    publishNoStudents:
+      "No student is linked to your join code yet — publishing would show the exam to nobody. Share the code, have the student join, then publish.",
+    publishPartial:
+      "Publishing to {assigned} of {total} students — the rest will not see this assessment.",
+    publishReach: "Published — {count} student(s) can see it now.",
+    noTeacherLinked:
+      "You are not linked to a teacher yet: ask your teacher for the join code and enter it above.",
+    linkedButNothingAssigned:
+      "You are linked to {count} teacher(s), but nothing is published and assigned to you yet — ask your teacher to publish and assign you.",
+    audienceHasNewStudents:
+      "Some students joined after this was published and are not assigned to it.",
+    audienceSyncNow: "Add the new students",
+    audienceSynced: "Added {count} student(s) to this assessment.",
     notFound: "Not found",
     summaryActive: "Published assessments",
     summaryPending: "Awaiting grading",

@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { WhatsAppAutoSendToggle } from "@/components/whatsapp-auto-send-toggle";
+import { planPublishAudience } from "@/lib/audience";
 
 type QType = Database["public"]["Enums"]["question_type"];
 type Status = Database["public"]["Enums"]["assessment_status"];
@@ -68,10 +69,65 @@ function Builder() {
   const { a, questions } = data;
   const locked = data.submissionCount > 0;
   const total = questions.reduce((s, q) => s + Number(q.marks), 0);
+  // Bound once, after the guard: hoisted function declarations below do not
+  // see the narrowing of `data`, but these consts carry it.
+  const linkedStudentIds = data.students.map((st) => st.student_id);
+  const assignedIds = data.assigned;
 
+  /**
+   * Publish is the one transition that decides who can see the exam, so it
+   * is the one that must not be able to produce a "published but invisible"
+   * row. Order matters:
+   *   1. block when the teacher has no linked students (nobody to publish to);
+   *   2. run the server transition (it validates questions and, on current
+   *      schemas, auto-assigns everyone when no cohort was picked);
+   *   3. close the gap for older schemas / students linked since: assign the
+   *      missing linked students when the audience is "everyone", and record
+   *      audience_mode so late joiners keep arriving.
+   * A subset selection is never widened.
+   */
   async function setStatus(s: Status) {
+    const plan = planPublishAudience({
+      linkedIds: linkedStudentIds,
+      assignedIds,
+      audienceMode: a.audience_mode,
+    });
+    if (s === "published") {
+      if (plan.blocked === "no_students") {
+        toast.error(t("publishNoStudents"));
+        return;
+      }
+      if (assignedIds.size > 0 && plan.assignIds.length === 0 && !plan.everyone) {
+        // A strict subset: allowed, but say out loud who will NOT see it.
+        toast.warning(
+          t("publishPartial", {
+            assigned: String(assignedIds.size),
+            total: String(linkedStudentIds.length),
+          }),
+        );
+      }
+    }
     const { error } = await supabase.rpc("set_assessment_status", { _a: id, _status: s });
     if (error) return void toast.error(translateError(error, lang));
+
+    if (s === "published" && plan.blocked === null) {
+      if (plan.assignIds.length > 0) {
+        const { error: aErr } = await supabase
+          .from("assessment_assignments")
+          .insert(plan.assignIds.map((student_id) => ({ assessment_id: id, student_id })));
+        if (aErr) toast.error(translateError(aErr, lang));
+      }
+      // Best effort: schemas without audience_mode simply ignore this.
+      await supabase
+        .from("assessments")
+        .update({ audience_mode: plan.everyone ? "auto_all" : "explicit" })
+        .eq("id", id);
+      toast.success(
+        t("publishReach", {
+          count: String(plan.everyone ? linkedStudentIds.length : assignedIds.size),
+        }),
+      );
+    }
     refresh();
   }
   async function addQuestion(type: QType) {
@@ -104,6 +160,23 @@ function Builder() {
     ]);
     refresh();
   }
+  /**
+   * A student who joined AFTER publish is not in assessment_assignments on
+   * schemas where join_teacher does not back-fill (or when the audience was
+   * recorded but the row was skipped). Give the teacher a one-click repair
+   * instead of asking them to close and re-publish.
+   */
+  async function syncAudience() {
+    const missing = linkedStudentIds.filter((sid) => !assignedIds.has(sid));
+    if (missing.length === 0) return;
+    const { error } = await supabase
+      .from("assessment_assignments")
+      .insert(missing.map((student_id) => ({ assessment_id: id, student_id })));
+    if (error) return void toast.error(translateError(error, lang));
+    toast.success(t("audienceSynced", { count: String(missing.length) }));
+    refresh();
+  }
+
   async function toggleAssign(studentId: string, on: boolean) {
     const { error } = on
       ? await supabase
@@ -226,6 +299,16 @@ function Builder() {
                   total: String(data.students.length),
                 })}
               </p>
+            ) : null}
+            {a.audience_mode === "auto_all" &&
+            data.assigned.size < data.students.length &&
+            a.status !== "draft" ? (
+              <div className="mt-3 space-y-2 rounded-md bg-info/15 p-3">
+                <p className="text-xs">{t("audienceHasNewStudents")}</p>
+                <Button size="sm" variant="outline" onClick={syncAudience}>
+                  {t("audienceSyncNow")}
+                </Button>
+              </div>
             ) : null}
             <p className="mt-4 text-xs text-muted-foreground">
               {t("dueAt")}: {formatDate(a.due_at, lang)}
