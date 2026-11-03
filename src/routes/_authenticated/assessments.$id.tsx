@@ -13,7 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { WhatsAppAutoSendToggle } from "@/components/whatsapp-auto-send-toggle";
-import { missingAssignments, modeFromCoverage, planPublishAudience } from "@/lib/audience";
+import {
+  missingAssignments,
+  modeFromCoverage,
+  planPublishAudience,
+  topUpAfterPublish,
+} from "@/lib/audience";
+import { describeError } from "@/lib/error-capture";
 
 type QType = Database["public"]["Enums"]["question_type"];
 type Status = Database["public"]["Enums"]["assessment_status"];
@@ -111,31 +117,39 @@ function Builder() {
     if (error) return void toast.error(translateError(error, lang));
 
     if (s === "published" && plan.blocked === null) {
-      if (plan.assignIds.length > 0) {
-        // The RPC already assigns everyone on current schemas, so a plain
-        // insert here hits the (assessment_id, student_id) primary key and
-        // surfaced a second, red "duplicate key" toast right after a publish
-        // that had actually succeeded. Upsert-and-ignore makes the top-up
-        // idempotent: it only ever adds rows that are genuinely missing, and
-        // a concurrent join can no longer turn into an error.
+      // Read what the RPC (or the earlier selection) actually wrote. The old
+      // code re-inserted the pre-publish selection here, so on current
+      // schemas — where the RPC already assigned everyone — every publish
+      // ended with a raw "duplicate key" toast on top of the success one.
+      // Reading first means the top-up only runs when rows are genuinely
+      // missing, so no duplicate write is even attempted.
+      const { data: rows, error: readErr } = await supabase
+        .from("assessment_assignments")
+        .select("student_id")
+        .eq("assessment_id", id);
+      const assignedNow = (rows ?? []).map((r) => r.student_id);
+      const missing =
+        plan.mode === "auto_all" ? missingAssignments(linkedStudentIds, assignedNow) : [];
+      let reach = assignedNow.length;
+      if (missing.length > 0) {
         const { error: aErr } = await supabase.from("assessment_assignments").upsert(
-          plan.assignIds.map((student_id) => ({ assessment_id: id, student_id })),
+          missing.map((student_id) => ({ assessment_id: id, student_id })),
           { onConflict: "assessment_id,student_id", ignoreDuplicates: true },
         );
-        if (aErr) toast.error(translateError(aErr, lang));
+        if (aErr) {
+          // The exam is already published; a failed top-up is our problem, not
+          // the teacher's, so it is captured for diagnostics and never shown
+          // as raw database text.
+          console.error("[publish_top_up]", describeError(aErr));
+        } else {
+          reach += missing.length;
+        }
       }
       // Persist what was actually decided. Best effort: a schema without
       // audience_mode ignores it, and the rows above are already correct.
       await supabase.from("assessments").update({ audience_mode: plan.mode }).eq("id", id);
 
-      // Report the truth: re-read the assignment rows instead of trusting
-      // the pre-publish selection (that reported "0 students" on a live
-      // publish that had in fact assigned the student).
-      const { data: rows, error: readErr } = await supabase
-        .from("assessment_assignments")
-        .select("student_id")
-        .eq("assessment_id", id);
-      const reach = rows?.length ?? 0;
+      // Report the truth, counted from the rows rather than the selection.
       if (readErr) {
         toast.warning(t("publishReachUnknown"));
       } else if (reach === 0) {
@@ -197,7 +211,10 @@ function Builder() {
     const { error } = on
       ? await supabase
           .from("assessment_assignments")
-          .insert({ assessment_id: id, student_id: studentId })
+          .upsert(
+            { assessment_id: id, student_id: studentId },
+            { onConflict: "assessment_id,student_id", ignoreDuplicates: true },
+          )
       : await supabase
           .from("assessment_assignments")
           .delete()
