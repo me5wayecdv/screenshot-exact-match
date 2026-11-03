@@ -586,6 +586,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      group_exams: {
+        Row: {
+          assessment_id: string;
+          created_at: string;
+          group_id: string;
+        };
+        Insert: {
+          assessment_id: string;
+          created_at?: string;
+          group_id: string;
+        };
+        Update: {
+          assessment_id?: string;
+          created_at?: string;
+          group_id?: string;
+        };
+        Relationships: [];
+      };
       ai_training_examples: {
         Row: {
           ai_feedback: string | null;
@@ -885,6 +903,18 @@ export type Database = {
         Returns: string;
       };
       approve_all_group_members: { Args: { _group: string }; Returns: number };
+      assign_group_exam: {
+        Args: { _assessment: string; _group: string };
+        Returns: number;
+      };
+      my_group_exams: {
+        Args: { _group: string };
+        Returns: {
+          assessment_id: string;
+          published: boolean;
+          title: string;
+        }[];
+      };
       is_group_owner: { Args: { _group: string }; Returns: boolean };
       my_teacher_groups: {
         Args: never;

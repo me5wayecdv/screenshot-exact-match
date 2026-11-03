@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -56,6 +56,18 @@ type PendingGroup = {
   teacher_id: string;
   teacher_name: string;
   requested_at: string;
+};
+
+type GroupExam = {
+  assessment_id: string;
+  title: string;
+  published: boolean;
+};
+
+type TeacherAssessment = {
+  id: string;
+  title: string;
+  status: string;
 };
 
 const DAY_KEYS = ["sat", "sun", "mon", "tue", "wed", "thu", "fri"] as const;
@@ -414,6 +426,7 @@ function GroupCard({
             </p>
             <p className="mt-1 text-sm text-muted-foreground">{t("groupCodeHint")}</p>
           </div>
+          <GroupExams groupId={group.group_id} />
         </>
       )}
 
@@ -515,6 +528,130 @@ function GroupCard({
   );
 }
 
+function GroupExams({ groupId }: { groupId: string }) {
+  const { t, lang } = useI18n();
+  const { data: me } = useMe();
+  const qc = useQueryClient();
+  const [selected, setSelected] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const { data: exams } = useQuery({
+    queryKey: ["group-exams", groupId],
+    queryFn: async () =>
+      ((await supabase.rpc("my_group_exams", { _group: groupId })).data ?? []) as GroupExam[],
+  });
+  const { data: assessments } = useQuery({
+    queryKey: ["teacher-assessments", me?.id],
+    enabled: !!me?.id,
+    queryFn: async () =>
+      ((
+        await supabase
+          .from("assessments")
+          .select("id, title, status")
+          .eq("teacher_id", me!.id)
+          .order("created_at", { ascending: false })
+      ).data ?? []) as TeacherAssessment[],
+  });
+
+  async function assign() {
+    if (selected === "") return;
+    setBusy(true);
+    const { data: count, error } = await supabase.rpc("assign_group_exam", {
+      _group: groupId,
+      _assessment: selected,
+    });
+    setBusy(false);
+    if (error) return void toast.error(translateError(error, lang));
+    toast.success(t("groupExamAssigned", { count: String(count ?? 0) }));
+    setSelected("");
+    qc.invalidateQueries({ queryKey: ["group-exams", groupId] });
+  }
+
+  return (
+    <div className="mt-6">
+      <h4 className="mb-3 font-semibold">{t("groupExams")}</h4>
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+          aria-label={t("groupExamSelect")}
+        >
+          <option value="">{t("groupExamSelect")}</option>
+          {(assessments ?? []).map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.title} — {a.status === "published" ? t("groupExamPublished") : t("groupExamDraft")}
+            </option>
+          ))}
+        </select>
+        <Button onClick={assign} disabled={busy || selected === ""}>
+          {t("groupExamAssign")}
+        </Button>
+      </div>
+      {(exams ?? []).length === 0 ? (
+        <Empty>{t("groupExamNone")}</Empty>
+      ) : (
+        <ul className="mt-3 divide-y rounded-lg border bg-card">
+          {(exams ?? []).map((e) => (
+            <li key={e.assessment_id} className="flex items-center justify-between gap-3 p-4">
+              <span className="font-medium">{e.title}</span>
+              <span className="text-sm text-muted-foreground">
+                {e.published ? t("groupExamPublished") : t("groupExamDraft")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function StudentGroupCard({ group, labels }: { group: MyGroup; labels: Record<string, string> }) {
+  const { t } = useI18n();
+  // Approved members only: my_group_exams returns published linked exams
+  // for members and no rows for anyone else, so this list can never leak
+  // a draft or another group's exam to this student.
+  const { data: exams } = useQuery({
+    queryKey: ["group-exams-student", group.group_id],
+    queryFn: async () =>
+      ((await supabase.rpc("my_group_exams", { _group: group.group_id })).data ??
+        []) as GroupExam[],
+  });
+
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <h3 className="font-semibold">{group.group_name}</h3>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {group.school_year}
+        {(group.days ?? []).length > 0
+          ? ` — ${(group.days ?? []).map((d) => labels[d] ?? d).join("، ")}`
+          : ""}
+        {group.time_text ? ` — ${group.time_text}` : ""}
+      </p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        {t("groupTeacher", { name: group.teacher_name || "—" })}
+      </p>
+      <h4 className="mt-4 font-semibold">{t("groupExams")}</h4>
+      {(exams ?? []).length === 0 ? (
+        <Empty>{t("groupExamNone")}</Empty>
+      ) : (
+        <ul className="mt-2 space-y-2">
+          {(exams ?? []).map((e) => (
+            <li key={e.assessment_id} className="flex items-center justify-between gap-3">
+              <span className="font-medium">{e.title}</span>
+              <Button asChild size="sm">
+                <Link to="/assessments/take/$id" params={{ id: e.assessment_id }}>
+                  {t("groupExamStart")}
+                </Link>
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function StudentGroups() {
   const { t, lang } = useI18n();
   const qc = useQueryClient();
@@ -590,19 +727,7 @@ function StudentGroups() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {(myGroups ?? []).map((g) => (
-            <div key={g.group_id} className="rounded-lg border bg-card p-4">
-              <h3 className="font-semibold">{g.group_name}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {g.school_year}
-                {(g.days ?? []).length > 0
-                  ? ` — ${(g.days ?? []).map((d) => labels[d] ?? d).join("، ")}`
-                  : ""}
-                {g.time_text ? ` — ${g.time_text}` : ""}
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {t("groupTeacher", { name: g.teacher_name || "—" })}
-              </p>
-            </div>
+            <StudentGroupCard key={g.group_id} group={g} labels={labels} />
           ))}
         </div>
       )}
