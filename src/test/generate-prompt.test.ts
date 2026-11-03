@@ -102,7 +102,7 @@ describe("extractJsonObject resilience", () => {
 });
 
 describe("parseGeneratedDraft display cleanup", () => {
-  it("removes bold markers and excess tanween from generated Arabic text", () => {
+  it("removes bold markers but keeps tanween in generated Arabic text", () => {
     const draft = parseGeneratedDraft(
       {
         title: "**اختبارٌ**",
@@ -118,10 +118,10 @@ describe("parseGeneratedDraft display cleanup", () => {
       },
       20,
     );
-    expect(draft.title).toBe("اختبار");
+    expect(draft.title).toBe("اختبارٌ");
     expect(draft.questions[0]?.prompt).toBe("ما الماءُ؟");
-    expect(draft.questions[0]?.options[0]).toBe("تبخر");
-    expect(draft.questions[0]?.correct_answer).toBe("تبخر");
+    expect(draft.questions[0]?.options[0]).toBe("تبخرٌ");
+    expect(draft.questions[0]?.correct_answer).toBe("تبخرٌ");
   });
 });
 
