@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useMe } from "@/lib/session";
 import { studentAssessmentState } from "@/lib/assessment-visibility";
+import { pendingTeacherNames, waitingOn } from "@/lib/enrollment";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import {
   buildStartChecklist,
@@ -390,13 +391,15 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   const qc = useQueryClient();
   const [code, setCode] = useState("");
   const [lessonCode, setLessonCode] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(name);
   const [assignmentPage, setAssignmentPage] = useState(0);
   const [lessonPage, setLessonPage] = useState(0);
   const pageSize = 20;
   const { data, error: studentError } = useQuery({
     queryKey: ["student-home", studentId, assignmentPage, lessonPage],
     queryFn: async () => {
-      const [a, le, pc, links] = await Promise.all([
+      const [a, le, pc, links, pending] = await Promise.all([
         supabase
           .from("assessments")
           .select("id, title, instructions, due_at, starts_at, status")
@@ -409,13 +412,15 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           .range(lessonPage * pageSize, lessonPage * pageSize + pageSize),
         supabase
           .from("profiles")
-          .select("parent_phone, whatsapp_consent")
+          .select("full_name, parent_phone, whatsapp_consent")
           .eq("id", studentId)
           .maybeSingle(),
         // RLS lets a student read their own teacher links. The count tells
         // "not linked to anyone" apart from "linked, but nothing assigned
-        // yet" — the two very different reasons an exam list is empty.
-        supabase.from("teacher_students").select("teacher_id").eq("student_id", studentId),
+        // yet" — the two very different reasons an exam list is empty. A
+        // pending link is neither: it is a request waiting for a decision.
+        supabase.from("teacher_students").select("teacher_id, status").eq("student_id", studentId),
+        supabase.rpc("my_pending_enrollments"),
       ]);
       if (a.error) throw a.error;
       if (le.error) throw le.error;
@@ -449,17 +454,55 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
         lessons,
         hasMoreLessons: lessonRows.length > pageSize,
         parentContact: pc.data ?? null,
-        teacherLinks: links.data?.length ?? 0,
+        // Only approved links count as "linked to a teacher".
+        teacherLinks: (links.data ?? []).filter((l) => l.status === "approved").length,
+        // The name the teacher will see: a request without one cannot be
+        // judged, so it is asked for before joining (never taken from email).
+        myName: ((pc.data?.full_name as string | null) ?? "").trim(),
+        pendingRows: (pending.data ?? []) as {
+          teacher_id: string;
+          teacher_name: string;
+          requested_at: string;
+        }[],
       };
     },
   });
   async function join(e: FormEvent) {
     e.preventDefault();
+    // The teacher judges a request by name, so a nameless profile would arrive
+    // as an anonymous row. Ask once, here, instead of letting it happen.
+    if (!(data?.myName ?? "").trim()) {
+      setDraftName(data?.myName ?? "");
+      setEditingName(true);
+      return void toast.error(t("nameRequiredHint"));
+    }
     const { error } = await supabase.rpc("join_teacher", { _code: code });
     if (error) return void toast.error(translateError(error, lang));
     toast.success(t("joined"));
     setCode("");
     qc.invalidateQueries();
+  }
+  async function saveName(e: FormEvent) {
+    e.preventDefault();
+    const trimmed = draftName.trim();
+    if (!trimmed) return void toast.error(t("nameRequiredHint"));
+    const { error } = await supabase
+      .from("profiles")
+      .update({ full_name: trimmed })
+      .eq("id", studentId);
+    if (error) return void toast.error(translateError(error, lang));
+    toast.success(t("nameSaved"));
+    setEditingName(false);
+    qc.invalidateQueries();
+    // Saving the name was the only thing blocking the request: send it now,
+    // so the student does not have to type the code twice.
+    if (code.trim()) {
+      const { error: joinError } = await supabase.rpc("join_teacher", { _code: code });
+      if (joinError) return void toast.error(translateError(joinError, lang));
+      toast.success(t("joined"));
+      setCode("");
+      qc.invalidateQueries();
+    }
   }
   async function enroll(e: FormEvent) {
     e.preventDefault();
@@ -472,18 +515,31 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   const activeAssessment = data?.assessments.find(
     (a) => data.submissions.find((sub) => sub.assessment_id === a.id)?.status === "in_progress",
   );
+  // A request is a third state: not "no teacher", not "nothing assigned yet".
+  const pendingRows = data?.pendingRows ?? [];
+  const waiting = waitingOn(pendingRows);
+  const waitingNames = pendingTeacherNames(pendingRows);
+  const needsName = data ? data.myName.length === 0 : false;
   return (
     <>
       {/* Student home asks one question: what is the next thing to do? */}
       <Hero
         kicker={t("heroKicker")}
-        title={`${t("welcome")}، ${name}`}
+        title={
+          waiting > 0 && !activeAssessment
+            ? t("waitingApprovalTitle")
+            : `${t("welcome")}، ${data?.myName || name}`
+        }
         body={
           activeAssessment
             ? t("heroStudentActive", { title: activeAssessment.title })
-            : (data?.teacherLinks ?? 0) === 0
-              ? t("noTeacherLinked")
-              : t("heroStudentIdle")
+            : waiting > 0
+              ? waitingNames.length > 0
+                ? t("waitingApprovalBody", { name: waitingNames[0]! })
+                : t("waitingApprovalBodyNoName")
+              : (data?.teacherLinks ?? 0) === 0
+                ? t("noTeacherLinked")
+                : t("heroStudentIdle")
         }
         actions={
           activeAssessment ? (
@@ -502,6 +558,45 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       />
       {/* (1) Teacher work — assessments assigned by teachers. */}
       <h2 className="mb-3 text-lg font-semibold">{t("schoolWork")}</h2>
+      {/* A request the teacher cannot put a name to cannot be judged. */}
+      {needsName || editingName ? (
+        <Panel className="mb-4">
+          <form onSubmit={saveName} className="flex flex-wrap items-end gap-3">
+            <div className="min-w-0 flex-1">
+              <label htmlFor="my-name" className="text-sm font-medium">
+                {t("yourName")}
+              </label>
+              <Input
+                id="my-name"
+                value={draftName}
+                onChange={(e) => setDraftName(e.target.value)}
+                className="mt-1.5 max-w-sm"
+                maxLength={80}
+                required
+              />
+              <p className="mt-1.5 text-xs text-muted-foreground">{t("nameRequiredHint")}</p>
+            </div>
+            <Button type="submit" variant="secondary">
+              {t("saveName")}
+            </Button>
+          </form>
+        </Panel>
+      ) : null}
+
+      {waiting > 0 ? (
+        <Panel className="mb-4">
+          <p className="font-medium">{t("waitingApprovalTitle")}</p>
+          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            {pendingRows.map((r) => (
+              <li key={r.teacher_id} className="flex flex-wrap justify-between gap-2">
+                <span>{r.teacher_name || "—"}</span>
+                <span>{formatDate(r.requested_at, lang)}</span>
+              </li>
+            ))}
+          </ul>
+        </Panel>
+      ) : null}
+
       <Panel className="mb-8">
         <form id="join" onSubmit={join} className="flex flex-wrap items-end gap-3">
           <div className="flex-1">
