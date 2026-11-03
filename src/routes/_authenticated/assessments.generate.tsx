@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getRtlColumnCropBounds } from "@/lib/ocr-image-layout";
+import { chunkDataUrls } from "@/lib/ocr-batch";
 import { generateAssessment } from "@/lib/generate-assessment";
 import type { GenerateFailureCode } from "@/lib/ai-failure";
 import type { GenerateDifficulty, GenerateQuestionType } from "@/lib/generate-assessment-prompt";
@@ -380,6 +381,31 @@ function Generate() {
     return { ok: true, texts };
   }
 
+  async function transcribeFull(dataUrls: string[], accessToken: string): Promise<SourceOcrResult> {
+    // "Full" mode used to send every page in one call, so four dense pages
+    // tripped the server's 12M-char aggregate cap and lost the whole batch
+    // with INVALID_INPUT. Split into budget-sized chunks instead; the
+    // server OCRs each image independently, so the text is unchanged.
+    // A chunk timeout still surfaces as VISION_TIMEOUT, so the existing
+    // quarters fallback below runs exactly as it did for a single call.
+    const texts: string[] = [];
+    let offset = 0;
+    for (const chunk of chunkDataUrls(dataUrls)) {
+      const result = await ocrSourceImages({
+        data: { imageDataUrls: chunk, accessToken },
+      });
+      if (!result.ok) {
+        return {
+          ...result,
+          imageIndex: typeof result.imageIndex === "number" ? offset + result.imageIndex : offset,
+        };
+      }
+      texts.push(...result.texts);
+      offset += chunk.length;
+    }
+    return { ok: true, texts };
+  }
+
   async function handleImageFiles(files: File[], retryBatch?: { blobs: Blob[]; names: string[] }) {
     const imageCount = retryBatch?.blobs.length ?? files.length;
     if (imageCount > MAX_IMAGES) return void toast.error(t("genTooManyImages"));
@@ -418,9 +444,7 @@ function Generate() {
       const res: SourceOcrResult =
         ocrLayout !== "full"
           ? await transcribeInSections(blobs, session?.access_token ?? "", ocrLayout)
-          : await ocrSourceImages({
-              data: { imageDataUrls: dataUrls, accessToken: session?.access_token ?? "" },
-            });
+          : await transcribeFull(dataUrls, session?.access_token ?? "");
       if (
         !res.ok &&
         ocrLayout === "full" &&
