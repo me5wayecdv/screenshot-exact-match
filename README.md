@@ -36,8 +36,10 @@ bun run dev
 AI/provider setup and Cloudflare deployment details are documented in
 [`docs/ai-models.md`](docs/ai-models.md) and
 [`docs/cloudflare-deploy.md`](docs/cloudflare-deploy.md). Before real student
-use, follow [`docs/launch-readiness.md`](docs/launch-readiness.md). Do not copy
-secrets into client-side variables or commit them.
+use, follow [`docs/launch-readiness.md`](docs/launch-readiness.md). Running costs
+(provider prices, per-action AI cost, break-even) are in
+[`docs/costs.md`](docs/costs.md). Do not copy secrets into client-side variables
+or commit them.
 
 ## Scripts
 
