@@ -526,6 +526,66 @@ export type Database = {
         };
         Relationships: [];
       };
+      teacher_groups: {
+        Row: {
+          created_at: string;
+          days: string[];
+          id: string;
+          join_code: string;
+          name: string;
+          notes: string;
+          school_year: string;
+          teacher_id: string;
+          time_text: string;
+        };
+        Insert: {
+          created_at?: string;
+          days?: string[];
+          id?: string;
+          join_code: string;
+          name: string;
+          notes?: string;
+          school_year?: string;
+          teacher_id: string;
+          time_text?: string;
+        };
+        Update: {
+          created_at?: string;
+          days?: string[];
+          id?: string;
+          join_code?: string;
+          name?: string;
+          notes?: string;
+          school_year?: string;
+          teacher_id?: string;
+          time_text?: string;
+        };
+        Relationships: [];
+      };
+      group_members: {
+        Row: {
+          decided_at: string | null;
+          group_id: string;
+          requested_at: string;
+          status: string;
+          student_id: string;
+        };
+        Insert: {
+          decided_at?: string | null;
+          group_id: string;
+          requested_at?: string;
+          status?: string;
+          student_id: string;
+        };
+        Update: {
+          decided_at?: string | null;
+          group_id?: string;
+          requested_at?: string;
+          status?: string;
+          student_id?: string;
+        };
+        Relationships: [];
+      };
       ai_training_examples: {
         Row: {
           ai_feedback: string | null;
@@ -796,6 +856,81 @@ export type Database = {
       decide_enrollment: {
         Args: { _approve: boolean; _student: string };
         Returns: string;
+      };
+      create_teacher_group: {
+        Args: {
+          _days: string[];
+          _name: string;
+          _notes: string;
+          _time: string;
+          _year: string;
+        };
+        Returns: string;
+      };
+      update_teacher_group: {
+        Args: {
+          _days: string[];
+          _group: string;
+          _name: string;
+          _notes: string;
+          _time: string;
+          _year: string;
+        };
+        Returns: boolean;
+      };
+      delete_teacher_group: { Args: { _group: string }; Returns: boolean };
+      join_group: { Args: { _code: string }; Returns: string };
+      decide_group_membership: {
+        Args: { _approve: boolean; _group: string; _student: string };
+        Returns: string;
+      };
+      approve_all_group_members: { Args: { _group: string }; Returns: number };
+      is_group_owner: { Args: { _group: string }; Returns: boolean };
+      my_teacher_groups: {
+        Args: never;
+        Returns: {
+          approved_count: number;
+          created_at: string;
+          days: string[];
+          group_id: string;
+          join_code: string;
+          name: string;
+          notes: string;
+          pending_count: number;
+          school_year: string;
+          time_text: string;
+        }[];
+      };
+      my_group_roster: {
+        Args: { _group: string };
+        Returns: {
+          full_name: string;
+          requested_at: string;
+          status: string;
+          student_id: string;
+        }[];
+      };
+      my_groups: {
+        Args: never;
+        Returns: {
+          days: string[];
+          group_id: string;
+          group_name: string;
+          school_year: string;
+          teacher_id: string;
+          teacher_name: string;
+          time_text: string;
+        }[];
+      };
+      my_pending_group_requests: {
+        Args: never;
+        Returns: {
+          group_id: string;
+          group_name: string;
+          requested_at: string;
+          teacher_id: string;
+          teacher_name: string;
+        }[];
       };
       normalize_answer: { Args: { _t: string }; Returns: string };
       owns_assessment: { Args: { _a: string }; Returns: boolean };

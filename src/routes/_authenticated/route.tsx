@@ -59,6 +59,7 @@ function AppShell() {
           ],
           secondary: [
             { to: "/students", label: t("students"), icon: Users },
+            { to: "/groups", label: t("groups"), icon: Users },
             { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
             { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
             { to: "/audit", label: t("auditHistory"), icon: History },
@@ -75,6 +76,7 @@ function AppShell() {
             ],
             secondary: [
               { to: "/students", label: t("students"), icon: Users },
+              { to: "/groups", label: t("groups"), icon: Users },
               { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
               { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
               { to: "/audit", label: t("auditHistory"), icon: History },
@@ -97,7 +99,10 @@ function AppShell() {
                 { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
                 { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
               ],
-              secondary: [{ to: "/profile", label: t("profile"), icon: User }],
+              secondary: [
+                { to: "/groups", label: t("groups"), icon: Users },
+                { to: "/profile", label: t("profile"), icon: User },
+              ],
             };
   // Remember whether the "More" list is open; one panel serves both navs.
   const [moreOpen, setMoreOpen] = useState(false);

@@ -21,6 +21,7 @@ import { Route as AuthenticatedAssistantRouteImport } from './routes/_authentica
 import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedGradingRouteImport } from './routes/_authenticated/grading'
+import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
 import { Route as AuthenticatedHandwrittenRouteImport } from './routes/_authenticated/handwritten'
 import { Route as AuthenticatedLessonsRouteImport } from './routes/_authenticated/lessons'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
@@ -90,6 +91,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
 const AuthenticatedGradingRoute = AuthenticatedGradingRouteImport.update({
   id: '/grading',
   path: '/grading',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedGroupsRoute = AuthenticatedGroupsRouteImport.update({
+  id: '/groups',
+  path: '/groups',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedHandwrittenRoute =
@@ -166,6 +172,7 @@ export interface FileRoutesByFullPath {
   '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/grading': typeof AuthenticatedGradingRoute
+  '/groups': typeof AuthenticatedGroupsRoute
   '/handwritten': typeof AuthenticatedHandwrittenRoute
   '/lessons': typeof AuthenticatedLessonsRoute
   '/profile': typeof AuthenticatedProfileRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByTo {
   '/audit': typeof AuthenticatedAuditRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/grading': typeof AuthenticatedGradingRoute
+  '/groups': typeof AuthenticatedGroupsRoute
   '/handwritten': typeof AuthenticatedHandwrittenRoute
   '/lessons': typeof AuthenticatedLessonsRoute
   '/profile': typeof AuthenticatedProfileRoute
@@ -216,6 +224,7 @@ export interface FileRoutesById {
   '/_authenticated/audit': typeof AuthenticatedAuditRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/grading': typeof AuthenticatedGradingRoute
+  '/_authenticated/groups': typeof AuthenticatedGroupsRoute
   '/_authenticated/handwritten': typeof AuthenticatedHandwrittenRoute
   '/_authenticated/lessons': typeof AuthenticatedLessonsRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
@@ -242,6 +251,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/dashboard'
     | '/grading'
+    | '/groups'
     | '/handwritten'
     | '/lessons'
     | '/profile'
@@ -266,6 +276,7 @@ export interface FileRouteTypes {
     | '/audit'
     | '/dashboard'
     | '/grading'
+    | '/groups'
     | '/handwritten'
     | '/lessons'
     | '/profile'
@@ -291,6 +302,7 @@ export interface FileRouteTypes {
     | '/_authenticated/audit'
     | '/_authenticated/dashboard'
     | '/_authenticated/grading'
+    | '/_authenticated/groups'
     | '/_authenticated/handwritten'
     | '/_authenticated/lessons'
     | '/_authenticated/profile'
@@ -399,6 +411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedGradingRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/groups': {
+      id: '/_authenticated/groups'
+      path: '/groups'
+      fullPath: '/groups'
+      preLoaderRoute: typeof AuthenticatedGroupsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/handwritten': {
       id: '/_authenticated/handwritten'
       path: '/handwritten'
@@ -486,6 +505,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedGradingRoute: typeof AuthenticatedGradingRoute
+  AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
   AuthenticatedHandwrittenRoute: typeof AuthenticatedHandwrittenRoute
   AuthenticatedLessonsRoute: typeof AuthenticatedLessonsRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
@@ -506,6 +526,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAuditRoute: AuthenticatedAuditRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedGradingRoute: AuthenticatedGradingRoute,
+  AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
   AuthenticatedHandwrittenRoute: AuthenticatedHandwrittenRoute,
   AuthenticatedLessonsRoute: AuthenticatedLessonsRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
