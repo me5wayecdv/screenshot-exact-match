@@ -1,6 +1,6 @@
 # Who can see an exam (audience)
 
-A student only ever receives an assessment that is **published** *and* **assigned**
+A student only ever receives an assessment that is **published** _and_ **assigned**
 to them — the RLS policy `student reads assigned` is built on `assigned_published(id)`,
 which requires a row in `assessment_assignments` and `status in ('published','closed')`.
 Everything else (draft, published-but-unassigned, unlinked student) is invisible,
@@ -16,12 +16,17 @@ column defaults to `'explicit'`, and trusting the default was a real bug
 `explicit`, so students who joined later were never assigned, and the toast
 reported "0 students".
 
-| Coverage at publish | Audience | Effect |
-| ------------------- | -------- | ------ |
-| No linked students | — | **Blocked** ("nobody could see it"). |
-| Nothing selected | `auto_all` | Every linked student assigned; later joiners included. |
-| Selection covers every linked student | `auto_all` | Same — selecting everyone *is* "everyone". |
-| A strict subset selected | `explicit` | Exactly that subset; never widened (teacher is warned). |
+**"Linked" now means approved** (`teacher_students.status = 'approved'`,
+2026-11-03). A student who typed the code is a _request_ until the teacher
+approves it; pending requests are never counted, never assigned, and never in
+the roster. See `docs/enrollment.md`.
+
+| Coverage at publish                   | Audience   | Effect                                                  |
+| ------------------------------------- | ---------- | ------------------------------------------------------- |
+| No linked students                    | —          | **Blocked** ("nobody could see it").                    |
+| Nothing selected                      | `auto_all` | Every linked student assigned; later joiners included.  |
+| Selection covers every linked student | `auto_all` | Same — selecting everyone _is_ "everyone".              |
+| A strict subset selected              | `explicit` | Exactly that subset; never widened (teacher is warned). |
 
 The marker is **written** from that decision, and the success toast reports a
 number read back from `assessment_assignments` after the write — not from the
@@ -68,7 +73,7 @@ never to an invisible exam.
 counting the student's `teacher_students` links:
 
 - **0 links** → "you are not linked to a teacher yet: ask for the join code".
-- **1+ links** → "linked to N teacher(s), but nothing is published *and*
+- **1+ links** → "linked to N teacher(s), but nothing is published _and_
   assigned to you yet".
 
 A failed read is a separate, visible error — never an empty list.

@@ -46,7 +46,9 @@ function useBuilderData(id: string) {
           .eq("assessment_id", id)
           .order("position"),
         supabase.from("subjects").select("id, name").order("name"),
-        supabase.rpc("my_students"),
+        // Approved only: a pending request is not a student who will see the
+        // exam, and must never be counted in the publish audience.
+        supabase.rpc("my_student_roster"),
         supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id),
         supabase.from("submissions").select("id").eq("assessment_id", id),
       ]);
@@ -55,7 +57,7 @@ function useBuilderData(id: string) {
         a: a.data,
         questions: q.data ?? [],
         subjects: subj.data ?? [],
-        students: st.data ?? [],
+        students: (st.data ?? []).filter((r) => r.status === "approved"),
         assigned: new Set((asg.data ?? []).map((x) => x.student_id)),
         submissionCount: subs.data?.length ?? 0,
       };
