@@ -71,3 +71,23 @@ export function planPublishAudience({
     assignIds: mode === "auto_all" ? missingAssignments(linkedIds, assignedIds) : [],
   };
 }
+
+/**
+ * What still has to be written AFTER the server transition ran.
+ *
+ * The RPC assigns everyone on current schemas, so this is usually empty and no
+ * write is issued — which is what keeps a publish from producing a
+ * "duplicate key" error on top of its success toast. It is not empty only on
+ * older schemas, or when a student was linked between the read and the
+ * transition. A subset (`explicit`) audience is never widened.
+ */
+export function topUpAfterPublish(
+  linkedIds: string[],
+  freshAssignedIds: Iterable<string>,
+  mode: AudienceMode,
+): string[] {
+  if (mode !== "auto_all") return [];
+  // Deduplicated: one row per student, so a repeated id in the input can never
+  // become two values in a single insert statement.
+  return [...new Set(missingAssignments(linkedIds, freshAssignedIds))];
+}

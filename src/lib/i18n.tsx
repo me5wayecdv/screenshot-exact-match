@@ -1736,6 +1736,29 @@ const errorMap: Record<string, { ar: string; en: string }> = {
   },
 };
 
+/**
+ * PostgREST failures are plain objects carrying a SQLSTATE `code` (5 chars,
+ * e.g. "23505" for a duplicate key) plus `details`/`hint`. Nothing in this app
+ * writes those for people, so they are recognised and never rendered.
+ */
+function isDatabaseError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const { code, details, hint } = err as { code?: unknown; details?: unknown; hint?: unknown };
+  if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) return true;
+  return details != null || hint != null;
+}
+
+/**
+ * Turn any failure into a sentence a teacher can act on.
+ *
+ * Database failures are never echoed: a Supabase/PostgREST error carries a
+ * `code`, and its `message` is Postgres internals ("duplicate key value
+ * violates unique constraint ..."). Showing that to a teacher is noise at
+ * best and a data leak at worst, so a database error that is not in
+ * `errorMap` becomes the generic line. Application-thrown messages
+ * ("no_questions", "invalid_transition", …) still come through, because they
+ * are written for people and are listed in `errorMap`.
+ */
 export function translateError(err: unknown, lang: Lang): string {
   const msg =
     err instanceof Error
@@ -1744,6 +1767,8 @@ export function translateError(err: unknown, lang: Lang): string {
         ? String((err as { message: unknown }).message)
         : String(err);
   for (const k of Object.keys(errorMap)) if (msg.includes(k)) return errorMap[k]![lang];
+  const fromDatabase = isDatabaseError(err);
+  if (fromDatabase) return dict[lang].errorGeneric;
   return msg && msg.length < 200 ? msg : dict[lang].errorGeneric;
 }
 

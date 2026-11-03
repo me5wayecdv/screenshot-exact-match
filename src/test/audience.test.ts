@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { missingAssignments, modeFromCoverage, planPublishAudience } from "@/lib/audience";
+import {
+  missingAssignments,
+  modeFromCoverage,
+  planPublishAudience,
+  topUpAfterPublish,
+} from "@/lib/audience";
 
 describe("planPublishAudience", () => {
   it("blocks publishing when no student is linked (nobody could see it)", () => {
@@ -60,5 +65,28 @@ describe("missingAssignments", () => {
   it("lists only linked students without a row", () => {
     expect(missingAssignments(["a", "b", "c"], new Set(["b"]))).toEqual(["a", "c"]);
     expect(missingAssignments([], [])).toEqual([]);
+  });
+});
+
+describe("topUpAfterPublish", () => {
+  // Live bug (2026-11-04): the publish handler re-inserted the pre-publish
+  // selection after the RPC had already assigned everyone, so every publish
+  // raised a raw "duplicate key" toast next to its success toast. The top-up
+  // must be empty once the server has done the work.
+  it("writes nothing when the transition already assigned every linked student", () => {
+    expect(topUpAfterPublish(["a", "b"], ["a", "b"], "auto_all")).toEqual([]);
+  });
+
+  it("adds only the students still missing (older schema, or linked mid-publish)", () => {
+    expect(topUpAfterPublish(["a", "b", "c"], ["a"], "auto_all")).toEqual(["b", "c"]);
+  });
+
+  it("never widens an explicit subset, even if students are missing", () => {
+    expect(topUpAfterPublish(["a", "b", "c"], ["b"], "explicit")).toEqual([]);
+  });
+
+  it("returns unique ids only, so one student cannot be inserted twice", () => {
+    const missing = topUpAfterPublish(["a", "a"], [], "auto_all");
+    expect(new Set(missing).size).toBe(missing.length);
   });
 });
