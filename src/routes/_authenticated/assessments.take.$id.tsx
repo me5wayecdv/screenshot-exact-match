@@ -245,19 +245,42 @@ function Take() {
         response,
         time_spent_seconds: Math.max(0, Math.round(times[question_id] ?? 0)),
       }));
-      saveDraftD1({ data: { submissionId: draft.id, answers: rows } }).then(async ({ ok }) => {
-        if (ok) {
-          lastSaved.current = payload;
-          setSaveState("saved");
+      const saveWithRetry = async () => {
+        for (let attempt = 0; ; attempt += 1) {
           try {
-            await recorder.flushEvents(draft.id);
-          } catch {
-            // Non-fatal: events stay buffered for the next flush.
+            return await saveDraftD1({ data: { submissionId: draft.id, answers: rows } });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (
+              !/D1 DB is overloaded|D1_ERROR.*overloaded|too many resources consumed within a 10 second window/i.test(
+                message,
+              ) ||
+              attempt >= 3
+            )
+              throw error;
+            await new Promise((resolve) => setTimeout(resolve, [200, 400, 800][attempt]));
           }
-        } else {
-          setSaveState("idle");
         }
-      });
+      };
+      void saveWithRetry()
+        .then(async ({ ok }) => {
+          if (ok) {
+            lastSaved.current = payload;
+            setSaveState("saved");
+            try {
+              await recorder.flushEvents(draft.id);
+            } catch {
+              // Non-fatal: events stay buffered for the next flush.
+            }
+          } else {
+            setSaveState("idle");
+          }
+        })
+        .catch(() => {
+          // Silent bounded retry: leave the draft dirty so a later edit or
+          // the next autosave attempt can persist it without interrupting the student.
+          setSaveState("idle");
+        });
     }, 1500);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps

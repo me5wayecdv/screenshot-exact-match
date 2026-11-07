@@ -49,7 +49,9 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import type { D1Database } from "@/server/d1-auth-store";
+import { getRequest } from "@tanstack/react-start/server";
+import { retryD1Overload } from "@/server/d1-retry";
+import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { appendAuditLog } from "@/server/d1-admin";
 import { listStudentHandwrittenGrades, type StudentHwGrade } from "@/server/d1-handwritten";
@@ -451,6 +453,7 @@ export async function setAssessmentStatus(
   teacherId: string,
   assessmentId: string,
   status: AssessmentStatus,
+  waitUntil?: (task: Promise<unknown>) => void,
 ): Promise<{ reach: number; mode: AudienceMode | null }> {
   const current = await ownAssessment(db, teacherId, assessmentId);
   const allowed = TRANSITIONS[current.status] ?? [];
@@ -463,6 +466,7 @@ export async function setAssessmentStatus(
     if ((subs?.n ?? 0) > 0) throw new Error("HAS_SUBMISSIONS");
   }
   let mode: AudienceMode | null = null;
+  let publishReach: number | null = null;
   if (status === "published") {
     const { results } = await db
       .prepare(
@@ -499,17 +503,26 @@ export async function setAssessmentStatus(
     const assigned = await assignedIdsFor(db, assessmentId);
     mode = modeFromCoverage(linked, assigned);
     if (mode === "auto_all") {
+      publishReach = linked.length;
       // GROUP-EXAM EDGE (see header): this widening ignores group_exams
       // links by design, exactly as the old RPC did.
       const missing = missingAssignments(linked, assigned);
-      for (const studentId of missing) {
-        await db
+      const statements: D1Statement[] = missing.map((studentId) =>
+        db
           .prepare(
             "INSERT OR IGNORE INTO assessment_assignments (assessment_id, student_id) VALUES (?, ?)",
           )
-          .bind(assessmentId, studentId)
-          .run();
-      }
+          .bind(assessmentId, studentId),
+      );
+      const assignInBatches = async () => {
+        for (let offset = 0; offset < statements.length; offset += 50) {
+          const batch = statements.slice(offset, offset + 50);
+          if (db.batch) await retryD1Overload(() => db.batch!(batch));
+          else for (const statement of batch) await retryD1Overload(() => statement.run());
+        }
+      };
+      if (waitUntil && statements.length > 0) waitUntil(assignInBatches());
+      else await assignInBatches();
     }
   }
   await db
@@ -535,7 +548,7 @@ export async function setAssessmentStatus(
       }),
     )
     .run();
-  const reach = await assignmentCount(db, assessmentId);
+  const reach = publishReach ?? (await assignmentCount(db, assessmentId));
   return { reach, mode };
 }
 
@@ -1233,7 +1246,14 @@ export const setAssessmentStatusD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
-    return setAssessmentStatus(db, session.userId, data.assessmentId, data.status);
+    const request = getRequest() as Request & { waitUntil?: (task: Promise<unknown>) => void };
+    return setAssessmentStatus(
+      db,
+      session.userId,
+      data.assessmentId,
+      data.status,
+      typeof request.waitUntil === "function" ? request.waitUntil.bind(request) : undefined,
+    );
   });
 
 export const setAudienceEveryoneD1 = createServerFn({ method: "POST" })

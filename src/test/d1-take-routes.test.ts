@@ -158,6 +158,23 @@ function fakeDb(state: State): D1Database {
         const rows = state.answers.filter((a) => ids.includes(a.submission_id));
         return { results: rows as unknown as T[] };
       }
+      if (kind === "draft-answer-lookup") {
+        const submissionId = params[0] as string;
+        const assessmentId = params[1] as string;
+        const ids = params.slice(2) as string[];
+        const questions = (state.questions[assessmentId] ?? []).filter((q) => ids.includes(q.id));
+        return {
+          results: questions.map((q) => ({
+            question_id: q.id,
+            marks: q.marks,
+            answer_id: state.answers.some(
+              (a) => a.submission_id === submissionId && a.question_id === q.id,
+            )
+              ? `${submissionId}:${q.id}`
+              : null,
+          })) as unknown as T[],
+        };
+      }
       return { results: [] };
     };
     return {
@@ -194,6 +211,8 @@ function fakeDb(state: State): D1Database {
       else if (sql.startsWith("SELECT * FROM submissions WHERE id = ?")) kind = "submission-by-id";
       else if (sql.startsWith("SELECT due_at FROM assessments")) kind = "due";
       else if (sql.includes("SELECT marks FROM questions")) kind = "question-marks";
+      else if (sql.includes("LEFT JOIN answers a ON a.question_id = q.id"))
+        kind = "draft-answer-lookup";
       else if (sql.startsWith("SELECT id FROM answers")) kind = "answer-existing";
       else if (sql.startsWith("SELECT assessment_id, student_id FROM submissions"))
         kind = "submission-owner";

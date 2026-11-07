@@ -35,12 +35,12 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import type { D1Database } from "@/server/d1-auth-store";
+import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { canTakeAssessment } from "@/server/d1-take-gate";
-import { appendAuditLog } from "@/server/d1-admin";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { effectiveRole } from "@/server/d1-assessments";
+import { retryD1Overload } from "@/server/d1-retry";
 
 export type TakeAssessment = {
   id: string;
@@ -262,7 +262,7 @@ export async function getTakeData(
 
 /* ------------------------------------------------------------- attempts */
 
-export async function startAttempt(
+async function startAttemptOnce(
   db: D1Database,
   studentId: string,
   assessmentId: string,
@@ -323,13 +323,25 @@ export async function startAttempt(
   return { submissionId: id };
 }
 
+export function startAttempt(
+  db: D1Database,
+  studentId: string,
+  assessmentId: string,
+  questionOrder: string[],
+  nowIso?: string,
+): Promise<{ submissionId: string }> {
+  return retryD1Overload(() =>
+    startAttemptOnce(db, studentId, assessmentId, questionOrder, nowIso),
+  );
+}
+
 export type DraftAnswerInput = {
   question_id: string;
   response: string;
   time_spent_seconds: number;
 };
 
-export async function saveDraft(
+async function saveDraftOnce(
   db: D1Database,
   studentId: string,
   submissionId: string,
@@ -349,45 +361,71 @@ export async function saveDraft(
   // Edits freeze at expiry and at the window end (old save_draft rule).
   if (submission.expires_at && nowIso > submission.expires_at) return false;
   if (assessment?.due_at && nowIso > assessment.due_at) return false;
-  for (const answer of answers.slice(0, 500)) {
-    // max_marks always comes from the question, never the client, and
-    // the question must belong to this submission's assessment.
-    const question = await db
-      .prepare("SELECT marks FROM questions WHERE id = ? AND assessment_id = ?")
-      .bind(answer.question_id, submission.assessment_id)
-      .first<{ marks: number }>();
-    if (!question) continue;
-    const existing = await db
-      .prepare("SELECT id FROM answers WHERE submission_id = ? AND question_id = ?")
-      .bind(submissionId, answer.question_id)
-      .first<{ id: string }>();
-    const time = Math.max(0, Math.round(answer.time_spent_seconds || 0));
-    if (existing) {
-      await db
-        .prepare("UPDATE answers SET response = ?, time_spent_seconds = ? WHERE id = ?")
-        .bind(answer.response ?? "", time, existing.id)
-        .run();
-    } else {
-      await db
-        .prepare(
-          "INSERT INTO answers (id, submission_id, question_id, response, max_marks, review_status, time_spent_seconds) " +
-            "VALUES (?, ?, ?, ?, ?, 'not_graded', ?)",
-        )
-        .bind(
-          crypto.randomUUID(),
-          submissionId,
-          answer.question_id,
-          answer.response ?? "",
-          question.marks,
-          time,
-        )
-        .run();
+  const requested = answers.slice(0, 500);
+  const byQuestion = new Map(requested.map((answer) => [answer.question_id, answer]));
+  const questionIds = [...byQuestion.keys()];
+  const writes: D1Statement[] = [];
+  if (questionIds.length > 0) {
+    // One ownership-scoped read replaces per-answer question + answer lookups.
+    const placeholders = questionIds.map(() => "?").join(", ");
+    const rows = await db
+      .prepare(
+        "SELECT q.id AS question_id, q.marks, a.id AS answer_id FROM questions q " +
+          "LEFT JOIN answers a ON a.question_id = q.id AND a.submission_id = ? " +
+          `WHERE q.assessment_id = ? AND q.id IN (${placeholders})`,
+      )
+      .bind(submissionId, submission.assessment_id, ...questionIds)
+      .all<{ question_id: string; marks: number; answer_id: string | null }>();
+    const validQuestions = new Map((rows.results ?? []).map((row) => [row.question_id, row]));
+    for (const [questionId, answer] of byQuestion) {
+      // max_marks comes from the assessment's question, never the client.
+      const question = validQuestions.get(questionId);
+      if (!question) continue;
+      const time = Math.max(0, Math.round(answer.time_spent_seconds || 0));
+      if (question.answer_id) {
+        writes.push(
+          db
+            .prepare("UPDATE answers SET response = ?, time_spent_seconds = ? WHERE id = ?")
+            .bind(answer.response ?? "", time, question.answer_id),
+        );
+      } else {
+        writes.push(
+          db
+            .prepare(
+              "INSERT INTO answers (id, submission_id, question_id, response, max_marks, review_status, time_spent_seconds) " +
+                "VALUES (?, ?, ?, ?, ?, 'not_graded', ?)",
+            )
+            .bind(
+              crypto.randomUUID(),
+              submissionId,
+              questionId,
+              answer.response ?? "",
+              question.marks,
+              time,
+            ),
+        );
+      }
     }
+  }
+  for (let offset = 0; offset < writes.length; offset += 50) {
+    const batch = writes.slice(offset, offset + 50);
+    if (db.batch) await db.batch(batch);
+    else for (const statement of batch) await statement.run();
   }
   return true;
 }
 
-export async function submitAttempt(
+export function saveDraft(
+  db: D1Database,
+  studentId: string,
+  submissionId: string,
+  answers: DraftAnswerInput[],
+  nowIso?: string,
+): Promise<boolean> {
+  return retryD1Overload(() => saveDraftOnce(db, studentId, submissionId, answers, nowIso));
+}
+
+async function submitAttemptOnce(
   db: D1Database,
   studentId: string,
   submissionId: string,
@@ -401,20 +439,40 @@ export async function submitAttempt(
   if (submission.status !== "in_progress") return false;
   // Submit stays allowed after expiry/window end: edits are already
   // frozen by saveDraft, and rejecting here would destroy frozen work.
-  await db
-    .prepare("UPDATE submissions SET status = 'awaiting_review', submitted_at = ? WHERE id = ?")
-    .bind(nowIso, submissionId)
-    .run();
   // Activity feed: exam submitted (label = exam title, never answers).
   const exam = await db
     .prepare("SELECT title FROM assessments WHERE id = ?")
     .bind(submission.assessment_id)
     .first<{ title: string }>();
-  await appendAuditLog(db, studentId, "exam_submitted", submissionId, {
-    assessment_id: submission.assessment_id,
-    target_label: exam?.title ?? "",
-  });
+  const statusWrite = db
+    .prepare("UPDATE submissions SET status = 'awaiting_review', submitted_at = ? WHERE id = ?")
+    .bind(nowIso, submissionId);
+  const auditWrite = db
+    .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
+    .bind(
+      studentId,
+      "exam_submitted",
+      submissionId,
+      JSON.stringify({
+        assessment_id: submission.assessment_id,
+        target_label: exam?.title ?? "",
+      }),
+    );
+  if (db.batch) await db.batch([statusWrite, auditWrite]);
+  else {
+    await statusWrite.run();
+    await auditWrite.run();
+  }
   return true;
+}
+
+export function submitAttempt(
+  db: D1Database,
+  studentId: string,
+  submissionId: string,
+  nowIso?: string,
+): Promise<boolean> {
+  return retryD1Overload(() => submitAttemptOnce(db, studentId, submissionId, nowIso));
 }
 
 const INTEGRITY_EVENTS = [
