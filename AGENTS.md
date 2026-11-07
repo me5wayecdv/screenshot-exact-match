@@ -1,6 +1,6 @@
-# Qayyimni — agent notes
+# Qemmini — agent notes
 
-- Qayyimni is a standalone project: no vendor scaffolding integration
+- Qemmini is a standalone project: no vendor scaffolding integration
   remains. Do not reintroduce vendor packages, vendor cloud auth,
   preview-auth brokering, or vendor error reporting.
 - Do not rewrite pushed git history (no force-push, rebase, or amend of

@@ -1,14 +1,26 @@
+/**
+ * Lesson explanation — D1 port (Phase 2b). Behavior preserved from the
+ * Supabase original; only the auth, quota, and usage plumbing changed:
+ *
+ * - Auth: session from requireCloudflareAuth; roles school_teacher /
+ *   tutor only (NOT admin — same TEACHER_ROLES set as the original).
+ * - The lesson's script decides the explanation language
+ *   (detectLessonLanguage); the caller's UI language is only the
+ *   fallback for script-neutral text.
+ * - The explanation is NOT persisted (mandatory copy in the UI, one
+ *   file per explanation — the file itself is persisted first via
+ *   the mediated R2 upload in d1-assistant, unchanged).
+ * - Quota: D1 consumeAiQuota; usage: D1 logAiUsageEvent (token
+ *   counts + model only, never prompts or replies).
+ */
+
 import { createServerFn } from "@tanstack/react-start";
+import type { D1Database } from "@/server/d1-auth-store";
+import { requireCloudflareAuth } from "@/server/d1-session";
+import type { AuthSession } from "@/lib/cloudflare-auth";
+import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
 import { resolveAiConfig } from "@/server/ai-config";
-import {
-  consumeAiRateQuota,
-  extractOpenAiUsage,
-  logAiUsage,
-  openAiProvider,
-} from "@/server/ai-usage";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Database } from "@/integrations/supabase/types";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { extractOpenAiUsage, openAiProvider } from "@/server/ai-usage";
 import { cleanAiOutputText } from "@/lib/ai-output";
 import {
   buildLessonExplainSystemPrompt,
@@ -22,11 +34,6 @@ const AI_TIMEOUT_MS = 120_000;
 const AI_MAX_TOKENS = 3_500;
 const MAX_REPLY_CHARS = 20_000;
 const TEACHER_ROLES = new Set(["school_teacher", "tutor"]);
-
-type ExplainContext = {
-  userId: string;
-  supabase: SupabaseClient<Database>;
-};
 
 type ExplainErrorCode =
   | "INVALID_INPUT"
@@ -47,19 +54,24 @@ export type ExplainLessonResult =
     }
   | { ok: false; code: ExplainErrorCode };
 
-async function authorizeTeacher({ userId, supabase }: ExplainContext): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error) return false;
-  const role = data?.role === "teacher" ? "school_teacher" : data?.role;
-  return typeof role === "string" && TEACHER_ROLES.has(role);
+function normalizeRole(role: string): string {
+  return role === "teacher" ? "school_teacher" : role;
+}
+
+function isTeacher(session: AuthSession): boolean {
+  return TEACHER_ROLES.has(normalizeRole(session.role));
+}
+
+function ctxSession(context: unknown): AuthSession {
+  return (context as { session: AuthSession }).session;
+}
+
+function ctxDb(context: unknown): D1Database {
+  return (context as { db: D1Database }).db;
 }
 
 export const explainLesson = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
   .handler(async ({ data, context }): Promise<ExplainLessonResult> => {
     const input = validateLessonExplainInput(data);
@@ -69,12 +81,13 @@ export const explainLesson = createServerFn({ method: "POST" })
     // UI language is only the fallback for script-neutral text.
     const language = detectLessonLanguage(input.sourceText, input.language);
 
-    const auth = context as unknown as ExplainContext;
-    if (!(await authorizeTeacher(auth))) return { ok: false, code: "UNAUTHORIZED" };
+    const session = ctxSession(context);
+    const db = ctxDb(context);
+    if (!isTeacher(session)) return { ok: false, code: "UNAUTHORIZED" };
 
     const config = resolveAiConfig();
     if (!config) return { ok: false, code: "AI_NOT_CONFIGURED" };
-    if (!(await consumeAiRateQuota(auth.supabase))) {
+    if (!(await consumeAiQuota(db, session.userId, 1))) {
       return { ok: false, code: "AI_RATE_LIMIT" };
     }
 
@@ -119,12 +132,14 @@ export const explainLesson = createServerFn({ method: "POST" })
       }
 
       // Usage rows store token counts/model only, never prompts or replies.
-      await logAiUsage(auth.supabase, auth.userId, {
+      const usage = extractOpenAiUsage(payload);
+      await logAiUsageEvent(db, session.userId, {
         kind: "assistant",
         provider: openAiProvider(config.baseUrl),
         model: config.model,
-        usage: extractOpenAiUsage(payload),
-      });
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      }).catch(() => undefined);
       return {
         ok: true,
         explanation,

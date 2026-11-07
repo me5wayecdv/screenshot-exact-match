@@ -33,6 +33,18 @@ export default defineConfig({
     tailwindcss(),
     tsconfigPaths(),
   ],
+  // Staging fix 2026-11-04: src/server/d1.ts statically imports the
+  // workerd-only `cloudflare:workers` module for its bindings. Rolldown
+  // cannot resolve that module at build time, so it must stay external
+  // and resolve in workerd at runtime (top-level: the TanStack build
+  // does not honour a per-environment external here). The client
+  // environment never bundles d1.ts (server functions are stripped
+  // to RPC stubs), so this has no client-side effect.
+  build: {
+    rolldownOptions: {
+      external: ["cloudflare:workers"],
+    },
+  },
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

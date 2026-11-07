@@ -3,8 +3,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import {
+  deleteHwGradeD1,
+  deleteHwPaperD1,
+  getHwPaperD1,
+  listHwAssessmentsD1,
+  listHwHistoryD1,
+  listHwQuestionsD1,
+  listHwStudentsD1,
+  saveHwGradeD1,
+  uploadHwPaperD1,
+} from "@/server/d1-handwritten";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
 import { uploadKind } from "@/lib/uploads";
 import { useMe } from "@/lib/session";
@@ -57,8 +66,19 @@ import { suggestGrade, type AiGradeSuggestion as ServerSuggestion } from "@/serv
 //    grading, not approving the score afterwards. (A wrong record can
 //    be deleted from history and re-graded.)
 
-type Q = Database["public"]["Tables"]["questions"]["Row"] & {
-  question_keys: Database["public"]["Tables"]["question_keys"]["Row"] | null;
+// D1 question shape (keys included only for the owning teacher).
+type Q = {
+  id: string;
+  prompt: string;
+  type: string;
+  marks: number;
+  position: number;
+  question_keys: {
+    correct_answer: string;
+    accepted_alternatives: string[];
+    rubric: string;
+    explanation: string;
+  } | null;
 };
 
 /** Phase 3 match flow: one uploaded page awaiting review/grading. */
@@ -268,13 +288,15 @@ function Handwritten() {
   const [adHocRubric, setAdHocRubric] = useState("");
   const [adHocMarks, setAdHocMarks] = useState("10");
   const [studentName, setStudentName] = useState("");
+  /** Enrolled-student account link ("" = paper name only, no account). */
+  const [studentId, setStudentId] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
   /** Compressed paper blob (for upload / retry) and its server path. */
   const [paperBlob, setPaperBlob] = useState<Blob | null>(null);
   const [imagePath, setImagePath] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
-  /** Signed URLs for history papers, keyed by grade row id. */
+  /** Worker-served data URLs for history papers, keyed by grade row id. */
   const [paperUrls, setPaperUrls] = useState<Record<string, string>>({});
   /** Raw OCR output (kept so the saved row shows what the model read). */
   const [extractedText, setExtractedText] = useState("");
@@ -301,43 +323,32 @@ function Handwritten() {
   const { data: assessments } = useQuery({
     queryKey: ["hw-assessments", me?.id],
     enabled: !!me?.id,
-    queryFn: async () =>
-      (
-        await supabase
-          .from("assessments")
-          .select("id, title")
-          .eq("teacher_id", me!.id)
-          .order("created_at", { ascending: false })
-      ).data ?? [],
+    // D1: the caller's own assessments only.
+    queryFn: async () => listHwAssessmentsD1({ data: {} }),
   });
 
   const { data: questions } = useQuery({
     queryKey: ["hw-questions", assessmentId],
     enabled: !!assessmentId,
-    queryFn: async () => {
-      const res = await supabase
-        .from("questions")
-        .select("*, question_keys(*)")
-        .eq("assessment_id", assessmentId)
-        .order("position");
-      if (res.error) throw res.error;
-      return (res.data ?? []) as unknown as Q[];
-    },
+    // D1: questions WITH keys, only after the assessment-owner
+    // check server-side. Never a student path.
+    queryFn: async () => (await listHwQuestionsD1({ data: { assessmentId } })) as unknown as Q[],
   });
 
   const { data: history } = useQuery({
     queryKey: ["hw-history", me?.id],
     enabled: !!me?.id,
-    queryFn: async () => {
-      const res = await supabase
-        .from("handwritten_grades")
-        .select("*")
-        .eq("teacher_id", me!.id)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (res.error) throw res.error;
-      return (res.data ?? []) as unknown as HwRow[];
-    },
+    // D1: the caller's own handwritten grades only, newest first.
+    queryFn: async () => (await listHwHistoryD1({ data: {} })) as unknown as HwRow[],
+  });
+
+  // Approved students of this teacher, for the optional account link.
+  // The link is what makes a saved grade visible to the student.
+  const { data: approvedStudents } = useQuery({
+    queryKey: ["hw-students", me?.id],
+    enabled: !!me?.id,
+    queryFn: async () =>
+      (await listHwStudentsD1({ data: {} })) as unknown as { id: string; full_name: string }[],
   });
 
   // Probe once: if the server has no vision provider configured, the OCR
@@ -399,23 +410,31 @@ function Handwritten() {
     return [...byQuestion.values()].flatMap((rows) => groupSimilarAnswers(rows));
   })();
 
-  async function getAccessToken(): Promise<string> {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? "";
+  // D1 (Phase 2c): paper matching (paper-matching.ts) resolves the
+  // session from the HttpOnly cookie, like OCR and grading
+  // suggestions. No access token is passed anywhere from this route.
+  // All persistence below (lists, uploads, saves, deletes, paper
+  // views) is D1/R2.
+  function blobToDataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("read failed"));
+      reader.readAsDataURL(blob);
+    });
   }
 
-  /** Upload the compressed paper to server storage. Returns the path or "". */
+  /** Upload the compressed paper to server storage. Returns the key or "". */
   async function uploadPaper(blob: Blob): Promise<string> {
-    const uuid =
-      typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-    const path = `${me!.id}/${uuid}.jpg`;
-    const { error } = await supabase.storage
-      .from("handwritten-papers")
-      .upload(path, blob, { contentType: "image/jpeg", upsert: false });
-    if (error) return "";
-    return path;
+    // D1: mediated R2 put into the private handwritten-papers bucket
+    // under {teacher_id}/{uuid}/{name}. A failed upload returns ""
+    // and the caller blocks saving (platform rule, unchanged).
+    try {
+      const dataUrl = await blobToDataUrl(blob);
+      return await uploadHwPaperD1({ data: { dataUrl, fileName: "paper.jpg" } });
+    } catch {
+      return "";
+    }
   }
 
   async function splitImageDataUrl(dataUrl: string): Promise<string[]> {
@@ -486,7 +505,6 @@ function Handwritten() {
 
   async function trySplitOcr(
     dataUrl: string,
-    accessToken: string,
     assessmentId: string | undefined,
   ): Promise<{ text: string; model: string } | null> {
     try {
@@ -497,7 +515,7 @@ function Handwritten() {
       let model = "";
       const texts: string[] = [];
       for (const imageDataUrl of quarters) {
-        const r = await ocrHandwrittenImage({ data: { imageDataUrl, accessToken, assessmentId } });
+        const r = await ocrHandwrittenImage({ data: { imageDataUrl, assessmentId } });
         if (!r.ok) return null;
         if (!model) model = r.model;
         texts.push(r.text);
@@ -661,12 +679,10 @@ function Handwritten() {
     }
     setMatchBusy(true);
     try {
-      const accessToken = await getAccessToken();
       const result = await matchPaperPages({
         data: {
           assessmentId,
           pages: pending.map((it) => ({ imageDataUrl: it.dataUrl, imagePath: it.imagePath })),
-          accessToken,
         },
       });
       if (!result.ok) {
@@ -705,7 +721,9 @@ function Handwritten() {
   async function removeMatchItem(item: MatchItem) {
     if (item.imagePath) {
       try {
-        await supabase.storage.from("handwritten-papers").remove([item.imagePath]);
+        // D1: mediated R2 delete; the key must validate against the
+        // teacher, or the delete is refused server-side.
+        await deleteHwPaperD1({ data: { key: item.imagePath } });
       } catch {
         // Ignored: the queue entry itself is removed either way.
       }
@@ -727,6 +745,10 @@ function Handwritten() {
     setOcrModel(item.model);
     setSuggestion(null);
     setStudentName(item.studentName);
+    // Batch pages carry no account link (matching is by page, not by
+    // account); the teacher may still pick a student in the form
+    // before saving, and that link is then saved with the grade.
+    setStudentId("");
     setActiveMatchId(item.id);
   }
 
@@ -738,9 +760,8 @@ function Handwritten() {
     setBusyOcr(true);
     setOcrError(null);
     try {
-      const accessToken = await getAccessToken();
       const result = await ocrHandwrittenImage({
-        data: { imageDataUrl, accessToken, assessmentId: assessmentId || undefined },
+        data: { imageDataUrl, assessmentId: assessmentId || undefined },
       });
       const useless = result.ok && isUselessText(result.text);
       const shouldSplit =
@@ -762,7 +783,7 @@ function Handwritten() {
         // path.
         let recovered = false;
         if (shouldSplit) {
-          const split = await trySplitOcr(imageDataUrl, accessToken, assessmentId || undefined);
+          const split = await trySplitOcr(imageDataUrl, assessmentId || undefined);
           if (split && !isUselessText(split.text)) {
             setExtractedText(split.text);
             setCorrectedText(split.text);
@@ -812,7 +833,6 @@ function Handwritten() {
     }
     setBusySuggest(true);
     try {
-      const accessToken = await getAccessToken();
       const result = await suggestGrade({
         data: {
           questionPrompt: questionPrompt.trim(),
@@ -821,7 +841,6 @@ function Handwritten() {
           studentAnswer: correctedText.trim(),
           maxMarks,
           assessmentId: assessmentId || undefined,
-          accessToken,
         },
       });
       if (!result.ok) {
@@ -860,25 +879,25 @@ function Handwritten() {
     }
     setBusySave(true);
     try {
-      const accessToken = await getAccessToken();
-      const row = {
-        teacher_id: me.id,
-        assessment_id: assessmentId || null,
-        question_id: questionId || null,
-        student_name: studentName.trim(),
-        image_path: imagePath || null,
-        extracted_text: extractedText,
-        corrected_text: correctedText.trim(),
-        ai_suggested_score: suggestion.suggestedScore,
-        ai_feedback: suggestion.feedback,
-        ai_model: ocrModel || null,
-        // AI-decided final grade: the suggestion score is adopted as-is.
-        final_score: suggestion.suggestedScore,
-        max_marks: maxMarks,
-        teacher_feedback: teacherFeedback.trim(),
-      };
-      const { error } = await supabase.from("handwritten_grades").insert(row);
-      if (error) throw error;
+      // D1: the server forces final_score = AI suggestion (the AI
+      // grade is FINAL on save) and re-validates the paper key
+      // against the teacher. A save without a suggestion is refused.
+      await saveHwGradeD1({
+        data: {
+          assessmentId: assessmentId || null,
+          questionId: questionId || null,
+          studentId: studentId || null,
+          studentName: studentName.trim(),
+          imagePath: imagePath || null,
+          extractedText,
+          correctedText: correctedText.trim(),
+          aiSuggestedScore: suggestion.suggestedScore,
+          aiFeedback: suggestion.feedback,
+          aiModel: ocrModel || null,
+          maxMarks,
+          teacherFeedback: teacherFeedback.trim(),
+        },
+      });
       toast.success(t("hwSaved"));
       setImageDataUrl("");
       setImageName("");
@@ -890,6 +909,7 @@ function Handwritten() {
       setSuggestion(null);
       setTeacherFeedback("");
       setStudentName("");
+      setStudentId("");
       await qc.invalidateQueries({ queryKey: ["hw-history", me.id] });
       // Phase 6 — batch completion: mark the queued page graded and
       // auto-load the next ungraded page, so a 10-page batch grades
@@ -925,25 +945,19 @@ function Handwritten() {
 
   async function removeRow(row: HwRow) {
     if (!me) return;
-    const { error } = await supabase.from("handwritten_grades").delete().eq("id", row.id);
-    if (error) {
-      toast.error(translateError(error, lang));
+    try {
+      // D1: owner-checked delete; the server also removes the stored
+      // paper best-effort, so a deleted grade leaves no orphan file.
+      await deleteHwGradeD1({ data: { gradeId: row.id } });
+    } catch (err) {
+      toast.error(translateError(err, lang));
       return;
-    }
-    // Best-effort: remove the stored paper too, so a deleted grade
-    // leaves no orphaned file behind.
-    if (row.image_path) {
-      try {
-        await supabase.storage.from("handwritten-papers").remove([row.image_path]);
-      } catch {
-        // Ignored: the grade row itself is already deleted.
-      }
     }
     toast.success(t("hwDeleted"));
     await qc.invalidateQueries({ queryKey: ["hw-history", me.id] });
   }
 
-  /** Toggle a history paper's signed-URL preview (private bucket). */
+  /** Toggle a history paper's preview (Worker-mediated, private bucket). */
   async function viewPaper(row: HwRow) {
     if (!row.image_path) return;
     if (paperUrls[row.id]) {
@@ -954,14 +968,14 @@ function Handwritten() {
       });
       return;
     }
-    const { data, error } = await supabase.storage
-      .from("handwritten-papers")
-      .createSignedUrl(row.image_path, 3600);
-    if (error || !data) {
-      toast.error(translateError(error ?? new Error("signed url failed"), lang));
-      return;
+    // D1: session-checked R2 download through the Worker — no public
+    // or signed URL is ever produced for a student paper.
+    try {
+      const dataUrl = await getHwPaperD1({ data: { gradeId: row.id } });
+      setPaperUrls((p) => ({ ...p, [row.id]: dataUrl }));
+    } catch (err) {
+      toast.error(translateError(err, lang));
     }
-    setPaperUrls((p) => ({ ...p, [row.id]: data.signedUrl }));
   }
 
   return (
@@ -1184,6 +1198,32 @@ function Handwritten() {
 
         <Panel className="space-y-4">
           <h2 className="font-semibold">{t("hwUpload")}</h2>
+          <div className="space-y-1.5">
+            <Label htmlFor="hw-student-account">{t("hwStudentAccount")}</Label>
+            <select
+              id="hw-student-account"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={studentId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setStudentId(id);
+                // Prefill the paper name from the account; the teacher
+                // may still edit the name — the link is what matters.
+                if (id) {
+                  const s = (approvedStudents ?? []).find((x) => x.id === id);
+                  if (s) setStudentName(s.full_name);
+                }
+              }}
+            >
+              <option value="">{t("hwStudentAccountNone")}</option>
+              {(approvedStudents ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.full_name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">{t("hwStudentAccountHint")}</p>
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="hw-student">{t("hwStudentName")}</Label>
             <Input

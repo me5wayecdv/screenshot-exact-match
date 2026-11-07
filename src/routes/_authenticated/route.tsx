@@ -24,7 +24,7 @@ import {
   MoreHorizontal,
   User,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { getMeD1, signOutD1 } from "@/server/d1-auth-fns";
 import { Brand, LangToggle } from "@/components/Brand";
 import { useI18n } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
@@ -32,8 +32,12 @@ import { useMe } from "@/lib/session";
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) throw redirect({ to: "/auth" });
+    // D1 cookie session: getMeD1 throws on missing/invalid sessions.
+    try {
+      await getMeD1({});
+    } catch {
+      throw redirect({ to: "/auth" });
+    }
   },
   component: AppShell,
 });
@@ -112,7 +116,7 @@ function AppShell() {
   async function signOut() {
     await qc.cancelQueries();
     qc.clear();
-    await supabase.auth.signOut();
+    await signOutD1({});
     navigate({ to: "/auth", replace: true });
   }
 

@@ -8,11 +8,11 @@
  * Props mirror the report page's existing SubmissionRow shape
  * (id, student_id, status, final_score, total_possible) so the caller
  * can pass its `released` array directly. Student names come from a
- * profiles read (teacher-visible under the existing "read own profile"
- * policy); a missing name renders "—", never a crash.
+ * D1 server function that returns names only for the caller's
+ * approved linked students; a missing name renders "—", never a crash.
  */
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { listWhatsAppStudentNamesD1 } from "@/server/d1-report";
 import { useI18n } from "@/lib/i18n";
 import { Panel } from "@/components/ui-kit";
 import { WhatsAppSendButton } from "./whatsapp-send-button";
@@ -37,12 +37,8 @@ export function WhatsAppReportSection({
     queryKey: ["whatsapp-report-names", studentIds.join(",")],
     enabled: studentIds.length > 0,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .in("id", studentIds);
-      if (error) throw error;
-      return new Map((data ?? []).map((p) => [p.id, p.full_name || "—"]));
+      const names = await listWhatsAppStudentNamesD1({ data: { studentIds } });
+      return new Map(Object.entries(names));
     },
   });
   const names = namesQuery.data ?? new Map<string, string>();

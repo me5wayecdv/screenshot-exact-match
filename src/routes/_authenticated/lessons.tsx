@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { createLessonD1, listTutorLessonsD1 } from "@/server/d1-lessons";
 import { useMe } from "@/lib/session";
 import { useI18n, translateError } from "@/lib/i18n";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
@@ -23,37 +23,12 @@ function Lessons() {
   const [description, setDescription] = useState("");
   const [subjectId, setSubjectId] = useState("");
   const [page, setPage] = useState(0);
-  const pageSize = 20;
 
   const { data } = useQuery({
     queryKey: ["tutor-lessons", page],
     enabled: !!me,
-    queryFn: async () => {
-      const [l, s] = await Promise.all([
-        supabase
-          .from("lessons")
-          .select("id, title, description, subject_id, join_code, created_at")
-          .order("created_at", { ascending: false })
-          .range(page * pageSize, page * pageSize + pageSize),
-        supabase.from("subjects").select("id, name").order("name").limit(200),
-      ]);
-      if (l.error) throw l.error;
-      if (s.error) throw s.error;
-      const lessonRows = l.data ?? [];
-      const lessons = lessonRows.slice(0, pageSize);
-      const { data: counts, error: countError } = lessons.length
-        ? await supabase.rpc("tutor_lesson_enrollment_counts", {
-            _lesson_ids: lessons.map((lesson) => lesson.id),
-          })
-        : { data: [], error: null };
-      if (countError) throw countError;
-      return {
-        lessons,
-        subjects: s.data ?? [],
-        enrollments: counts ?? [],
-        hasNext: lessonRows.length > pageSize,
-      };
-    },
+    // D1, tutor-owned only: lessons + subjects + per-lesson counts.
+    queryFn: async () => listTutorLessonsD1({ data: { page } }),
   });
 
   if (isLoading || !me) return <p className="text-muted-foreground">{t("loading")}</p>;
@@ -66,13 +41,17 @@ function Lessons() {
 
   async function create(e: FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("lessons").insert({
-      tutor_id: me!.id,
-      title: title.trim(),
-      description: description.trim(),
-      subject_id: subjectId || null,
-    });
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await createLessonD1({
+        data: {
+          title: title.trim(),
+          description: description.trim(),
+          subjectId: subjectId || null,
+        },
+      });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     toast.success(t("created"));
     setTitle("");
     setDescription("");

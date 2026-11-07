@@ -2,7 +2,11 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  createAssessmentD1,
+  listTeacherAssessmentsD1,
+  type AssessmentListRow,
+} from "@/server/d1-assessments";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { PageHeader, Panel, Pill, EmptyCard, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -20,14 +24,7 @@ export const Route = createFileRoute("/_authenticated/assessments/")({
   component: AssessmentsList,
 });
 
-type AssessmentRow = {
-  id: string;
-  title: string;
-  status: string;
-  due_at: string | null;
-  created_at: string;
-  subjects: { name: string } | null;
-};
+type AssessmentRow = AssessmentListRow;
 
 function AssessmentsList() {
   const { t, lang } = useI18n();
@@ -43,36 +40,23 @@ function AssessmentsList() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["assessments", page],
     queryFn: async (): Promise<{ rows: AssessmentRow[]; hasNext: boolean }> => {
-      const base = "id, title, status, due_at, created_at";
-      const run = (select: string) =>
-        supabase
-          .from("assessments")
-          .select(select)
-          .order("created_at", { ascending: false })
-          .range(page * pageSize, page * pageSize + pageSize);
-      const first = await run(`${base}, subjects(name)`);
-      if (!first.error) {
-        const rows = (first.data ?? []) as unknown as AssessmentRow[];
-        return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
-      }
-      const plain = await run(base);
-      if (plain.error) throw plain.error;
-      const plainRows = (plain.data ?? []) as unknown as Omit<AssessmentRow, "subjects">[];
-      const rows: AssessmentRow[] = plainRows.map((r) => ({ ...r, subjects: null }));
-      return { rows: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
+      // D1 (Phase 2): the teacher's own assessments only — the server
+      // function scopes by the session user, never by a client id.
+      const result = await listTeacherAssessmentsD1({ data: { page } });
+      return { rows: result.rows, hasNext: result.hasNext };
     },
   });
   async function create(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
-    const { data: row, error } = await supabase
-      .from("assessments")
-      .insert({ title: title.trim() })
-      .select("id")
-      .single();
-    setBusy(false);
-    if (error) return void toast.error(translateError(error, lang));
-    navigate({ to: "/assessments/$id", params: { id: row.id } });
+    try {
+      const row = await createAssessmentD1({ data: { title: title.trim() } });
+      navigate({ to: "/assessments/$id", params: { id: row.id } });
+    } catch (err) {
+      toast.error(translateError(err, lang));
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <>
@@ -126,8 +110,8 @@ function AssessmentsList() {
             >
               <Link to="/assessments/$id" params={{ id: a.id }} className="flex-1">
                 <span className="font-medium">{a.title}</span>
-                {a.subjects?.name && (
-                  <span className="ms-2 text-sm text-muted-foreground">· {a.subjects.name}</span>
+                {a.subjectName && (
+                  <span className="ms-2 text-sm text-muted-foreground">· {a.subjectName}</span>
                 )}
               </Link>
               <span className="flex items-center gap-3 text-sm text-muted-foreground">

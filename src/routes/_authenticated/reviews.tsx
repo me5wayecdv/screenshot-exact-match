@@ -2,7 +2,15 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  getReviewMapsD1,
+  listQuestionsForReleasedAssessmentD1,
+  listReleasedForStudentD1,
+  listReviewRequestsD1,
+  resolveReviewRequestD1,
+  submitReviewRequestD1,
+} from "@/server/d1-reviews";
+import { listTutorAssessmentsD1 } from "@/server/d1-tutor";
 import { useI18n, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
@@ -61,15 +69,8 @@ function ReviewsPage() {
   const releasedQuery = useQuery({
     queryKey: ["reviews-released", me?.id],
     enabled: !!me?.id && isStudent,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("submissions")
-        .select("id, assessment_id")
-        .eq("student_id", me!.id)
-        .eq("status", "released");
-      if (error) throw error;
-      return data ?? [];
-    },
+    // D1: the caller's own released submissions only.
+    queryFn: async () => listReleasedForStudentD1({ data: {} }),
   });
   const released = releasedQuery.data ?? [];
   const releasedAssessmentIds = [...new Set(released.map((s) => s.assessment_id))];
@@ -77,14 +78,9 @@ function ReviewsPage() {
   const assessmentsQuery = useQuery({
     queryKey: ["reviews-assessments", releasedAssessmentIds.join(",")],
     enabled: releasedAssessmentIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("assessments")
-        .select("id, title, teacher_id")
-        .in("id", releasedAssessmentIds);
-      if (error) throw error;
-      return data ?? [];
-    },
+    // D1: intersected with the caller's own released submissions —
+    // a forged assessment id yields nothing.
+    queryFn: async () => listTutorAssessmentsD1({ data: { assessmentIds: releasedAssessmentIds } }),
   });
   const assessments = useMemo(() => assessmentsQuery.data ?? [], [assessmentsQuery.data]);
 
@@ -97,30 +93,17 @@ function ReviewsPage() {
   const questionsQuery = useQuery({
     queryKey: ["reviews-questions", assessmentId],
     enabled: !!assessmentId && isStudent,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("questions")
-        .select("id, prompt")
-        .eq("assessment_id", assessmentId)
-        .order("position");
-      if (error) throw error;
-      return data ?? [];
-    },
+    // D1: prompts only (never keys), only for an assessment the
+    // student has a released submission for.
+    queryFn: async () => listQuestionsForReleasedAssessmentD1({ data: { assessmentId } }),
   });
 
   const requestsQuery = useQuery({
     queryKey: ["reviews-list", me?.id, role],
     enabled: !!me?.id && (isStudent || isTeacher),
-    queryFn: async () => {
-      const col = isStudent ? "student_id" : "teacher_id";
-      const { data, error } = await supabase
-        .from("grade_review_requests")
-        .select("*")
-        .eq(col, me!.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as ReviewRow[];
-    },
+    // D1: student_id = caller for students, teacher_id = caller for
+    // teachers — enforced server-side, never from the client.
+    queryFn: async () => (await listReviewRequestsD1({ data: {} })) as ReviewRow[],
   });
   const requests = requestsQuery.data ?? [];
 
@@ -139,45 +122,31 @@ function ReviewsPage() {
       requestQuestionIds.join(","),
     ],
     enabled: requests.length > 0,
-    queryFn: async () => {
-      const [{ data: subs }, { data: profiles }, { data: questions }] = await Promise.all([
-        supabase.from("submissions").select("id, assessment_id").in("id", requestSubmissionIds),
-        supabase.from("profiles").select("id, full_name").in("id", requestStudentIds),
-        requestQuestionIds.length > 0
-          ? supabase.from("questions").select("id, prompt").in("id", requestQuestionIds)
-          : Promise.resolve({ data: [] as { id: string; prompt: string }[] }),
-      ]);
-      const assessmentIds = [...new Set((subs ?? []).map((s) => s.assessment_id))];
-      const { data: assess } =
-        assessmentIds.length > 0
-          ? await supabase.from("assessments").select("id, title").in("id", assessmentIds)
-          : { data: [] as { id: string; title: string }[] };
-      return {
-        submissionToAssessment: Object.fromEntries(
-          (subs ?? []).map((s) => [s.id, s.assessment_id]),
-        ),
-        assessmentTitles: Object.fromEntries((assess ?? []).map((a) => [a.id, a.title])),
-        names: Object.fromEntries((profiles ?? []).map((p) => [p.id, p.full_name || "—"])),
-        questionPrompts: Object.fromEntries((questions ?? []).map((q) => [q.id, q.prompt])),
-      };
-    },
+    // D1: maps built only from submissions visible to the caller.
+    queryFn: async () =>
+      getReviewMapsD1({
+        data: {
+          submissionIds: requestSubmissionIds,
+          studentIds: requestStudentIds,
+          questionIds: requestQuestionIds,
+        },
+      }),
   });
   const maps = mapsQuery.data;
 
   async function submitRequest() {
     if (!submission || !message.trim()) return;
-    const assessment = assessments.find((a) => a.id === assessmentId);
-    if (!assessment) return;
+    // D1 derives the assessment's real owner server-side from the
+    // released submission; the client never supplies a teacher id.
     setSubmitting(true);
     try {
-      const { error } = await supabase.from("grade_review_requests").insert({
-        submission_id: submission.id,
-        question_id: questionId || null,
-        student_id: me!.id,
-        teacher_id: assessment.teacher_id,
-        message: message.trim(),
+      await submitReviewRequestD1({
+        data: {
+          submissionId: submission.id,
+          questionId: questionId || null,
+          message: message.trim(),
+        },
       });
-      if (error) throw error;
       toast.success(t("reviewsSubmitted"));
       setMessage("");
       setQuestionId("");
@@ -193,12 +162,9 @@ function ReviewsPage() {
     const response = (responses[requestId] ?? "").trim();
     setResolving(requestId);
     try {
-      const { data, error } = await supabase.rpc("resolve_review_request", {
-        _id: requestId,
-        _response: response,
-      });
-      if (error) throw error;
-      if (!data) {
+      // D1: resolves only when the row's teacher_id is the caller.
+      const ok = await resolveReviewRequestD1({ data: { requestId, response } });
+      if (!ok) {
         toast.error(t("reviewsResolveFailed"));
         return;
       }

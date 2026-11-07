@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowUpLeft, Check, ClipboardCheck, ClipboardList } from "lucide-react";
+import { ArrowUpLeft, Check, ClipboardCheck, ClipboardList, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { getMeD1, requestPasswordResetD1, signInD1, signUpD1 } from "@/server/d1-auth-fns";
 import { Brand, LangToggle } from "@/components/Brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,53 +32,85 @@ function AuthPage() {
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  // New accounts: the password is shown while typing (user request), with
+  // an eye toggle to hide it. Sign-in keeps the masked field.
+  const [showPassword, setShowPassword] = useState(true);
   const [name, setName] = useState("");
   const [role, setRole] = useState<"school_teacher" | "tutor" | "student">("school_teacher");
   const [parentPhone, setParentPhone] = useState("");
+  // Teacher identity field (admin approval, 2026-11-04): phone is
+  // required + Egyptian-mobile-validated so the admin can contact the
+  // teacher and verify they are real. Subjects/school were removed
+  // from signup (2026-11-06, user request); the server stores null.
+  const [teacherPhone, setTeacherPhone] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data.user) navigate({ to: "/dashboard", replace: true });
-    });
+    // D1 cookie session: getMeD1 throws when there is no valid session.
+    getMeD1({})
+      .then(() => navigate({ to: "/dashboard", replace: true }))
+      .catch(() => {});
   }, [navigate]);
+
+  useEffect(() => {
+    setConfirmPassword("");
+  }, [mode]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
       if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        await signInD1({ data: { email, password } });
         navigate({ to: "/dashboard", replace: true });
       } else if (mode === "signup") {
+        if (password !== confirmPassword) {
+          toast.error(t("passwordMismatch"));
+          return;
+        }
         // Parent phone is required for student accounts and must be an
-        // Egyptian mobile; the signup trigger stores it only when valid.
+        // Egyptian mobile.
         const cleanedPhone = normalizePhoneInput(parentPhone);
         if (role === "student" && !isValidEgyptianMobile(cleanedPhone)) {
           toast.error(t("parentPhoneInvalid"));
           return;
         }
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: window.location.origin + "/dashboard",
-            data: {
-              full_name: name,
-              role,
-              ...(role === "student" ? { parent_phone: cleanedPhone } : {}),
-            },
+        // Teacher phone is required (same Egyptian-mobile rule) so the
+        // admin can contact the teacher and verify they are real.
+        const cleanedTeacherPhone = normalizePhoneInput(teacherPhone);
+        if (
+          (role === "school_teacher" || role === "tutor") &&
+          !isValidEgyptianMobile(cleanedTeacherPhone)
+        ) {
+          toast.error(t("teacherPhoneInvalid"));
+          return;
+        }
+        const result = await signUpD1({
+          data: {
+            email,
+            password,
+            fullName: name,
+            role,
+            parentPhone: role === "student" ? cleanedPhone : null,
+            teacherPhone:
+              role === "school_teacher" || role === "tutor" ? cleanedTeacherPhone : null,
           },
         });
-        if (error) throw error;
-        if (data.session) navigate({ to: "/dashboard", replace: true });
-        else toast.success(t("checkEmail"));
+        // New accounts are pending admin approval and hold no session:
+        // show the waiting state instead of entering the dashboard.
+        if ((result as { status?: string }).status === "pending") {
+          toast.success(t("accountPendingNotice"));
+          setMode("signin");
+          return;
+        }
+        navigate({ to: "/dashboard", replace: true });
       } else {
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + "/reset-password",
-        });
-        if (error) throw error;
+        // Generic success always (the server function never reveals
+        // whether the email exists). The reset token is delivered by
+        // email via d1-email.ts; a missing provider surfaces as
+        // EMAIL_NOT_CONFIGURED — see d1-auth-fns.ts header.
+        await requestPasswordResetD1({ data: { email } });
         toast.success(t("resetSent"));
       }
     } catch (err) {
@@ -86,16 +118,6 @@ function AuthPage() {
     } finally {
       setBusy(false);
     }
-  }
-
-  async function google() {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: window.location.origin + "/auth" },
-    });
-    if (error) toast.error(translateError(error, lang));
-    // On success Supabase redirects to /auth, and the effect above sends
-    // signed-in users on to /dashboard.
   }
 
   const modeTitle = mode === "signup" ? t("signUp") : mode === "forgot" ? t("forgot") : t("signIn");
@@ -185,6 +207,25 @@ function AuthPage() {
                   </fieldset>
                 </>
               )}
+              {mode === "signup" && (role === "school_teacher" || role === "tutor") && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="teacher-phone">{t("teacherPhone")}</Label>
+                    <Input
+                      id="teacher-phone"
+                      dir="ltr"
+                      inputMode="tel"
+                      required
+                      aria-required="true"
+                      placeholder="010…"
+                      maxLength={16}
+                      autoComplete="tel"
+                      value={teacherPhone}
+                      onChange={(e) => setTeacherPhone(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
               {mode === "signup" && role === "student" && (
                 <div className="space-y-1.5">
                   <Label htmlFor="parent-phone">{t("parentPhone")}</Label>
@@ -218,16 +259,65 @@ function AuthPage() {
               {mode !== "forgot" && (
                 <div className="space-y-1.5">
                   <Label htmlFor="password">{t("password")}</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    dir="ltr"
-                    required
-                    minLength={8}
-                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={mode === "signup" && showPassword ? "text" : "password"}
+                      dir="ltr"
+                      required
+                      minLength={8}
+                      autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={mode === "signup" ? "pe-10" : undefined}
+                    />
+                    {mode === "signup" && (
+                      <button
+                        type="button"
+                        aria-label={showPassword ? t("hidePassword") : t("showPassword")}
+                        aria-pressed={showPassword}
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="size-4" aria-hidden />
+                        ) : (
+                          <Eye className="size-4" aria-hidden />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              {mode === "signup" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="confirm-password">{t("confirmPassword")}</Label>
+                  <div className="relative">
+                    <Input
+                      id="confirm-password"
+                      type={showPassword ? "text" : "password"}
+                      dir="ltr"
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="pe-10"
+                    />
+                    <button
+                      type="button"
+                      aria-label={showPassword ? t("hidePassword") : t("showPassword")}
+                      aria-pressed={showPassword}
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" aria-hidden />
+                      ) : (
+                        <Eye className="size-4" aria-hidden />
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
               <Button type="submit" className="mt-2 h-11 w-full" disabled={busy}>
@@ -242,23 +332,11 @@ function AuthPage() {
             </form>
 
             {mode !== "forgot" && (
-              <>
-                <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="h-px flex-1 bg-border" />
-                  <span>{t("or")}</span>
-                  <span className="h-px flex-1 bg-border" />
-                </div>
-                <Button type="button" variant="outline" className="h-11 w-full" onClick={google}>
-                  {t("google")}
-                </Button>
-                {mode === "signup" && (
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    {lang === "ar"
-                      ? "حسابات Google الجديدة تُنشأ كحسابات طلاب."
-                      : "New Google accounts are created as student accounts."}
-                  </p>
-                )}
-              </>
+              <p className="mt-4 text-xs leading-5 text-muted-foreground">
+                {lang === "ar"
+                  ? "الدخول بـ Google غير متاح في النسخة الجديدة لحد دلوقتي: حسابات Google القديمة تقدر تطلب تعيين كلمة سر من صفحة استعادة كلمة السر."
+                  : "Google sign-in is not available in the new version yet: older Google accounts can set a password from the password recovery page."}
+              </p>
             )}
 
             <div className="mt-6 space-y-3 text-center text-sm">

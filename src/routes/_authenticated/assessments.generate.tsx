@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Sparkles } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useI18n, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty } from "@/components/ui-kit";
@@ -19,6 +18,7 @@ import type { GenerateFailureCode } from "@/lib/ai-failure";
 import type { GenerateDifficulty, GenerateQuestionType } from "@/lib/generate-assessment-prompt";
 import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
 import { getHandwritingStatus } from "@/server/handwritten";
+import { listSubjectsD1, uploadGenerationSourceD1 } from "@/server/d1-generation";
 import { ocrSourceImages, type SourceOcrResult } from "@/server/source-ocr";
 
 // Route file convention (verified against the repo listing at HEAD):
@@ -126,13 +126,11 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 /** Platform rule: every uploaded file is persisted server-side first. */
 async function uploadSource(blob: Blob, ext: string): Promise<void> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("No session.");
-  const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage.from("generation-sources").upload(path, blob);
-  if (error) throw error;
+  // D1: mediated R2 put into the private generation-sources bucket
+  // under {teacher_id}/{uuid}/{name}. A failed upload throws, and
+  // the caller aborts extraction — the file is never skipped.
+  const dataUrl = await blobToDataUrl(blob);
+  await uploadGenerationSourceD1({ data: { dataUrl, fileName: `source.${ext}` } });
 }
 
 /** PDF text extraction (pdfjs-dist, dynamically imported). */
@@ -163,8 +161,7 @@ function Generate() {
   const { data: me, isLoading: meLoading } = useMe();
   const { data: subjects } = useQuery({
     queryKey: ["generate-subjects"],
-    queryFn: async () =>
-      (await supabase.from("subjects").select("id, name").order("name")).data ?? [],
+    queryFn: async () => listSubjectsD1({ data: {} }),
   });
 
   const [title, setTitle] = useState("");
@@ -346,7 +343,6 @@ function Generate() {
 
   async function transcribeInSections(
     blobs: Blob[],
-    accessToken: string,
     layout: "sections" | "columns" = "sections",
   ): Promise<SourceOcrResult> {
     const texts: string[] = [];
@@ -364,7 +360,7 @@ function Generate() {
         layout === "columns" ? await splitImageIntoColumns(image) : await splitImageBlob(image);
       const quarterDataUrls = await Promise.all(quarters.map(blobToDataUrl));
       const result = await ocrSourceImages({
-        data: { imageDataUrls: quarterDataUrls, accessToken },
+        data: { imageDataUrls: quarterDataUrls },
       });
       if (!result.ok) return { ...result, imageIndex: i };
       const expectedTiles = layout === "columns" ? 5 : 4;
@@ -381,7 +377,7 @@ function Generate() {
     return { ok: true, texts };
   }
 
-  async function transcribeFull(dataUrls: string[], accessToken: string): Promise<SourceOcrResult> {
+  async function transcribeFull(dataUrls: string[]): Promise<SourceOcrResult> {
     // "Full" mode used to send every page in one call, so four dense pages
     // tripped the server's 12M-char aggregate cap and lost the whole batch
     // with INVALID_INPUT. Split into budget-sized chunks instead; the
@@ -392,7 +388,7 @@ function Generate() {
     let offset = 0;
     for (const chunk of chunkDataUrls(dataUrls)) {
       const result = await ocrSourceImages({
-        data: { imageDataUrls: chunk, accessToken },
+        data: { imageDataUrls: chunk },
       });
       if (!result.ok) {
         return {
@@ -438,13 +434,12 @@ function Generate() {
         setOcrRetryBatch(preparedBatch);
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      // D1 (Phase 2b): source OCR resolves the teacher session from
+      // the HttpOnly cookie; no token is sent from the browser.
       const res: SourceOcrResult =
         ocrLayout !== "full"
-          ? await transcribeInSections(blobs, session?.access_token ?? "", ocrLayout)
-          : await transcribeFull(dataUrls, session?.access_token ?? "");
+          ? await transcribeInSections(blobs, ocrLayout)
+          : await transcribeFull(dataUrls);
       if (
         !res.ok &&
         ocrLayout === "full" &&
@@ -453,7 +448,7 @@ function Generate() {
         // A timeout may mean the full page is too dense for one pass.
         // Retry with overlapping quarters, whose text is larger per crop.
         try {
-          const splitRes = await transcribeInSections(blobs, session?.access_token ?? "");
+          const splitRes = await transcribeInSections(blobs);
           if (splitRes.ok) {
             const joined = splitRes.texts.join("\n\n");
             if (joined.trim().length >= 50) {

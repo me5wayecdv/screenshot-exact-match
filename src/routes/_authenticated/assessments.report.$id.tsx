@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { getAssessmentReportD1, listReportQuestionsD1 } from "@/server/d1-report";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
@@ -12,8 +12,9 @@ import { gradesToCsv, questionsToCsv } from "@/lib/lms-export";
 import { latestSubmittedPerStudent } from "@/lib/exam-attempt";
 
 /**
- * Per-assessment report — available to teachers and tutors; RLS limits
- * assessment and result reads to the assessment owner.
+ * Per-assessment report — available to teachers and tutors; the D1
+ * server functions limit assessment and result reads to the
+ * assessment owner (teacher_id = caller in SQL, admins exempt).
  *
  * Stats use only assessments / assessment_assignments / submissions.
  * The per-question breakdown (<AssessmentReportQuestions />) reads the
@@ -23,7 +24,9 @@ import { latestSubmittedPerStudent } from "@/lib/exam-attempt";
  * SHARING: the owner reads everything. There is no colleague access:
  * only the assessment's own teacher can open this page, and the
  * WhatsApp send section is owner-only by the same rule.
- * A non-owner still gets "not found".
+ * A non-owner still gets "not found" (the server throws NOT_FOUND,
+ * which this page maps to null below, never to a distinguishable
+ * forbidden state).
  */
 export const Route = createFileRoute("/_authenticated/assessments/report/$id")({
   component: AssessmentReportPage,
@@ -62,58 +65,46 @@ function AssessmentReportPage() {
   const role = me?.role as string | undefined;
   const isTeacher = role === "teacher" || role === "school_teacher" || role === "tutor";
 
+  // D1 (Phase 2b): one owner-checked server call returns the
+  // assessment, its assignments, its submissions, and student names.
+  // A NOT_FOUND from the server (missing assessment OR another
+  // teacher's) maps to null here, so the page shows "not found" —
+  // never a distinguishable forbidden state. Transport errors still
+  // surface via isError.
   const assessmentQuery = useQuery({
     queryKey: ["assessment-report", id],
     enabled: !!me && isTeacher,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("assessments")
-        .select("id, title, status, due_at, teacher_id")
-        .eq("id", id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      try {
+        return await getAssessmentReportD1({ data: { assessmentId: id } });
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("NOT_FOUND")) return null;
+        throw e;
+      }
     },
   });
 
-  const assessment = assessmentQuery.data ?? null;
-  // Ownership: RLS restricts the assessment read to the teacher's own
-  // rows, and page access mirrors that rule client-side.
-  const isOwner = !assessment || assessment.teacher_id === me?.id;
+  const report = assessmentQuery.data ?? null;
+  const assessment = report?.assessment ?? null;
+  // Ownership is enforced server-side (teacher_id = caller in SQL);
+  // the page no longer re-derives it from a client-visible row.
+  const isOwner = !!assessment;
   const canView = isOwner;
 
-  const statsQuery = useQuery({
-    queryKey: ["assessment-report-stats", id],
-    enabled: !!assessment && canView,
-    queryFn: async () => {
-      const [
-        { data: assignments, error: assignmentsError },
-        { data: submissions, error: submissionsError },
-      ] = await Promise.all([
-        supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id),
-        supabase
-          .from("submissions")
-          .select("id, student_id, status, final_score, total_possible, attempt_number")
-          .eq("assessment_id", id),
-      ]);
-      if (assignmentsError) throw assignmentsError;
-      if (submissionsError) throw submissionsError;
-      const studentIds = [...new Set((submissions ?? []).map((s) => s.student_id))];
-      let names: Record<string, string> = {};
-      if (studentIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("id, full_name")
-          .in("id", studentIds);
-        names = Object.fromEntries((profiles ?? []).map((p) => [p.id, p.full_name || "—"]));
-      }
-      return {
-        assignments: assignments ?? [],
-        submissions: (submissions ?? []) as SubmissionRow[],
-        names,
-      };
-    },
-  });
+  // Stats are derived synchronously from the single report payload
+  // (same shape as the old stats query: assignments, submissions,
+  // names). No second round-trip.
+  const statsQuery = {
+    data: report
+      ? {
+          assignments: report.assignments,
+          submissions: report.submissions as SubmissionRow[],
+          names: report.names,
+        }
+      : undefined,
+    isLoading: assessmentQuery.isLoading,
+    isError: false,
+  };
 
   if (meLoading || assessmentQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
@@ -169,30 +160,27 @@ function AssessmentReportPage() {
   }
 
   // LMS export (Phase 7): questions WITHOUT keys, and released grades.
-  // Both fetch through RLS, so a colleague exports only what they can read.
+  // The D1 server function is owner-checked, so a colleague exports
+  // nothing from someone else's assessment (NOT_FOUND, not data).
   async function exportQuestions() {
-    const { data, error } = await supabase
-      .from("questions")
-      .select("prompt, type, options, objective, marks, difficulty")
-      .eq("assessment_id", id)
-      .order("position");
-    if (error) {
+    try {
+      const data = await listReportQuestionsD1({ data: { assessmentId: id } });
+      downloadCsv(
+        `${assessment?.title ?? "assessment"}-questions.csv`,
+        questionsToCsv(
+          data.questions.map((q) => ({
+            prompt: q.prompt,
+            type: q.type,
+            options: q.options,
+            objective: q.objective ?? "",
+            marks: Number(q.marks),
+            difficulty: q.difficulty ?? "medium",
+          })),
+        ),
+      );
+    } catch (error) {
       toast.error(translateError(error, lang));
-      return;
     }
-    downloadCsv(
-      `${assessment?.title ?? "assessment"}-questions.csv`,
-      questionsToCsv(
-        (data ?? []).map((q) => ({
-          prompt: q.prompt,
-          type: q.type,
-          options: Array.isArray(q.options) ? (q.options as string[]) : [],
-          objective: q.objective ?? "",
-          marks: Number(q.marks),
-          difficulty: q.difficulty ?? "medium",
-        })),
-      ),
-    );
   }
 
   function exportGrades() {

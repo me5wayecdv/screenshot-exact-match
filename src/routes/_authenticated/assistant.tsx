@@ -18,11 +18,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Empty, PageHeader, Panel } from "@/components/ui-kit";
-import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import type { AssistantChatMessage } from "@/lib/teacher-assistant";
 import { explainLesson } from "@/server/lesson-explain";
+import { uploadLessonSourceD1 } from "@/server/d1-assistant";
 import { ocrSourceImages } from "@/server/source-ocr";
 import { askTeacherAssistant, getTeacherAssistantOverview } from "@/server/teacher-assistant";
 
@@ -82,13 +82,11 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 
 /** Platform rule: every uploaded file is persisted server-side first. */
 async function uploadExplainSource(blob: Blob, ext: string): Promise<void> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) throw new Error("No session.");
-  const path = `${user.id}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage.from("generation-sources").upload(path, blob);
-  if (error) throw error;
+  // D1: mediated R2 put into the private generation-sources bucket
+  // under {teacher_id}/{uuid}/{name}. A failed upload throws, and
+  // the caller aborts extraction — the file is never skipped.
+  const dataUrl = await blobToDataUrl(blob);
+  await uploadLessonSourceD1({ data: { dataUrl, fileName: `lesson.${ext}` } });
 }
 
 /** PDF text extraction (pdfjs-dist, dynamically imported). */
@@ -251,13 +249,12 @@ function TeacherAssistantPage() {
           toast.error(t("lessonExplainUploadFailed"));
           return;
         }
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        // D1 (Phase 2b): source OCR resolves the teacher session from
+        // the HttpOnly cookie; no token is sent from the browser.
+        // The file upload above is D1/R2.
         const res = await ocrSourceImages({
           data: {
             imageDataUrls: [await blobToDataUrl(compressed)],
-            accessToken: session?.access_token ?? "",
           },
         });
         if (!res.ok) {

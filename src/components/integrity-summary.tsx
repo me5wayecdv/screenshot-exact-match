@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { getIntegritySummaryD1 } from "@/server/d1-report";
 import { useI18n } from "@/lib/i18n";
 import { Panel, Pill } from "@/components/ui-kit";
 
@@ -61,51 +61,19 @@ export function useIntegritySummary(submissionId: string | undefined, assessment
     queryKey: ["integrity-summary", submissionId, assessmentId ?? null],
     enabled: !!submissionId,
     queryFn: async (): Promise<IntegritySummaryData> => {
-      const [eRes, aRes, qRes] = await Promise.all([
-        supabase
-          .from("integrity_events")
-          .select("event_type, question_id, created_at")
-          .eq("submission_id", submissionId!)
-          .order("created_at"),
-        supabase
-          .from("answers")
-          .select("question_id, time_spent_seconds")
-          .eq("submission_id", submissionId!),
-        assessmentId
-          ? supabase
-              .from("questions")
-              .select("id")
-              .eq("assessment_id", assessmentId)
-              .order("position")
-          : Promise.resolve({ data: null as { id: string }[] | null, error: null }),
-      ]);
-      if (eRes.error) throw eRes.error;
-      if (aRes.error) throw aRes.error;
-      if (qRes.error) throw qRes.error;
-      const events = (eRes.data ?? []) as IntegrityEventRow[];
-      const answers = (aRes.data ?? []) as {
-        question_id: string;
-        time_spent_seconds: number | null;
-      }[];
-      const { tabSwitches, windowBlurs } = summarizeIntegrityEvents(events);
-      const questionIds = (qRes.data ?? []).map((q) => q.id);
-      const positionOf = new Map(questionIds.map((id, i) => [id, i]));
-      const perQuestion: PerQuestionTime[] = answers
-        .map((a) => ({
-          question_id: a.question_id,
-          seconds: Math.max(0, Number(a.time_spent_seconds ?? 0)),
-        }))
-        .sort(
-          (x, y) =>
-            (positionOf.get(x.question_id) ?? 9999) - (positionOf.get(y.question_id) ?? 9999),
-        );
-      const totalTimeSeconds = perQuestion.reduce((s, p) => s + p.seconds, 0);
+      // D1 (Phase 2b): the server checks the submission's assessment
+      // belongs to the caller before returning anything. Counting and
+      // ordering are unchanged (see summarizeIntegrityEvents above and
+      // the server's per-question position sort).
+      const data = await getIntegritySummaryD1({
+        data: { submissionId: submissionId!, assessmentId },
+      });
       return {
-        tabSwitches,
-        windowBlurs,
-        totalTimeSeconds,
-        perQuestion,
-        hasData: events.length > 0 || totalTimeSeconds > 0,
+        tabSwitches: data.tabSwitches,
+        windowBlurs: data.windowBlurs,
+        totalTimeSeconds: data.totalTimeSeconds,
+        perQuestion: data.perQuestion,
+        hasData: data.hasData,
       };
     },
   });

@@ -95,8 +95,15 @@ describe("production security hardening migration", () => {
     );
     expect(gradingRoute).toMatch(/selected\.status === "released"/);
     expect(scaleMigration).toMatch(/s\.status::text in \('awaiting_review', 'approved'\)/i);
-    expect(gradingRoute).toMatch(/supabase\.rpc\("review_answer"/);
-    expect(gradingRoute).toMatch(/supabase\.rpc\("release_submission"/);
+    // Phase 2 (Cloudflare-only migration): the audited Supabase RPCs
+    // review_answer / release_submission are ported to D1 server
+    // functions with the same owner checks (assessments.teacher_id =
+    // session user) in src/server/d1-grading.ts. The route must call
+    // those, never a raw table write.
+    expect(gradingRoute).toMatch(/reviewAnswerD1\(/);
+    expect(gradingRoute).toMatch(/releaseSubmissionD1\(/);
+    expect(gradingRoute).not.toMatch(/supabase\.rpc\("review_answer"/);
+    expect(gradingRoute).not.toMatch(/supabase\.rpc\("release_submission"/);
   });
 
   it("limits question-performance analytics to released attempts", () => {

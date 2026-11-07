@@ -2,29 +2,36 @@
  * WhatsAppSendButton — manual "send result to parent" for ONE released
  * submission. Teacher-final-word: the button is only rendered for
  * released submissions by its callers (grading released list, report
- * section); the server function re-checks released status anyway.
+ * section).
  *
- * Gating states, in order (never a silent failure):
- *  1. WhatsApp env not set on the server  -> "WhatsApp not connected"
+ * SENDING STAYS OFF in the pilot (D1 port, Phase 2b): the configured
+ * gate always answers false, so this component renders the
+ * "WhatsApp not connected" hint and never reaches a send. The gating
+ * states below are preserved for when sending is switched on:
+ *  1. WhatsApp not configured on the server -> "WhatsApp not connected"
  *     hint, button disabled. (No token is ever exposed to decide this;
  *     the server function answers only true/false.)
  *  2. No parent_phone on the student profile -> hint to add the number.
  *  3. Phone present but whatsapp_consent false -> hint to get consent.
  *  4. Ready -> enabled button. After a send, the latest audit row from
- *     public.whatsapp_sends is shown (sent / failed + error text).
+ *     whatsapp_sends is shown (sent / failed + error text).
  *
- * A failed send is VISIBLE: the audit row (status + error) is rendered
- * under the button, and the button stays enabled for retry. Manual
- * resends are allowed and each creates a new audit row.
+ * Contact reads are server-checked (self or approved linked teacher);
+ * audit reads are owner-checked (the submission's assessment must
+ * belong to the caller). No WhatsApp API call exists in this path.
  */
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { useI18n, translateError } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Pill } from "@/components/ui-kit";
-import { sendWhatsAppReport, getWhatsAppConfigured } from "@/lib/whatsapp.functions";
+import {
+  getParentContactD1,
+  getWhatsAppConfiguredD1,
+  listWhatsAppSendsD1,
+  sendWhatsAppReportD1,
+} from "@/server/d1-report";
 import type { WhatsAppSendRow } from "@/lib/whatsapp";
 
 export function WhatsAppSendButton({
@@ -40,32 +47,18 @@ export function WhatsAppSendButton({
 
   const configuredQuery = useQuery({
     queryKey: ["whatsapp-configured"],
-    queryFn: async () => getWhatsAppConfigured(),
+    queryFn: async () => getWhatsAppConfiguredD1({ data: {} }),
     staleTime: 60_000,
   });
   const contactQuery = useQuery({
     queryKey: ["whatsapp-contact", studentId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("parent_phone, whatsapp_consent")
-        .eq("id", studentId)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: async () => getParentContactD1({ data: { studentId } }),
   });
   const sendsQuery = useQuery({
     queryKey: ["whatsapp-sends", submissionId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("whatsapp_sends")
-        .select("id, submission_id, sent_at, status, trigger, message_id, error")
-        .eq("submission_id", submissionId)
-        .order("sent_at", { ascending: false })
-        .limit(1);
-      if (error) throw error;
-      return (data ?? []) as unknown as WhatsAppSendRow[];
+      const rows = await listWhatsAppSendsD1({ data: { submissionId } });
+      return rows as unknown as WhatsAppSendRow[];
     },
   });
 
@@ -77,14 +70,12 @@ export function WhatsAppSendButton({
   async function send() {
     setBusy(true);
     try {
-      const result = await sendWhatsAppReport({ data: { submissionId, trigger: "manual" } });
-      if (result.ok && result.status === "sent") toast.success(t("whatsappSent"));
-      else if (result.ok) toast.message(t("whatsappSkipped"));
-      else if (result.status === "not_released") toast.error(t("whatsappNotReleased"));
-      else
-        toast.error(
-          result.error ? translateError(new Error(result.error), lang) : t("errorGeneric"),
-        );
+      // Sending is OFF in the pilot: the server always answers
+      // skipped/not_configured and performs no send. This branch is
+      // unreachable while the configured gate above is false; it
+      // exists so a stale enabled button can never send.
+      const result = await sendWhatsAppReportD1({ data: { submissionId, trigger: "manual" } });
+      if (result.status === "skipped") toast.message(t("whatsappSkipped"));
     } catch (e) {
       toast.error(translateError(e, lang));
     } finally {

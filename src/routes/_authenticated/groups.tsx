@@ -3,7 +3,23 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Check, X, Users } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  approveAllGroupMembersD1,
+  createTeacherGroupD1,
+  decideGroupMembershipD1,
+  deleteTeacherGroupD1,
+  getGroupRosterD1,
+  getPendingGroupRequestsD1,
+  getStudentGroupsD1,
+  getTeacherGroupsD1,
+  joinGroupD1,
+  updateTeacherGroupD1,
+} from "@/server/d1-groups";
+import {
+  assignGroupExamD1,
+  getGroupExamsD1,
+  getTeacherAssessmentsD1,
+} from "@/server/d1-group-exams";
 import { useMe } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { displayName, splitRoster } from "@/lib/enrollment";
@@ -21,45 +37,45 @@ export const Route = createFileRoute("/_authenticated/groups")({
 });
 
 type TeacherGroup = {
-  group_id: string;
+  groupId: string;
   name: string;
-  school_year: string;
+  schoolYear: string;
   days: string[];
-  time_text: string;
+  timeText: string;
   notes: string;
-  join_code: string;
-  approved_count: number;
-  pending_count: number;
-  created_at: string;
+  joinCode: string;
+  approvedCount: number;
+  pendingCount: number;
+  createdAt: string;
 };
 
 type RosterRow = {
-  student_id: string;
-  full_name: string;
+  studentId: string;
+  fullName: string;
   status: string;
-  requested_at: string | null;
+  requestedAt: string | null;
 };
 
 type MyGroup = {
-  group_id: string;
-  group_name: string;
-  school_year: string;
+  groupId: string;
+  groupName: string;
+  schoolYear: string;
   days: string[];
-  time_text: string;
-  teacher_id: string;
-  teacher_name: string;
+  timeText: string;
+  teacherId: string;
+  teacherName: string;
 };
 
 type PendingGroup = {
-  group_id: string;
-  group_name: string;
-  teacher_id: string;
-  teacher_name: string;
-  requested_at: string;
+  groupId: string;
+  groupName: string;
+  teacherId: string;
+  teacherName: string;
+  requestedAt: string;
 };
 
 type GroupExam = {
-  assessment_id: string;
+  assessmentId: string;
   title: string;
   published: boolean;
 };
@@ -111,7 +127,7 @@ function TeacherGroups() {
 
   const { data: groups } = useQuery({
     queryKey: ["my-teacher-groups"],
-    queryFn: async () => ((await supabase.rpc("my_teacher_groups")).data ?? []) as TeacherGroup[],
+    queryFn: async () => getTeacherGroupsD1({}),
   });
   const refresh = () => qc.invalidateQueries({ queryKey: ["my-teacher-groups"] });
 
@@ -122,15 +138,21 @@ function TeacherGroups() {
   async function create() {
     if (name.trim() === "") return;
     setBusy(true);
-    const { error } = await supabase.rpc("create_teacher_group", {
-      _name: name.trim(),
-      _year: year.trim(),
-      _days: days,
-      _time: time.trim(),
-      _notes: notes.trim(),
-    });
+    try {
+      await createTeacherGroupD1({
+        data: {
+          name: name.trim(),
+          year: year.trim(),
+          days,
+          time: time.trim(),
+          notes: notes.trim(),
+        },
+      });
+    } catch (error) {
+      setBusy(false);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(false);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("groupCreated"));
     setName("");
     setYear("");
@@ -213,7 +235,7 @@ function TeacherGroups() {
       ) : (
         <div className="space-y-6">
           {(groups ?? []).map((g) => (
-            <GroupCard key={g.group_id} group={g} labels={labels} onChanged={refresh} />
+            <GroupCard key={g.groupId} group={g} labels={labels} onChanged={refresh} />
           ))}
         </div>
       )}
@@ -234,35 +256,47 @@ function GroupCard({
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(group.name);
-  const [year, setYear] = useState(group.school_year);
+  const [year, setYear] = useState(group.schoolYear);
   const [days, setDays] = useState<string[]>(group.days ?? []);
-  const [time, setTime] = useState(group.time_text);
+  const [time, setTime] = useState(group.timeText);
   const [notes, setNotes] = useState(group.notes);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const { data: roster } = useQuery({
-    queryKey: ["group-roster", group.group_id],
-    queryFn: async () =>
-      ((await supabase.rpc("my_group_roster", { _group: group.group_id })).data ??
-        []) as RosterRow[],
+    queryKey: ["group-roster", group.groupId],
+    queryFn: async () => getGroupRosterD1({ data: { groupId: group.groupId } }),
   });
-  const refreshRoster = () => qc.invalidateQueries({ queryKey: ["group-roster", group.group_id] });
-  const { pending, approved, rejected } = splitRoster(roster);
+  const refreshRoster = () => qc.invalidateQueries({ queryKey: ["group-roster", group.groupId] });
+  // splitRoster/displayName work on the shared EnrollmentRow shape, so
+  // the D1 camelCase rows are adapted once here.
+  const rosterRows = (roster ?? []).map((r: RosterRow) => ({
+    student_id: r.studentId,
+    full_name: r.fullName,
+    status: r.status,
+    requested_at: r.requestedAt,
+  }));
+  const { pending, approved, rejected } = splitRoster(rosterRows);
 
   async function save() {
     if (name.trim() === "") return;
     setBusy("save");
-    const { error } = await supabase.rpc("update_teacher_group", {
-      _group: group.group_id,
-      _name: name.trim(),
-      _year: year.trim(),
-      _days: days,
-      _time: time.trim(),
-      _notes: notes.trim(),
-    });
+    try {
+      await updateTeacherGroupD1({
+        data: {
+          groupId: group.groupId,
+          name: name.trim(),
+          year: year.trim(),
+          days,
+          time: time.trim(),
+          notes: notes.trim(),
+        },
+      });
+    } catch (error) {
+      setBusy(null);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(null);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("groupUpdated"));
     setEditing(false);
     onChanged();
@@ -274,25 +308,29 @@ function GroupCard({
       return;
     }
     setBusy("delete");
-    const { error } = await supabase.rpc("delete_teacher_group", {
-      _group: group.group_id,
-    });
+    try {
+      await deleteTeacherGroupD1({ data: { groupId: group.groupId } });
+    } catch (error) {
+      setBusy(null);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(null);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("groupDeleted"));
     onChanged();
   }
 
   async function decide(studentId: string, approve: boolean) {
     setBusy(studentId);
-    const { error } = await supabase.rpc("decide_group_membership", {
-      _group: group.group_id,
-      _student: studentId,
-      _approve: approve,
-    });
+    try {
+      await decideGroupMembershipD1({
+        data: { groupId: group.groupId, studentId, approve },
+      });
+    } catch (error) {
+      setBusy(null);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(null);
-    if (error) return void toast.error(translateError(error, lang));
-    const row = roster?.find((r) => r.student_id === studentId);
+    const row = rosterRows.find((r) => r.student_id === studentId);
     toast.success(
       approve
         ? t("enrollmentApproved", { name: displayName(row ?? {}) })
@@ -304,12 +342,17 @@ function GroupCard({
 
   async function approveAll() {
     setBusy("all");
-    const { data: count, error } = await supabase.rpc("approve_all_group_members", {
-      _group: group.group_id,
-    });
+    let count: number;
+    try {
+      ({ count } = await approveAllGroupMembersD1({
+        data: { groupId: group.groupId },
+      }));
+    } catch (error) {
+      setBusy(null);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(null);
-    if (error) return void toast.error(translateError(error, lang));
-    toast.success(t("groupApprovedAll", { count: String(count ?? pending.length) }));
+    toast.success(t("groupApprovedAll", { count: String(count) }));
     refreshRoster();
     onChanged();
   }
@@ -393,17 +436,17 @@ function GroupCard({
             <div>
               <h3 className="text-lg font-semibold">{group.name}</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                {group.school_year}
+                {group.schoolYear}
                 {dayText ? ` — ${dayText}` : ""}
-                {group.time_text ? ` — ${group.time_text}` : ""}
+                {group.timeText ? ` — ${group.timeText}` : ""}
               </p>
               {group.notes ? (
                 <p className="mt-1 text-sm text-muted-foreground">{group.notes}</p>
               ) : null}
               <p className="mt-2 text-sm">
                 {t("groupCounts", {
-                  approved: String(group.approved_count ?? 0),
-                  pending: String(group.pending_count ?? 0),
+                  approved: String(group.approvedCount ?? 0),
+                  pending: String(group.pendingCount ?? 0),
                 })}
               </p>
             </div>
@@ -422,11 +465,11 @@ function GroupCard({
               dir="ltr"
               className="figures mt-1 text-2xl font-semibold tracking-[0.2em] text-primary"
             >
-              {group.join_code}
+              {group.joinCode}
             </p>
             <p className="mt-1 text-sm text-muted-foreground">{t("groupCodeHint")}</p>
           </div>
-          <GroupExams groupId={group.group_id} />
+          <GroupExams groupId={group.groupId} />
         </>
       )}
 
@@ -537,32 +580,28 @@ function GroupExams({ groupId }: { groupId: string }) {
 
   const { data: exams } = useQuery({
     queryKey: ["group-exams", groupId],
-    queryFn: async () =>
-      ((await supabase.rpc("my_group_exams", { _group: groupId })).data ?? []) as GroupExam[],
+    queryFn: async () => getGroupExamsD1({ data: { groupId } }),
   });
   const { data: assessments } = useQuery({
     queryKey: ["teacher-assessments", me?.id],
     enabled: !!me?.id,
-    queryFn: async () =>
-      ((
-        await supabase
-          .from("assessments")
-          .select("id, title, status")
-          .eq("teacher_id", me!.id)
-          .order("created_at", { ascending: false })
-      ).data ?? []) as TeacherAssessment[],
+    queryFn: async () => getTeacherAssessmentsD1({}),
   });
 
   async function assign() {
     if (selected === "") return;
     setBusy(true);
-    const { data: count, error } = await supabase.rpc("assign_group_exam", {
-      _group: groupId,
-      _assessment: selected,
-    });
+    let count: number;
+    try {
+      ({ count } = await assignGroupExamD1({
+        data: { groupId, assessmentId: selected },
+      }));
+    } catch (error) {
+      setBusy(false);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(false);
-    if (error) return void toast.error(translateError(error, lang));
-    toast.success(t("groupExamAssigned", { count: String(count ?? 0) }));
+    toast.success(t("groupExamAssigned", { count: String(count) }));
     setSelected("");
     qc.invalidateQueries({ queryKey: ["group-exams", groupId] });
   }
@@ -593,7 +632,7 @@ function GroupExams({ groupId }: { groupId: string }) {
       ) : (
         <ul className="mt-3 divide-y rounded-lg border bg-card">
           {(exams ?? []).map((e) => (
-            <li key={e.assessment_id} className="flex items-center justify-between gap-3 p-4">
+            <li key={e.assessmentId} className="flex items-center justify-between gap-3 p-4">
               <span className="font-medium">{e.title}</span>
               <span className="text-sm text-muted-foreground">
                 {e.published ? t("groupExamPublished") : t("groupExamDraft")}
@@ -608,28 +647,26 @@ function GroupExams({ groupId }: { groupId: string }) {
 
 function StudentGroupCard({ group, labels }: { group: MyGroup; labels: Record<string, string> }) {
   const { t } = useI18n();
-  // Approved members only: my_group_exams returns published linked exams
+  // Approved members only: getGroupExamsD1 returns published linked exams
   // for members and no rows for anyone else, so this list can never leak
   // a draft or another group's exam to this student.
   const { data: exams } = useQuery({
-    queryKey: ["group-exams-student", group.group_id],
-    queryFn: async () =>
-      ((await supabase.rpc("my_group_exams", { _group: group.group_id })).data ??
-        []) as GroupExam[],
+    queryKey: ["group-exams-student", group.groupId],
+    queryFn: async () => getGroupExamsD1({ data: { groupId: group.groupId } }),
   });
 
   return (
     <div className="rounded-lg border bg-card p-4">
-      <h3 className="font-semibold">{group.group_name}</h3>
+      <h3 className="font-semibold">{group.groupName}</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        {group.school_year}
+        {group.schoolYear}
         {(group.days ?? []).length > 0
           ? ` — ${(group.days ?? []).map((d) => labels[d] ?? d).join("، ")}`
           : ""}
-        {group.time_text ? ` — ${group.time_text}` : ""}
+        {group.timeText ? ` — ${group.timeText}` : ""}
       </p>
       <p className="mt-2 text-sm text-muted-foreground">
-        {t("groupTeacher", { name: group.teacher_name || "—" })}
+        {t("groupTeacher", { name: group.teacherName || "—" })}
       </p>
       <h4 className="mt-4 font-semibold">{t("groupExams")}</h4>
       {(exams ?? []).length === 0 ? (
@@ -637,10 +674,10 @@ function StudentGroupCard({ group, labels }: { group: MyGroup; labels: Record<st
       ) : (
         <ul className="mt-2 space-y-2">
           {(exams ?? []).map((e) => (
-            <li key={e.assessment_id} className="flex items-center justify-between gap-3">
+            <li key={e.assessmentId} className="flex items-center justify-between gap-3">
               <span className="font-medium">{e.title}</span>
               <Button asChild size="sm">
-                <Link to="/assessments/take/$id" params={{ id: e.assessment_id }}>
+                <Link to="/assessments/take/$id" params={{ id: e.assessmentId }}>
                   {t("groupExamStart")}
                 </Link>
               </Button>
@@ -660,12 +697,11 @@ function StudentGroups() {
 
   const { data: myGroups } = useQuery({
     queryKey: ["my-groups"],
-    queryFn: async () => ((await supabase.rpc("my_groups")).data ?? []) as MyGroup[],
+    queryFn: async () => getStudentGroupsD1({}),
   });
   const { data: pending } = useQuery({
     queryKey: ["my-pending-groups"],
-    queryFn: async () =>
-      ((await supabase.rpc("my_pending_group_requests")).data ?? []) as PendingGroup[],
+    queryFn: async () => getPendingGroupRequestsD1({}),
   });
   const labels = dayLabels(t as (key: string) => string);
   const refresh = () => {
@@ -676,9 +712,13 @@ function StudentGroups() {
   async function join() {
     if (code.trim() === "") return;
     setBusy(true);
-    const { error } = await supabase.rpc("join_group", { _code: code.trim() });
+    try {
+      await joinGroupD1({ data: { code: code.trim() } });
+    } catch (error) {
+      setBusy(false);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(false);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("groupJoinSent"));
     setCode("");
     refresh();
@@ -709,11 +749,11 @@ function StudentGroups() {
           <h2 className="mb-3 text-lg font-semibold">{t("enrollmentRequestsTitle")}</h2>
           <ul className="divide-y rounded-lg border bg-card">
             {(pending ?? []).map((p) => (
-              <li key={p.group_id} className="p-4">
-                <p className="font-medium">{t("groupPendingWaiting", { name: p.group_name })}</p>
+              <li key={p.groupId} className="p-4">
+                <p className="font-medium">{t("groupPendingWaiting", { name: p.groupName })}</p>
                 <p className="mt-0.5 text-sm text-muted-foreground">
-                  {t("groupTeacher", { name: p.teacher_name || "—" })} — {t("enrollmentDate")}{" "}
-                  {formatDate(p.requested_at, lang)}
+                  {t("groupTeacher", { name: p.teacherName || "—" })} — {t("enrollmentDate")}{" "}
+                  {formatDate(p.requestedAt, lang)}
                 </p>
               </li>
             ))}
@@ -727,7 +767,7 @@ function StudentGroups() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {(myGroups ?? []).map((g) => (
-            <StudentGroupCard key={g.group_id} group={g} labels={labels} />
+            <StudentGroupCard key={g.groupId} group={g} labels={labels} />
           ))}
         </div>
       )}

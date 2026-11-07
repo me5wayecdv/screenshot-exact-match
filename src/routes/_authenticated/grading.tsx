@@ -2,8 +2,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import {
+  autoScoreFor,
+  getGradingDetailD1,
+  listGradingPageD1,
+  releaseSubmissionD1,
+  reviewAnswerD1,
+  setAutoScoresD1,
+  type GradingAnswer,
+  type GradingQuestion,
+  type GradingSubmission,
+} from "@/server/d1-grading";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit";
@@ -13,18 +22,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { sendWhatsAppReport } from "@/lib/whatsapp.functions";
+import { sendWhatsAppReportD1 } from "@/server/d1-report";
 import { WhatsAppSendButton } from "@/components/whatsapp-send-button";
 import { DataPager } from "@/components/data-pager";
 
-type Q = Database["public"]["Tables"]["questions"]["Row"] & {
-  question_keys: Database["public"]["Tables"]["question_keys"]["Row"] | null;
-};
-type Submission = Database["public"]["Tables"]["submissions"]["Row"];
-// Answers live in the EXISTING public.answers table (see the base
-// migration). Teacher scores are final_score; auto_score is the
-// deterministic objective auto-grade. No AI in this pass.
-type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
+type Q = GradingQuestion & { question_keys: GradingQuestion["key"] };
+type Submission = GradingSubmission;
+// Answers live in the D1 answers table. Teacher scores are
+// final_score; auto_score is the deterministic objective auto-grade.
+// No AI in this pass.
+type AnswerRow = GradingAnswer;
 
 export const Route = createFileRoute("/_authenticated/grading")({
   head: () => ({
@@ -36,31 +43,14 @@ export const Route = createFileRoute("/_authenticated/grading")({
   component: Grading,
 });
 
-function normalize(s: string) {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-/** Deterministic objective auto-grade. Mirrors public.score_objective in
- *  the existing migration: exact (trimmed) match for mcq/true_false,
- *  normalised match against the correct answer or any accepted
- *  alternative for short answers, null for written questions. The teacher
- *  always has the final word via final_score. */
+/** Deterministic objective auto-grade (server rule in
+ *  d1-grading.ts, mirroring the old score_objective): exact trimmed
+ *  match for mcq/true_false, normalised match against the correct
+ *  answer or an accepted alternative for short answers, null for
+ *  written questions. The teacher always has the final word via
+ *  final_score. */
 function autoFor(q: Q, answerText: string): number | null {
-  const key = q.question_keys;
-  if (!key) return null;
-  const marks = Number(q.marks);
-  if (q.type === "mcq" || q.type === "true_false") {
-    return (answerText ?? "").trim() === (key.correct_answer ?? "").trim() ? marks : 0;
-  }
-  if (q.type === "short_answer") {
-    const norm = normalize(answerText ?? "");
-    if (!norm) return 0;
-    if (norm === normalize(key.correct_answer ?? "")) return marks;
-    const alts = (key.accepted_alternatives as string[]) ?? [];
-    if (alts.some((a) => normalize(a) === norm)) return marks;
-    return 0;
-  }
-  return null;
+  return autoScoreFor({ type: q.type, marks: Number(q.marks) }, q.question_keys, answerText);
 }
 
 function useGradingList(teacherId: string | undefined, openPage: number, releasedPage: number) {
@@ -70,49 +60,36 @@ function useGradingList(teacherId: string | undefined, openPage: number, release
     queryKey: ["grading-list", teacherId, openPage, releasedPage],
     enabled: !!teacherId,
     queryFn: async () => {
+      // D1 (Phase 2): the server joins submissions to the teacher's
+      // OWN assessments only (assessments.teacher_id = session user)
+      // and returns titles/names already joined — a non-owner teacher
+      // sees nothing, not even another teacher's student names.
       const [openResult, releasedResult] = await Promise.all([
-        supabase.rpc("teacher_grading_page", {
-          _status: "awaiting_review",
-          _offset: openPage * openPageSize,
-          _limit: openPageSize + 1,
+        listGradingPageD1({
+          data: {
+            status: "awaiting_review",
+            offset: openPage * openPageSize,
+            limit: openPageSize,
+          },
         }),
-        supabase.rpc("teacher_grading_page", {
-          _status: "released",
-          _offset: releasedPage * releasedPageSize,
-          _limit: releasedPageSize + 1,
+        listGradingPageD1({
+          data: {
+            status: "released",
+            offset: releasedPage * releasedPageSize,
+            limit: releasedPageSize,
+          },
         }),
       ]);
-      if (openResult.error) throw openResult.error;
-      if (releasedResult.error) throw releasedResult.error;
-      const openRows = (openResult.data ?? []) as Submission[];
-      const releasedRows = (releasedResult.data ?? []) as Submission[];
-      const submissions = openRows.slice(0, openPageSize);
-      const released = releasedRows.slice(0, releasedPageSize);
+      const submissions = openResult.submissions;
+      const released = releasedResult.submissions;
       const visibleRows = [...submissions, ...released];
-      const assessmentIds = [...new Set(visibleRows.map((row) => row.assessment_id))];
-      const studentIds = [...new Set(visibleRows.map((row) => row.student_id))];
-      const [assessmentResult, profileResult] = await Promise.all([
-        assessmentIds.length
-          ? supabase.from("assessments").select("id, title").in("id", assessmentIds)
-          : Promise.resolve({ data: [], error: null }),
-        studentIds.length
-          ? supabase.from("profiles").select("id, full_name").in("id", studentIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-      if (assessmentResult.error) throw assessmentResult.error;
-      const titles = new Map(
-        (assessmentResult.data ?? []).map((assessment) => [assessment.id, assessment.title]),
-      );
-      const names = new Map(
-        (profileResult.data ?? []).map((profile) => [profile.id, profile.full_name || "—"]),
-      );
       return {
         submissions,
         released,
-        hasMoreSubmissions: openRows.length > openPageSize,
-        hasMoreReleased: releasedRows.length > releasedPageSize,
-        titles,
-        names,
+        hasMoreSubmissions: openResult.hasMore,
+        hasMoreReleased: releasedResult.hasMore,
+        titles: new Map(visibleRows.map((row) => [row.assessment_id, row.assessmentTitle])),
+        names: new Map(visibleRows.map((row) => [row.student_id, row.studentName])),
       };
     },
   });
@@ -124,19 +101,13 @@ function useGradingDetail(submission: Submission | null) {
     enabled: !!submission,
     queryFn: async () => {
       const s = submission!;
-      const [qRes, aRes] = await Promise.all([
-        supabase
-          .from("questions")
-          .select("*, question_keys(*)")
-          .eq("assessment_id", s.assessment_id)
-          .order("position"),
-        supabase.from("answers").select("*").eq("submission_id", s.id),
-      ]);
-      if (qRes.error) throw qRes.error;
-      if (aRes.error) throw aRes.error;
+      // D1 (Phase 2): ownership is checked server-side against the
+      // submission's assessment; keys come back only for the owning
+      // teacher, never for a student path.
+      const detail = await getGradingDetailD1({ data: { submissionId: s.id } });
       return {
-        questions: (qRes.data ?? []) as unknown as Q[],
-        answers: (aRes.data ?? []) as unknown as AnswerRow[],
+        questions: detail.questions.map((q) => ({ ...q, question_keys: q.key })),
+        answers: detail.answers,
       };
     },
   });
@@ -148,8 +119,10 @@ function Grading() {
   const { data: me, isLoading: meLoading } = useMe();
   const [openPage, setOpenPage] = useState(0);
   const [releasedPage, setReleasedPage] = useState(0);
-  const gradingTeacherId =
-    me && (me.role === "school_teacher" || me.role === "tutor") ? me.id : undefined;
+  // FROZEN GATE: school_teacher only — tutors are barred from
+  // /grading (the old page's client gate also admitted tutors, but
+  // the D1 server enforces school_teacher; the UI now matches it).
+  const gradingTeacherId = me && me.role === "school_teacher" ? me.id : undefined;
   const canGrade = gradingTeacherId !== undefined;
   const { data: list, isLoading: listLoading } = useGradingList(
     gradingTeacherId,
@@ -204,12 +177,15 @@ function Grading() {
         autoDone.current.add(selected.id);
         return;
       }
-      const results = await Promise.all(
-        jobs.map((j) => supabase.from("answers").update({ auto_score: j.computed }).eq("id", j.id)),
-      );
-      const failed = results.find((r) => r.error);
-      if (failed) {
-        toast.error(translateError(failed.error, lang));
+      try {
+        await setAutoScoresD1({
+          data: {
+            submissionId: selected.id,
+            scores: jobs.map((j) => ({ answerId: j.id, score: j.computed })),
+          },
+        });
+      } catch (err) {
+        toast.error(translateError(err, lang));
         return;
       }
       autoDone.current.add(selected.id);
@@ -218,8 +194,8 @@ function Grading() {
   }, [detail, selected, qc, lang]);
 
   if (meLoading || listLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
-  // Teachers and tutors may grade only assessments they own; the bounded
-  // RPC applies the same owner check independently of this UI gate.
+  // A school teacher may grade only assessments they own; the
+  // server applies the same owner check independently of this UI gate.
   if (!me || !canGrade) return <Empty>{t("gradingTeacherOnly")}</Empty>;
 
   const submissions = list?.submissions ?? [];
@@ -252,18 +228,20 @@ function Grading() {
       const fb = feedbacks[a.id] ?? "";
       if (!force && value === a.final_score && fb === (a.feedback ?? "")) return [];
       return [
-        supabase.rpc("review_answer", {
-          _answer: a.id,
-          _score: value,
-          _feedback: fb,
-          _decision: value === null ? "reject" : "approve",
+        reviewAnswerD1({
+          data: {
+            answerId: a.id,
+            score: value,
+            feedback: fb,
+            decision: value === null ? "reject" : "approve",
+          },
         }),
       ];
     });
-    const results = await Promise.all(writes);
-    const failed = results.find((r) => r.error);
-    if (failed) {
-      toast.error(translateError(failed.error, lang));
+    try {
+      await Promise.all(writes);
+    } catch (err) {
+      toast.error(translateError(err, lang));
       return false;
     }
     return true;
@@ -298,28 +276,30 @@ function Grading() {
       setBusy(false);
       return;
     }
-    const { error } = await supabase.rpc("release_submission", {
-      _sub: selected.id,
-      _feedback: "",
-    });
+    // D1 (Phase 2): the server enforces the release gate — every
+    // question needs a teacher score — and computes canonical totals.
+    // The handwritten exception (AI grade final on save) lives in the
+    // handwritten workstream, not here, so this gate is not weakened.
+    try {
+      await releaseSubmissionD1({ data: { submissionId: selected.id, feedback: "" } });
+    } catch (err) {
+      setBusy(false);
+      return void toast.error(translateError(err, lang));
+    }
     setBusy(false);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("released"));
     // Auto-send is toggle-gated SERVER-side (default OFF). A skipped
     // result (toggle off / no number / no consent / already sent) is
-    // deliberately silent — release must never nag. Only a real send or
-    // a real Meta failure gets a toast, and the failure stays visible
-    // in the audit row on the report page. The try/catch guarantees a
-    // send problem can never break the release itself.
+    // deliberately silent — release must never nag. The try/catch
+    // guarantees a send problem can never break the release itself.
+    // D1 (Phase 2b): WhatsApp sending stays OFF in the pilot, so
+    // this always answers skipped and performs no send — the toggle
+    // only stores the flag until sending is deliberately switched on.
     try {
-      const sendResult = await sendWhatsAppReport({
+      // Always skipped while sending is OFF — deliberately silent.
+      await sendWhatsAppReportD1({
         data: { submissionId: selected.id, trigger: "auto" },
       });
-      if (sendResult.ok && sendResult.status === "sent") toast.success(t("whatsappSent"));
-      else if (!sendResult.ok)
-        toast.error(
-          sendResult.error ? translateError(new Error(sendResult.error), lang) : t("errorGeneric"),
-        );
     } catch (e) {
       toast.error(translateError(e, lang));
     }

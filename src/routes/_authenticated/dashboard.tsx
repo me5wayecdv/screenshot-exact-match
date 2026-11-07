@@ -2,7 +2,15 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  enrollLessonD1,
+  getAdminDashboardD1,
+  getStudentHomeD1,
+  getTeacherDashboardD1,
+  getTutorDashboardD1,
+  joinTeacherD1,
+  updateOwnNameD1,
+} from "@/server/d1-assessments";
 import { useMe } from "@/lib/session";
 import { studentAssessmentState } from "@/lib/assessment-visibility";
 import { pendingTeacherNames, waitingOn } from "@/lib/enrollment";
@@ -93,24 +101,15 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
   const { data } = useQuery({
     queryKey: ["teacher-summary", teacherId],
     queryFn: async () => {
-      const [recent, summary] = await Promise.all([
-        supabase
-          .from("assessments")
-          .select("id, title, status, created_at")
-          .eq("teacher_id", teacherId)
-          .order("created_at", { ascending: false })
-          .range(0, 5),
-        supabase.rpc("teacher_dashboard_summary"),
-      ]);
-      if (recent.error) throw recent.error;
-      if (summary.error) throw summary.error;
-      const counts = summary.data?.[0];
+      // D1 (Phase 2): own assessments + own counts only; the server
+      // scopes every count by the session user.
+      const result = await getTeacherDashboardD1({});
       return {
-        assessments: recent.data ?? [],
-        activeCount: counts?.active_assessment_count ?? 0,
-        pendingCount: counts?.pending_submission_count ?? 0,
-        releasedCount: counts?.released_submission_count ?? 0,
-        studentCount: counts?.student_count ?? 0,
+        assessments: result.assessments,
+        activeCount: result.activeCount,
+        pendingCount: result.pendingCount,
+        releasedCount: result.releasedCount,
+        studentCount: result.studentCount,
       };
     },
   });
@@ -225,28 +224,16 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
   const { data } = useQuery({
     queryKey: ["tutor-summary", tutorId],
     queryFn: async () => {
-      const [lessonResult, summaryResult] = await Promise.all([
-        supabase
-          .from("lessons")
-          .select("id, title, description, join_code, created_at")
-          .order("created_at", { ascending: false })
-          .range(0, 6),
-        supabase.rpc("tutor_dashboard_summary"),
-      ]);
-      if (lessonResult.error) throw lessonResult.error;
-      if (summaryResult.error) throw summaryResult.error;
-      const lessonRows = lessonResult.data ?? [];
-      const lessons = lessonRows.slice(0, 6);
-      const { data: enrollments, error } = lessons.length
-        ? await supabase.rpc("tutor_lesson_enrollment_counts", {
-            _lesson_ids: lessons.map((lesson) => lesson.id),
-          })
-        : { data: [], error: null };
-      if (error) throw error;
+      // D1 (Phase 2): own lessons + own enrollment counts only.
+      const result = await getTutorDashboardD1({});
       return {
-        lessons,
-        enrollments: enrollments ?? [],
-        summary: summaryResult.data?.[0] ?? null,
+        lessons: result.lessons,
+        enrollments: result.enrollments,
+        summary: {
+          lesson_count: result.lessonCount,
+          student_count: result.studentCount,
+          published_assessment_count: result.publishedAssessmentCount,
+        },
       };
     },
   });
@@ -346,19 +333,7 @@ function AdminHome({ name }: { name: string }) {
   const { t } = useI18n();
   const { data } = useQuery({
     queryKey: ["admin-summary"],
-    queryFn: async () => {
-      const [tc, st] = await Promise.all([
-        supabase
-          .from("user_roles")
-          .select("id", { count: "exact", head: true })
-          .in("role", ["school_teacher", "tutor"]),
-        supabase
-          .from("user_roles")
-          .select("id", { count: "exact", head: true })
-          .eq("role", "student"),
-      ]);
-      return { teachers: tc.count ?? 0, students: st.count ?? 0 };
-    },
+    queryFn: async () => getAdminDashboardD1({}),
   });
   const cards = [
     { label: t("summaryTeachers"), value: data?.teachers },
@@ -399,71 +374,22 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   const { data, error: studentError } = useQuery({
     queryKey: ["student-home", studentId, assignmentPage, lessonPage],
     queryFn: async () => {
-      const [a, le, pc, links, pending] = await Promise.all([
-        supabase
-          .from("assessments")
-          .select("id, title, instructions, due_at, starts_at, status")
-          .order("created_at", { ascending: false })
-          .range(assignmentPage * pageSize, assignmentPage * pageSize + pageSize),
-        supabase
-          .from("lesson_enrollments")
-          .select("lesson_id, lessons(id, title, description, join_code)")
-          .order("enrolled_at", { ascending: false })
-          .range(lessonPage * pageSize, lessonPage * pageSize + pageSize),
-        supabase
-          .from("profiles")
-          .select("full_name, parent_phone, whatsapp_consent")
-          .eq("id", studentId)
-          .maybeSingle(),
-        // RLS lets a student read their own teacher links. The count tells
-        // "not linked to anyone" apart from "linked, but nothing assigned
-        // yet" — the two very different reasons an exam list is empty. A
-        // pending link is neither: it is a request waiting for a decision.
-        supabase.from("teacher_students").select("teacher_id, status").eq("student_id", studentId),
-        supabase.rpc("my_pending_enrollments"),
-      ]);
-      if (a.error) throw a.error;
-      if (le.error) throw le.error;
-      const assessmentRows = a.data ?? [];
-      const lessonRows = le.data ?? [];
-      const assessmentPageRows = assessmentRows.slice(0, pageSize);
-      const assessmentIds = assessmentPageRows.map((assessment) => assessment.id);
-      const { data: submissionRows, error: submissionsError } = assessmentIds.length
-        ? await supabase
-            .from("submissions")
-            .select("id, assessment_id, status, final_score, total_possible")
-            .in("assessment_id", assessmentIds)
-        : { data: [], error: null };
-      if (submissionsError) throw submissionsError;
-      const lessons = lessonRows
-        .slice(0, pageSize)
-        .map((r) => {
-          const nested = r.lessons as unknown;
-          return Array.isArray(nested) ? nested[0] : nested;
-        })
-        .filter(Boolean) as {
-        id: string;
-        title: string;
-        description: string;
-        join_code: string | null;
-      }[];
+      // D1 (Phase 2): assigned published/closed assessments only
+      // (plus the group rule), own submissions, own enrollments,
+      // own profile, approved links, pending requests — all scoped
+      // by the session user server-side. Drafts are never returned.
+      const result = await getStudentHomeD1({ data: { assignmentPage, lessonPage } });
       return {
-        assessments: assessmentPageRows,
-        hasMoreAssessments: assessmentRows.length > pageSize,
-        submissions: submissionRows ?? [],
-        lessons,
-        hasMoreLessons: lessonRows.length > pageSize,
-        parentContact: pc.data ?? null,
-        // Only approved links count as "linked to a teacher".
-        teacherLinks: (links.data ?? []).filter((l) => l.status === "approved").length,
-        // The name the teacher will see: a request without one cannot be
-        // judged, so it is asked for before joining (never taken from email).
-        myName: ((pc.data?.full_name as string | null) ?? "").trim(),
-        pendingRows: (pending.data ?? []) as {
-          teacher_id: string;
-          teacher_name: string;
-          requested_at: string;
-        }[],
+        assessments: result.assessments,
+        hasMoreAssessments: result.hasMoreAssessments,
+        submissions: result.submissions,
+        lessons: result.lessons,
+        hasMoreLessons: result.hasMoreLessons,
+        parentContact: result.parentContact,
+        teacherLinks: result.teacherLinks,
+        myName: result.myName,
+        pendingRows: result.pendingRows,
+        handwrittenGrades: result.handwrittenGrades,
       };
     },
   });
@@ -476,8 +402,11 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       setEditingName(true);
       return void toast.error(t("nameRequiredHint"));
     }
-    const { error } = await supabase.rpc("join_teacher", { _code: code });
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await joinTeacherD1({ data: { code } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     toast.success(t("joined"));
     setCode("");
     qc.invalidateQueries();
@@ -486,19 +415,22 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
     e.preventDefault();
     const trimmed = draftName.trim();
     if (!trimmed) return void toast.error(t("nameRequiredHint"));
-    const { error } = await supabase
-      .from("profiles")
-      .update({ full_name: trimmed })
-      .eq("id", studentId);
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await updateOwnNameD1({ data: { fullName: trimmed } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     toast.success(t("nameSaved"));
     setEditingName(false);
     qc.invalidateQueries();
     // Saving the name was the only thing blocking the request: send it now,
     // so the student does not have to type the code twice.
     if (code.trim()) {
-      const { error: joinError } = await supabase.rpc("join_teacher", { _code: code });
-      if (joinError) return void toast.error(translateError(joinError, lang));
+      try {
+        await joinTeacherD1({ data: { code } });
+      } catch (joinError) {
+        return void toast.error(translateError(joinError, lang));
+      }
       toast.success(t("joined"));
       setCode("");
       qc.invalidateQueries();
@@ -506,8 +438,11 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   }
   async function enroll(e: FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.rpc("enroll_lesson", { _code: lessonCode });
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await enrollLessonD1({ data: { code: lessonCode } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     toast.success(t("enrolled"));
     setLessonCode("");
     qc.invalidateQueries();
@@ -704,6 +639,34 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           onNext={() => setAssignmentPage((current) => current + 1)}
         />
       ) : null}
+      {/* Handwritten grades linked to this student — final on save, so
+          they appear here immediately, with no release step. Unlinked
+          papers never appear here. */}
+      {(data?.handwrittenGrades ?? []).length > 0 ? (
+        <>
+          <h2 className="mb-3 mt-10 text-lg font-semibold">{t("hwStudentResults")}</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            {data!.handwrittenGrades.map((g) => (
+              <Panel key={g.id}>
+                <h3 className="min-w-0 font-semibold">{g.assessment_title || t("hwAdHoc")}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {g.teacher_name || "—"} · {formatDate(g.created_at, lang)}
+                </p>
+                <div className="mt-4">
+                  <Pill t="success">
+                    {t("finalScore")}: {g.final_score}/{g.max_marks}
+                  </Pill>
+                </div>
+                {g.teacher_feedback ? (
+                  <p className="mt-2 text-sm">{g.teacher_feedback}</p>
+                ) : g.ai_feedback ? (
+                  <p className="mt-2 text-sm text-muted-foreground">{g.ai_feedback}</p>
+                ) : null}
+              </Panel>
+            ))}
+          </div>
+        </>
+      ) : null}
       {/* Contact details are needed once, then never again: keep them out of
           the way instead of occupying the top of the screen. */}
       <details className="mb-8 rounded-lg border bg-card p-4">
@@ -714,7 +677,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           <ParentContactForm
             studentId={studentId}
             initialPhone={data?.parentContact?.parent_phone ?? null}
-            initialConsent={data?.parentContact?.whatsapp_consent ?? false}
+            initialConsent={!!data?.parentContact?.whatsapp_consent}
             onSaved={() => qc.invalidateQueries({ queryKey: ["student-home"] })}
           />
         </div>

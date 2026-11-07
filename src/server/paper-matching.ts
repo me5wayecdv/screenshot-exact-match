@@ -19,12 +19,15 @@
  *   3. NONE: neither signal matched. The teacher picks the question
  *      manually in the UI (method becomes "manual" client-side).
  *
- * Auth model (mirrors handwritten.ts): the client sends its Supabase
- * session access token; the server validates it, requires a
- * teacher/admin role, and requires that the assessment belongs to
- * that teacher (admins exempt). Questions are read through the
- * teacher's own RLS-scoped client, so only their own assessment's
- * questions can ever be matched.
+ * Auth model (D1 port, Phase 2c — mirrors handwritten.ts): the
+ * session is resolved server-side from the HttpOnly cookie by
+ * requireCloudflareAuth; the client sends NO access token. The
+ * server requires a teacher/admin role, and requires that the
+ * assessment belongs to that teacher (admins exempt). Questions are
+ * read with an ownership-checked D1 query (id, prompt, position
+ * only — question_keys are never selected), so only the teacher's
+ * own assessment's questions can ever be matched. Quota and usage
+ * go through D1 (consumeAiQuota / logAiUsageEvent).
  *
  * Vision config is shared with handwritten OCR (resolveVisionConfig
  * from ./handwritten); the text match uses the plain text config
@@ -38,7 +41,10 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { createClient } from "@supabase/supabase-js";
+import type { D1Database } from "@/server/d1-auth-store";
+import { requireCloudflareAuth } from "@/server/d1-session";
+import type { AuthSession } from "@/lib/cloudflare-auth";
+import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
 import {
   resolveGeminiConfig,
   resolveVisionConfig,
@@ -50,14 +56,7 @@ import {
   type OcrErrorCode,
 } from "./handwritten";
 import { resolveAiConfig } from "./ai-config";
-import {
-  consumeAiRateQuota,
-  createUsageClient,
-  extractOpenAiUsage,
-  logAiUsage,
-  openAiProvider,
-  type AiTokenUsage,
-} from "./ai-usage";
+import { extractOpenAiUsage, openAiProvider, type AiTokenUsage } from "./ai-usage";
 import { matchByNumber, parseQuestionNumber } from "@/lib/paper-match";
 
 export type MatchConfidence = "high" | "medium" | "low" | "none";
@@ -90,72 +89,47 @@ const MAX_PAGES = 10;
 /** Bound aggregate JSON/image memory for one matching batch. */
 const MAX_BATCH_DATA_URL_CHARS = 20_000_000;
 
-function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
-  const anonKey =
-    process.env["SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
-  if (!url || !anonKey) return null;
-  return { url, anonKey };
-}
-
 /** Verify the caller is a teacher/admin who owns this assessment. */
 async function authorize(
-  accessToken: string,
+  db: D1Database,
+  session: AuthSession,
   assessmentId: string,
 ): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
-  const env = serverSupabaseEnv();
-  if (!env) {
-    return { ok: false, message: "Server Supabase environment is not configured." };
-  }
-  const supabase = createClient(env.url, env.anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
-  const user = userData?.user;
-  if (userError || !user) return { ok: false, message: "Invalid or expired session." };
-
-  const { data: roleRow } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
   // Defensive, mirroring src/lib/session.ts: legacy 'teacher' rows count as school_teacher.
-  const role = roleRow?.role === "teacher" ? "school_teacher" : roleRow?.role;
+  const role = (session.role as string) === "teacher" ? "school_teacher" : session.role;
   if (!role || !TEACHER_ROLES.has(role)) {
     return { ok: false, message: "Only teachers can match paper pages." };
   }
   if (role !== "admin") {
-    const { data: assessment } = await supabase
-      .from("assessments")
-      .select("teacher_id")
-      .eq("id", assessmentId)
-      .maybeSingle();
-    if (!assessment || assessment.teacher_id !== user.id) {
+    const assessment = await db
+      .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
+      .bind(assessmentId)
+      .first<{ teacher_id: string }>();
+    if (!assessment || assessment.teacher_id !== session.userId) {
       return { ok: false, message: "This assessment does not belong to the caller." };
     }
   }
-  return { ok: true, userId: user.id };
+  return { ok: true, userId: session.userId };
 }
 
 type QuestionRow = { id: string; prompt: string; position: number };
 
-async function loadQuestions(accessToken: string, assessmentId: string): Promise<QuestionRow[]> {
-  const env = serverSupabaseEnv();
-  if (!env) throw new Error("Server Supabase environment is not configured.");
-  const supabase = createClient(env.url, env.anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data, error } = await supabase
-    .from("questions")
-    .select("id, prompt, position")
-    .eq("assessment_id", assessmentId)
-    .order("position");
-  if (error || !data) throw new Error("DB_ERROR");
-  return data as QuestionRow[];
+async function loadQuestions(db: D1Database, assessmentId: string): Promise<QuestionRow[]> {
+  // Only id/prompt/position — question_keys are never selected here.
+  const result = await db
+    .prepare("SELECT id, prompt, position FROM questions WHERE assessment_id = ? ORDER BY position")
+    .bind(assessmentId)
+    .all<QuestionRow>();
+  if (!result.results) throw new Error("DB_ERROR");
+  return result.results;
+}
+
+function ctxSession(context: unknown): AuthSession {
+  return (context as { session: AuthSession }).session;
+}
+
+function ctxDb(context: unknown): D1Database {
+  return (context as { db: D1Database }).db;
 }
 
 const MATCH_SYSTEM_PROMPT =
@@ -580,16 +554,18 @@ async function callTextMatch(
 
 /**
  * matchPaperPages — server function.
- * Call from the client as: matchPaperPages({ data: { assessmentId, pages, accessToken } })
+ * Call from the client as: matchPaperPages({ data: { assessmentId, pages } })
+ * The session is resolved from the HttpOnly cookie by
+ * requireCloudflareAuth; no access token is accepted or needed.
  * Returns a discriminated result; vision failures stop the batch with
  * pageIndex, text-match failures degrade to method "none" per page.
  */
 export const matchPaperPages = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
-  .handler(async ({ data }): Promise<MatchResult> => {
+  .handler(async ({ data, context }): Promise<MatchResult> => {
     const d = (data ?? {}) as Record<string, unknown>;
     const assessmentId = typeof d["assessmentId"] === "string" ? d["assessmentId"] : "";
-    const accessToken = typeof d["accessToken"] === "string" ? d["accessToken"] : "";
     const pages = Array.isArray(d["pages"]) ? d["pages"] : [];
     const validPage = (p: unknown): p is { imageDataUrl: string; imagePath: string } => {
       if (typeof p !== "object" || p === null) return false;
@@ -602,11 +578,11 @@ export const matchPaperPages = createServerFn({ method: "POST" })
         r["imagePath"].length <= 500
       );
     };
-    if (!assessmentId || !accessToken.trim() || pages.length === 0 || pages.length > MAX_PAGES) {
+    if (!assessmentId || pages.length === 0 || pages.length > MAX_PAGES) {
       return {
         ok: false,
         code: "INVALID_INPUT",
-        message: "assessmentId, accessToken and 1–10 pages are required.",
+        message: "assessmentId and 1–10 pages are required.",
       };
     }
     if (!pages.every(validPage)) {
@@ -628,7 +604,8 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       };
     }
 
-    const auth = await authorize(accessToken, assessmentId);
+    const db = ctxDb(context);
+    const auth = await authorize(db, ctxSession(context), assessmentId);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
 
     const vision = resolveVisionConfig();
@@ -641,22 +618,14 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       };
     }
     const textConfig = resolveAiConfig();
-    const env = serverSupabaseEnv();
-    if (!env)
-      return {
-        ok: false,
-        code: "VISION_NOT_CONFIGURED",
-        message: "Server Supabase is not configured.",
-      };
-    const usageClient = createUsageClient(env.url, env.anonKey, accessToken);
-    if (!(await consumeAiRateQuota(usageClient, pages.length * 2))) {
+    if (!(await consumeAiQuota(db, auth.userId, pages.length * 2))) {
       return {
         ok: false,
         code: "VISION_RATE_LIMIT",
         message: "AI usage limit reached. Try again later.",
       };
     }
-    const questions = await loadQuestions(accessToken, assessmentId);
+    const questions = await loadQuestions(db, assessmentId);
 
     const out: MatchedPage[] = [];
     for (let i = 0; i < pages.length; i++) {
@@ -670,12 +639,14 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       if (!visionRes.ok) {
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
       }
-      await logAiUsage(usageClient, auth.userId, {
+      // Pilot cost measurement (best-effort, never fails the match result).
+      await logAiUsageEvent(db, auth.userId, {
         kind: "match",
         provider: visionRes.provider,
         model: visionRes.model,
-        usage: visionRes.usage,
-      });
+        inputTokens: visionRes.usage.inputTokens,
+        outputTokens: visionRes.usage.outputTokens,
+      }).catch(() => undefined);
       const numberIdx =
         visionRes.questionNumber !== null
           ? matchByNumber(visionRes.questionNumber, questions.length)

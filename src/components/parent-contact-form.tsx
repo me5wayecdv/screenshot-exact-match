@@ -2,12 +2,12 @@
  * ParentContactForm — parent phone (E.164) + WhatsApp consent, on a
  * student profile row. RTL Arabic-first; phone input is dir="ltr".
  *
- * Who may save (enforced by RLS, not by this component):
- * - The student themself: existing "update own profile" policy.
- * - A linked teacher: the NEW "teacher updates linked student parent
- *   contact" policy in this slice's migration (is_teacher_of pattern,
- *   same as the existing "read own profile" policy). The form only ever
- *   sends these two columns.
+ * Who may save (enforced server-side by D1, not by this component):
+ * - The student themself.
+ * - An approved linked teacher (teacher_students status = 'approved'
+ *   — the D1 equivalent of the old "teacher updates linked student
+ *   parent contact" policy). The form only ever sends these two
+ *   columns, and the server re-validates the phone format.
  *
  * Use it in TWO places (see NOTES.md insertion instructions):
  * - /students (teacher editing a linked student) — pass that student's id
@@ -20,7 +20,7 @@
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { updateParentContactD1 } from "@/server/d1-report";
 import { useI18n, translateError } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,12 +65,15 @@ export function ParentContactForm({
     setFormatError(false);
     setRequiredError(false);
     setBusy(true);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ parent_phone: cleaned, whatsapp_consent: consent })
-      .eq("id", studentId);
+    try {
+      await updateParentContactD1({
+        data: { studentId, phone: cleaned, consent },
+      });
+    } catch (error) {
+      setBusy(false);
+      return void toast.error(translateError(error, lang));
+    }
     setBusy(false);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("save"));
     onSaved?.();
   }

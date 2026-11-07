@@ -11,6 +11,11 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // workerd-only module: stubbed so d1.ts's static import loads
+      // under vitest with an empty (binding-less) env.
+      "cloudflare:workers": path.resolve(__dirname, "./src/test/cloudflare-workers-stub.ts"),
+    },
   },
 });

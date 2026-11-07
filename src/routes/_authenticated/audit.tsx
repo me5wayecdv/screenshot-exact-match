@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { listAuditLogD1 } from "@/server/d1-admin";
 import { useI18n, formatDate } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
@@ -23,16 +23,11 @@ function AuditPage() {
   const { data: me } = useMe();
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["audit-log", me?.id],
+    // D1, actor-only (old "actor reads own audit" policy, verbatim):
+    // the server filters actor_id = session user for every role.
     queryFn: async () => {
       if (!me) return [];
-      const { data, error } = await supabase
-        .from("audit_log")
-        .select("id, action, entity_id, details, created_at")
-        .eq("actor_id", me.id)
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return (data ?? []) as AuditRow[];
+      return (await listAuditLogD1({ data: {} })) as AuditRow[];
     },
     enabled: !!me,
   });

@@ -94,10 +94,18 @@ function parseSuggestion(raw: unknown, maxMarks: number): AiGradeSuggestion {
  * distinct "AI not configured" state rather than a generic error.
  * When `usage` is supplied, a successful call is logged for pilot cost
  * measurement (best-effort: logging never fails the suggestion).
+ * `onUsage` is the D1 equivalent of the Supabase sink: the caller logs
+ * token counts + model to its own store. When both are given, both run;
+ * neither is required.
  */
 export async function suggestGradeWithAi(
   input: AiGradingPromptInput,
   usage?: AiUsageSink,
+  onUsage?: (event: {
+    provider: string;
+    model: string;
+    usage: { inputTokens: number | null; outputTokens: number | null };
+  }) => Promise<void>,
 ): Promise<{ ok: true; suggestion: AiGradeSuggestion } | { ok: false; error: AiClientError }> {
   const config = resolveAiConfig();
   if (!config) {
@@ -163,6 +171,13 @@ export async function suggestGradeWithAi(
         model: config.model,
         usage: extractOpenAiUsage(payload),
       });
+    }
+    if (onUsage) {
+      await onUsage({
+        provider: openAiProvider(config.baseUrl),
+        model: config.model,
+        usage: extractOpenAiUsage(payload),
+      }).catch(() => undefined);
     }
     return { ok: true, suggestion };
   } catch (error) {
