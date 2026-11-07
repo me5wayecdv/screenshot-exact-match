@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "qemmini",
+  // Cloudflare Workers deployment for the TanStack Start app.
+  // See docs/cloudflare-deploy.md for the full runbook.
+  // Set this to the date of first deploy, then keep it current on major upgrades.
+  "compatibility_date": "2026-10-27",
+  // nodejs_compat gives the Worker Node.js APIs; populate_process_env makes
+  // vars and secrets visible via process.env, which the server code reads
+  // (AI_BASE_URL, AI_MODEL, SUPABASE_URL, ...). The populate flag is the
+  // default for compatibility dates on/after 2025-04-01; it is listed here
+  // explicitly so the behaviour never depends on a forgotten default.
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
+  // Official TanStack Start entry for Cloudflare Workers.
+  // NOTE: src/server.ts (the Nitro/h3-era error-page wrapper) is NOT on this
+  // request path. See docs/cloudflare-deploy.md "known follow-up" before
+  // re-wiring main to it.
+  "main": "@tanstack/react-start/server-entry",
+  "observability": {
+    "enabled": true
+  }
+  // Secrets and vars are deliberately NOT committed here. Set them at deploy
+  // time (see docs/cloudflare-deploy.md):
+  //   vars: AI_BASE_URL, AI_MODEL, AI_VISION_MODEL, SUPABASE_URL,
+  //         SUPABASE_ANON_KEY, WHATSAPP_PHONE_NUMBER_ID
+  //   secrets (wrangler secret put): AI_API_KEY, WHATSAPP_TOKEN,
+  //         SUPABASE_SERVICE_ROLE_KEY (only if the deployed path needs it)
+}

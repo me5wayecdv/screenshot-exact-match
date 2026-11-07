@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { getMeD1 } from "@/server/d1-auth-fns";
 
 export type Me = {
   id: string;
@@ -9,29 +9,21 @@ export type Me = {
   joinCode: string | null;
 };
 
+/**
+ * D1 session lookup (Phase 2): the session is resolved server-side
+ * from the HttpOnly cookie by getMeD1. A failed lookup means "no
+ * valid session" and the caller redirects to /auth; it must never
+ * fall back to any client-side session store.
+ */
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
     queryFn: async (): Promise<Me | null> => {
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
-      if (!user) return null;
-      const [{ data: role }, { data: profile }, { data: joinCode }] = await Promise.all([
-        supabase.from("user_roles").select("role").eq("user_id", user.id).maybeSingle(),
-        supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
-        supabase.rpc("my_join_code"),
-      ]);
-      // Defensive: pre-migration rows still carry role='teacher'; treat them as school_teacher.
-      const rawRole = role?.role as string | undefined;
-      const mappedRole: Me["role"] =
-        rawRole === "teacher" ? "school_teacher" : ((rawRole as Me["role"]) ?? "student");
-      return {
-        id: user.id,
-        email: user.email ?? "",
-        role: mappedRole,
-        fullName: profile?.full_name || user.email || "",
-        joinCode: joinCode ?? null,
-      };
+      try {
+        return await getMeD1({});
+      } catch {
+        return null;
+      }
     },
     staleTime: 60_000,
   });

@@ -3,8 +3,23 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ArrowUp, ArrowDown, Trash2, Plus } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import {
+  addQuestionD1,
+  copyBankQuestionD1,
+  deleteQuestionD1,
+  getBuilderDataD1,
+  listQuestionBankD1,
+  moveQuestionD1,
+  setAssessmentStatusD1,
+  setAudienceEveryoneD1,
+  toggleAssignmentD1,
+  updateAssessmentMetaD1,
+  updateQuestionD1,
+  type AssessmentStatus,
+  type BuilderAssessment,
+  type BuilderQuestion,
+  type QuestionType,
+} from "@/server/d1-assessments";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
 import { PageHeader, Panel, Pill, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -13,16 +28,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { WhatsAppAutoSendToggle } from "@/components/whatsapp-auto-send-toggle";
-import {
-  missingAssignments,
-  modeFromCoverage,
-  planPublishAudience,
-  topUpAfterPublish,
-} from "@/lib/audience";
-import { describeError } from "@/lib/error-capture";
+import { missingAssignments, modeFromCoverage, planPublishAudience } from "@/lib/audience";
 
-type QType = Database["public"]["Enums"]["question_type"];
-type Status = Database["public"]["Enums"]["assessment_status"];
+type QType = QuestionType;
+type Status = AssessmentStatus;
 
 export const Route = createFileRoute("/_authenticated/assessments/$id")({
   head: () => ({
@@ -38,28 +47,18 @@ function useBuilderData(id: string) {
   return useQuery({
     queryKey: ["builder", id],
     queryFn: async () => {
-      const [a, q, subj, st, asg, subs] = await Promise.all([
-        supabase.from("assessments").select("*").eq("id", id).single(),
-        supabase
-          .from("questions")
-          .select("*, question_keys(*)")
-          .eq("assessment_id", id)
-          .order("position"),
-        supabase.from("subjects").select("id, name").order("name"),
-        // Approved only: a pending request is not a student who will see the
-        // exam, and must never be counted in the publish audience.
-        supabase.rpc("my_student_roster"),
-        supabase.from("assessment_assignments").select("student_id").eq("assessment_id", id),
-        supabase.from("submissions").select("id").eq("assessment_id", id),
-      ]);
-      if (a.error) throw a.error;
+      // D1 (Phase 2): ownership is enforced server-side (teacher_id =
+      // session user); a non-owner gets NOT_FOUND, never another
+      // teacher's assessment, questions, or keys.
+      const data = await getBuilderDataD1({ data: { assessmentId: id } });
       return {
-        a: a.data,
-        questions: q.data ?? [],
-        subjects: subj.data ?? [],
-        students: (st.data ?? []).filter((r) => r.status === "approved"),
-        assigned: new Set((asg.data ?? []).map((x) => x.student_id)),
-        submissionCount: subs.data?.length ?? 0,
+        a: data.assessment,
+        // QuestionEditor reads q.question_keys; the D1 shape calls it key.
+        questions: data.questions.map((q) => ({ ...q, question_keys: q.key })),
+        subjects: data.subjects,
+        students: data.students,
+        assigned: new Set(data.assignedIds),
+        submissionCount: data.submissionCount,
       };
     },
   });
@@ -115,49 +114,26 @@ function Builder() {
         );
       }
     }
-    const { error } = await supabase.rpc("set_assessment_status", { _a: id, _status: s });
-    if (error) return void toast.error(translateError(error, lang));
-
+    // D1 (Phase 2): the server re-derives the audience from approved
+    // links + current assignments, enforces the transition table and
+    // the publish completeness checks, and returns the true reach
+    // counted from assignment rows — no re-read, no duplicate-key
+    // toast. KNOWN V1 GROUP EDGE: publish widening ignores group_exams
+    // links (see d1-assessments.ts header); the take gate blocks
+    // non-members separately.
+    let result: { reach: number; mode: string | null };
+    try {
+      result = await setAssessmentStatusD1({ data: { assessmentId: id, status: s } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("PUBLISH_NO_STUDENTS")) return void toast.error(t("publishNoStudents"));
+      return void toast.error(translateError(err, lang));
+    }
     if (s === "published" && plan.blocked === null) {
-      // Read what the RPC (or the earlier selection) actually wrote. The old
-      // code re-inserted the pre-publish selection here, so on current
-      // schemas — where the RPC already assigned everyone — every publish
-      // ended with a raw "duplicate key" toast on top of the success one.
-      // Reading first means the top-up only runs when rows are genuinely
-      // missing, so no duplicate write is even attempted.
-      const { data: rows, error: readErr } = await supabase
-        .from("assessment_assignments")
-        .select("student_id")
-        .eq("assessment_id", id);
-      const assignedNow = (rows ?? []).map((r) => r.student_id);
-      const missing =
-        plan.mode === "auto_all" ? missingAssignments(linkedStudentIds, assignedNow) : [];
-      let reach = assignedNow.length;
-      if (missing.length > 0) {
-        const { error: aErr } = await supabase.from("assessment_assignments").upsert(
-          missing.map((student_id) => ({ assessment_id: id, student_id })),
-          { onConflict: "assessment_id,student_id", ignoreDuplicates: true },
-        );
-        if (aErr) {
-          // The exam is already published; a failed top-up is our problem, not
-          // the teacher's, so it is captured for diagnostics and never shown
-          // as raw database text.
-          console.error("[publish_top_up]", describeError(aErr));
-        } else {
-          reach += missing.length;
-        }
-      }
-      // Persist what was actually decided. Best effort: a schema without
-      // audience_mode ignores it, and the rows above are already correct.
-      await supabase.from("assessments").update({ audience_mode: plan.mode }).eq("id", id);
-
-      // Report the truth, counted from the rows rather than the selection.
-      if (readErr) {
-        toast.warning(t("publishReachUnknown"));
-      } else if (reach === 0) {
+      if (result.reach === 0) {
         toast.error(t("publishReachZero"));
       } else {
-        toast.success(t("publishReach", { count: String(reach) }));
+        toast.success(t("publishReach", { count: String(result.reach) }));
       }
     }
     refresh();
@@ -165,74 +141,42 @@ function Builder() {
 
   /** Switch an already-published assessment to "everyone" and top it up. */
   async function makeAudienceEveryone() {
-    const missing = missingAssignments(linkedStudentIds, assignedIds);
-    if (missing.length > 0) {
-      // Same rule as publish: idempotent top-up, never a duplicate-key error.
-      const { error } = await supabase.from("assessment_assignments").upsert(
-        missing.map((student_id) => ({ assessment_id: id, student_id })),
-        { onConflict: "assessment_id,student_id", ignoreDuplicates: true },
-      );
-      if (error) return void toast.error(translateError(error, lang));
+    try {
+      const result = await setAudienceEveryoneD1({ data: { assessmentId: id } });
+      toast.success(t("audienceEveryoneNow", { count: String(result.count) }));
+    } catch (err) {
+      toast.error(translateError(err, lang));
     }
-    await supabase.from("assessments").update({ audience_mode: "auto_all" }).eq("id", id);
-    toast.success(t("audienceEveryoneNow", { count: String(linkedStudentIds.length) }));
     refresh();
   }
 
   async function addQuestion(type: QType) {
-    const { data: q, error } = await supabase
-      .from("questions")
-      .insert({
-        assessment_id: id,
-        type,
-        position: questions.length,
-        options: type === "mcq" ? ["", ""] : [],
-      })
-      .select("id")
-      .single();
-    if (error) return void toast.error(translateError(error, lang));
-    await supabase
-      .from("question_keys")
-      .insert({ question_id: q.id, correct_answer: type === "true_false" ? "true" : "" });
+    // The server creates the question AND its key (correct_answer
+    // "true" for true_false, "" otherwise) in one owner-checked call.
+    try {
+      await addQuestionD1({ data: { assessmentId: id, type } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     refresh();
   }
   async function move(idx: number, dir: -1 | 1) {
     const other = questions[idx + dir];
     if (!other) return;
     const cur = questions[idx]!;
-    await Promise.all([
-      supabase
-        .from("questions")
-        .update({ position: idx + dir })
-        .eq("id", cur.id),
-      supabase.from("questions").update({ position: idx }).eq("id", other.id),
-    ]);
+    try {
+      await moveQuestionD1({ data: { questionId: cur.id, dir } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     refresh();
   }
   async function toggleAssign(studentId: string, on: boolean) {
-    const { error } = on
-      ? await supabase
-          .from("assessment_assignments")
-          .upsert(
-            { assessment_id: id, student_id: studentId },
-            { onConflict: "assessment_id,student_id", ignoreDuplicates: true },
-          )
-      : await supabase
-          .from("assessment_assignments")
-          .delete()
-          .eq("assessment_id", id)
-          .eq("student_id", studentId);
-    if (error) return void toast.error(translateError(error, lang));
-    // Keep the marker honest with the boxes: removing anyone means the
-    // teacher chose a subset; ending up with everyone selected means
-    // "everyone" again (and late joiners should keep arriving).
-    const next = new Set(assignedIds);
-    if (on) next.add(studentId);
-    else next.delete(studentId);
-    await supabase
-      .from("assessments")
-      .update({ audience_mode: modeFromCoverage(linkedStudentIds, next) })
-      .eq("id", id);
+    try {
+      await toggleAssignmentD1({ data: { assessmentId: id, studentId, on } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     refresh();
   }
 
@@ -380,14 +324,14 @@ function Builder() {
 }
 
 /**
- * Question bank (Phase 2): reuse questions from the teacher's own
- * earlier assessments. The list query is scoped by RLS — the
- * "teacher manages questions" policy (owns_assessment) only ever
- * returns this teacher's questions, so no cross-teacher leakage is
- * possible even though the query has no explicit teacher filter.
- * Copying inserts a NEW question + key into this assessment (the
- * source is never linked or moved), so edits here never affect the
- * original assessment. Hidden while locked, like addQuestion.
+ * Question bank (D1, Phase 2): reuse questions from the teacher's own
+ * earlier assessments. The server scopes the list by
+ * assessments.teacher_id = session user (the old RLS
+ * "teacher manages questions" rule, now a code check), so no
+ * cross-teacher leakage is possible. Copying inserts a NEW question
+ * + key into this assessment (the source is never linked or moved),
+ * so edits here never affect the original assessment. Hidden while
+ * locked, like addQuestion.
  */
 function QuestionBank({
   assessmentId,
@@ -403,18 +347,7 @@ function QuestionBank({
   const [busyId, setBusyId] = useState<string | null>(null);
   const { data: bank = [] } = useQuery({
     queryKey: ["question-bank", assessmentId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("questions")
-        .select(
-          "id, prompt, type, marks, objective, difficulty, options, assessment_id, assessments(title)",
-        )
-        .neq("assessment_id", assessmentId)
-        .order("created_at", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: async () => listQuestionBankD1({ data: { assessmentId } }),
   });
 
   const q = search.trim().toLowerCase();
@@ -423,34 +356,13 @@ function QuestionBank({
   async function copy(b: (typeof bank)[number]) {
     setBusyId(b.id);
     try {
-      const { data: key } = await supabase
-        .from("question_keys")
-        .select("*")
-        .eq("question_id", b.id)
-        .maybeSingle();
-      const { data: saved, error: qErr } = await supabase
-        .from("questions")
-        .insert({
-          assessment_id: assessmentId,
-          type: b.type,
+      await copyBankQuestionD1({
+        data: {
+          assessmentId,
+          sourceQuestionId: b.id,
           position: positionBase,
-          prompt: b.prompt,
-          marks: b.marks,
-          objective: b.objective ?? "",
-          options: (b.options as string[]) ?? [],
-          difficulty: b.difficulty ?? "medium",
-        })
-        .select("id")
-        .single();
-      if (qErr || !saved) throw qErr ?? new Error("Copy failed.");
-      const { error: kErr } = await supabase.from("question_keys").insert({
-        question_id: saved.id,
-        correct_answer: key?.correct_answer ?? "",
-        accepted_alternatives: (key?.accepted_alternatives as string[]) ?? [],
-        rubric: key?.rubric ?? "",
-        explanation: key?.explanation ?? "",
+        },
       });
-      if (kErr) throw kErr;
       toast.success(t("bankAdded"));
       onAdded();
     } catch (err) {
@@ -478,8 +390,7 @@ function QuestionBank({
               <div className="min-w-0">
                 <p className="truncate text-sm">{b.prompt}</p>
                 <p className="text-xs text-muted-foreground">
-                  {t(`q_${b.type}` as never)} ·{" "}
-                  {(b.assessments as { title?: string } | null)?.title ?? "—"}
+                  {t(`q_${b.type}` as never)} · {b.assessmentTitle ?? "—"}
                 </p>
               </div>
               <Button
@@ -498,7 +409,7 @@ function QuestionBank({
   );
 }
 
-type A = Database["public"]["Tables"]["assessments"]["Row"];
+type A = BuilderAssessment;
 function toLocalInput(d: string | null) {
   if (!d) return "";
   const dt = new Date(d);
@@ -530,38 +441,32 @@ function MetaEditor({
   async function save() {
     if (!f.title.trim()) return;
     setBusy(true);
-    let subject_id = f.subject_id || null;
-    if (newSubject.trim()) {
-      const { data, error } = await supabase
-        .from("subjects")
-        .insert({ name: newSubject.trim() })
-        .select("id")
-        .single();
-      if (error) {
-        setBusy(false);
-        return void toast.error(translateError(error, lang));
-      }
-      subject_id = data.id;
+    try {
+      // The server creates a new teacher-owned subject when
+      // newSubject is set, then updates the assessment — one
+      // owner-checked call, no client-side subject insert.
+      await updateAssessmentMetaD1({
+        data: {
+          assessmentId: a.id,
+          title: f.title.trim(),
+          instructions: f.instructions,
+          gradeLevel: f.grade_level,
+          subjectId: f.subject_id || null,
+          newSubjectName: newSubject.trim() || null,
+          dueAt: f.due_at ? new Date(f.due_at).toISOString() : null,
+          startsAt: f.starts_at ? new Date(f.starts_at).toISOString() : null,
+          durationMinutes: f.duration_minutes.trim()
+            ? Math.max(1, parseInt(f.duration_minutes, 10) || 1)
+            : null,
+          maxAttempts: Math.max(1, parseInt(f.max_attempts, 10) || 1),
+        },
+      });
       setNewSubject("");
+    } catch (err) {
+      setBusy(false);
+      return void toast.error(translateError(err, lang));
     }
-    const { error } = await supabase
-      .from("assessments")
-      .update({
-        title: f.title.trim(),
-        instructions: f.instructions,
-        grade_level: f.grade_level,
-        subject_id,
-        due_at: f.due_at ? new Date(f.due_at).toISOString() : null,
-        starts_at: f.starts_at ? new Date(f.starts_at).toISOString() : null,
-        duration_minutes: f.duration_minutes.trim()
-          ? Math.max(1, parseInt(f.duration_minutes, 10) || 1)
-          : null,
-        max_attempts: Math.max(1, parseInt(f.max_attempts, 10) || 1),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", a.id);
     setBusy(false);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("save"));
     onSaved();
   }
@@ -666,14 +571,12 @@ function MetaEditor({
       {/* Per-assessment WhatsApp auto-send (default OFF). The builder
           query selects assessments.* so the new column arrives without
           a query change, once the migration + types land. */}
-      <WhatsAppAutoSendToggle assessmentId={a.id} initialValue={a.auto_whatsapp_send ?? false} />
+      <WhatsAppAutoSendToggle assessmentId={a.id} initialValue={a.auto_whatsapp_send === 1} />
     </Panel>
   );
 }
 
-type Q = Database["public"]["Tables"]["questions"]["Row"] & {
-  question_keys: Database["public"]["Tables"]["question_keys"]["Row"] | null;
-};
+type Q = BuilderQuestion & { question_keys: BuilderQuestion["key"] };
 
 function QuestionEditor({
   q,
@@ -696,9 +599,9 @@ function QuestionEditor({
   const [marks, setMarks] = useState(String(q.marks));
   const [objective, setObjective] = useState(q.objective);
   const [difficulty, setDifficulty] = useState(q.difficulty ?? "medium");
-  const [options, setOptions] = useState<string[]>((q.options as string[]) ?? []);
+  const [options, setOptions] = useState<string[]>(q.options ?? []);
   const [correct, setCorrect] = useState(key?.correct_answer ?? "");
-  const [alts, setAlts] = useState(((key?.accepted_alternatives as string[]) ?? []).join("\n"));
+  const [alts, setAlts] = useState((key?.accepted_alternatives ?? []).join("\n"));
   const [rubric, setRubric] = useState(key?.rubric ?? "");
   const [explanation, setExplanation] = useState(key?.explanation ?? "");
   const [dirty, setDirty] = useState(false);
@@ -726,35 +629,40 @@ function QuestionEditor({
           ? "أضف خيارين على الأقل وحدد الإجابة الصحيحة."
           : "Add at least two options and mark the correct one.",
       );
-    const r1 = await supabase
-      .from("questions")
-      .update({
-        prompt: prompt.trim(),
-        marks: m,
-        objective: objective.trim(),
-        options: cleanOpts.filter(Boolean),
-        difficulty,
-      })
-      .eq("id", q.id);
-    if (r1.error) return void toast.error(translateError(r1.error, lang));
-    const r2 = await supabase.from("question_keys").upsert({
-      question_id: q.id,
-      correct_answer: correct.trim(),
-      accepted_alternatives: alts
-        .split("\n")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      rubric: rubric.trim(),
-      explanation: explanation.trim(),
-    });
-    if (r2.error) return void toast.error(translateError(r2.error, lang));
+    try {
+      // One owner-checked server call updates the question AND its
+      // key; the server re-validates marks and the mcq rule.
+      await updateQuestionD1({
+        data: {
+          questionId: q.id,
+          prompt: prompt.trim(),
+          marks: m,
+          objective: objective.trim(),
+          options: cleanOpts.filter(Boolean),
+          difficulty,
+          correctAnswer: correct.trim(),
+          acceptedAlternatives: alts
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          rubric: rubric.trim(),
+          explanation: explanation.trim(),
+          type: q.type,
+        },
+      });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     setDirty(false);
     toast.success(t("save"));
     onChanged();
   }
   async function del() {
-    const { error } = await supabase.from("questions").delete().eq("id", q.id);
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await deleteQuestionD1({ data: { questionId: q.id } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     onChanged();
   }
 

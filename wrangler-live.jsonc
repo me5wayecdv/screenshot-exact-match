@@ -1,0 +1,87 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "qemmini",
+  // Cloudflare Workers deployment for the TanStack Start app.
+  // See docs/cloudflare-deploy.md for the full runbook.
+  // Set this to the date of first deploy, then keep it current on major upgrades.
+  "compatibility_date": "2026-10-27",
+  // nodejs_compat gives the Worker Node.js APIs; populate_process_env makes
+  // vars and secrets visible via process.env, which the server code reads
+  // (AI_BASE_URL, AI_MODEL, SUPABASE_URL, ...). The populate flag is the
+  // default for compatibility dates on/after 2025-04-01; it is listed here
+  // explicitly so the behaviour never depends on a forgotten default.
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
+  // Official TanStack Start entry for Cloudflare Workers.
+  // NOTE: src/server.ts (the Nitro/h3-era error-page wrapper) is NOT on this
+  // request path. See docs/cloudflare-deploy.md "known follow-up" before
+  // re-wiring main to it.
+  "main": "@tanstack/react-start/server-entry",
+  "observability": {
+    "enabled": true
+  },
+  // Plain-text vars ARE committed here (all non-secret config). A wrangler
+  // deploy replaces the Worker's vars with this block, so vars set only in
+  // the dashboard get wiped on the next deploy — that wiped the dashboard
+  // vars on 2026-10-27 and broke server functions until this block landed.
+  // Secrets are NEVER committed: set them with `wrangler secret put`
+  // (GEMINI_API_KEY; AI_API_KEY for the Workers AI fallback; WHATSAPP_TOKEN
+  // only if WhatsApp is ever enabled; RESEND_API_KEY only if Resend is
+  // the email provider — see docs/cutover-readiness.md).
+  //
+  // EMAIL VARS (cutover gap #1): before the first deploy that serves
+  // real users, add these two vars to the block below (uncomment and
+  // fill in — a deploy replaces Worker vars with this block, so a
+  // dashboard-only EMAIL_FROM would be wiped on the next deploy):
+  //   "EMAIL_PROVIDER": "resend",            // or "mailchannels", or "" for auto-detect
+  //   "EMAIL_FROM": "Qemmini <noreply@<your-verified-domain>>",
+  // EMAIL_FROM must be a sender on a verified domain (Resend) or a
+  // MailChannels-enabled domain (MailChannels). With neither provider
+  // configured, auth-email flows throw EMAIL_NOT_CONFIGURED — they
+  // never fall back to printing a token.
+  //
+  // PHASE 2 (Cloudflare-only migration): the Supabase vars are GONE from
+  // this copy — the D1 server code never reads them, and keeping them
+  // would leave a live credential path to the old backend. Client-side
+  // VITE_SUPABASE_* build env still exists only while unmigrated routes
+  // remain; it goes away entirely at cutover.
+  "vars": {
+    "AI_BASE_URL": "https://api.cloudflare.com/client/v4/accounts/d76701f3d4e154ceb13d36b94a30a209/ai/v1",
+    "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "AI_VISION_MODEL": "@cf/meta/llama-3.2-11b-vision-instruct",
+    "VISION_PROVIDER": "gemini"
+  },
+  // D1 + R2 bindings (Phase 2). Binding names MUST match src/server/d1.ts
+  // (env.DB, env.PAPERS_BUCKET, env.SOURCES_BUCKET) exactly, or server
+  // functions fail loudly with D1_NOT_WIRED / R2_*_NOT_WIRED.
+  // database_id is a PLACEHOLDER: fill it with the real D1 database id
+  // when the database is provisioned (wrangler d1 create qemmini-db).
+  // DO NOT DEPLOY with the placeholder — provisioning is a cutover step.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "qemmini-live-db",
+      "database_id": "3d9fae1b-acb7-426c-a7ec-307217fab151"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PAPERS_BUCKET",
+      "bucket_name": "qemmini-handwritten-papers"
+    },
+    {
+      "binding": "SOURCES_BUCKET",
+      "bucket_name": "qemmini-generation-sources"
+    }
+  ],
+  // MailChannels Workers integration (cutover gap #1, second provider).
+  // The SEB binding is only usable after MailChannels is enabled for
+  // the Worker's domain (DNS/DKIM in the Cloudflare dashboard) and
+  // EMAIL_PROVIDER=mailchannels (or auto-detect with no Resend key).
+  // Declaring it here does not send anything on its own; with no
+  // MailChannels enablement, sends fail as EMAIL_SEND_FAILED, loudly.
+  "send_email": [
+    {
+      "name": "SEB"
+    }
+  ]
+}

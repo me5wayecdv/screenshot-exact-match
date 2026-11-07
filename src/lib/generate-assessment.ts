@@ -1,50 +1,37 @@
-// Server function for assessment generation (slice 2).
+// Server function for assessment generation (slice 2) — D1 port
+// (Phase 2b). Behavior preserved from the Supabase original; only the
+// auth, quota, usage, and draft-persistence plumbing changed:
 //
-// Pattern (already established in this repo, NOT invented here):
-// - src/start.ts registers attachSupabaseAuth as a global client
-//   functionMiddleware, so the browser attaches the Supabase Bearer token
-//   to serverFn RPCs.
-// - src/integrations/supabase/auth-middleware.ts exports
-//   requireSupabaseAuth, a server functionMiddleware that validates that
-//   token and puts { supabase, userId, claims } on the handler context.
-//   `supabase` there is an RLS-scoped client for the calling user, so
-//   all writes below obey the same policies as the existing client-side
-//   assessment create (src/routes/_authenticated/assessments.index.tsx).
-//
-// Env (server-side ONLY — never read these on the client, never hardcode
-// a key, no provider hardcoded):
-// - AI_BASE_URL  (required) Base URL of an OpenAI-compatible API.
-// - AI_MODEL     (required) Model name, as the provider expects it. No
-//                 default is hardcoded: the deployer picks the model via
-//                 env, so a free/open model can be used without a code
-//                 change. See docs/ai-models.md for free/open options
-//                 (OpenRouter free tier, Groq free tier, Hugging Face
-//                 Inference, self-hosted Ollama).
-// - AI_API_KEY   (required for hosted providers; optional for local
-//                 endpoints) Sent as a Bearer token when set; a local
-//                 endpoint without auth works with it unset or dummy.
-//
-// NOTE on .validator(): intentionally NOT used. The handler hand-validates
-// its unknown `data` payload (validateGenerateInput) so this file does not
-// depend on a validator-API detail of the installed TanStack Start version.
-// The coordinator should confirm .middleware([...]) + handler context
-// typing at merge time (see NOTES.md "Unverified").
+// - Auth: the session is resolved server-side from the HttpOnly cookie
+//   by requireCloudflareAuth. No token is sent by the client.
+// - Role gate: school_teacher + tutor only (legacy "teacher" rows map
+//   to school_teacher). Admin is NOT a generator here, same as before.
+// - Subject lookup: by id, no ownership filter (subjects are names,
+//   not student data — same as the original).
+// - Quota: D1 consumeAiQuota, units = ceil(questionCount / 5).
+// - Usage: D1 logAiUsageEvent (token counts + model only).
+// - Draft persistence: the existing D1 saver saveGeneratedDraft()
+//   (src/server/d1-generation.ts) REPLACES the original's per-question
+//   Supabase inserts — one saver, never two, so no double draft.
+//   Difference to note: the saver inserts the whole draft in one
+//   batch, where the original inserted question-by-question and could
+//   leave a partial draft on a mid-loop failure. The batch is strictly
+//   safer (all-or-nothing), and the draft is still UNPUBLISHED either
+//   way — the teacher reviews/edits it in the builder before publish.
+//   The saver also preserves each question's objective (Phase 2b).
 //
 // Teacher-final-word: the saved assessment has status "draft" and is
 // NEVER published here. The teacher reviews/edits it in the existing
 // builder route (/assessments/$id) and publishes from there.
 
 import { createServerFn } from "@tanstack/react-start";
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { D1Database } from "@/server/d1-auth-store";
+import { requireCloudflareAuth } from "@/server/d1-session";
+import type { AuthSession } from "@/lib/cloudflare-auth";
+import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
 import { resolveAiConfig } from "@/server/ai-config";
-import {
-  consumeAiRateQuota,
-  extractOpenAiUsage,
-  logAiUsage,
-  openAiProvider,
-} from "@/server/ai-usage";
-import type { Database } from "@/integrations/supabase/types";
+import { extractOpenAiUsage, openAiProvider } from "@/server/ai-usage";
+import { saveGeneratedDraft, GenerationError } from "@/server/d1-generation";
 import {
   buildGeneratePrompt,
   distributeCounts,
@@ -99,11 +86,6 @@ export type GenerateAssessmentFailure = {
 };
 
 export type GenerateAssessmentResult = GenerateAssessmentSuccess | GenerateAssessmentFailure;
-
-type AuthedContext = {
-  userId: string;
-  supabase: SupabaseClient<Database>;
-};
 
 const AI_TIMEOUT_MS = 120_000;
 const SOURCE_MIN_CHARS = 50;
@@ -162,8 +144,16 @@ const AI_MAX_TOKENS = 4096;
 /** Neutral title when neither the teacher nor the model supplies one. */
 const FALLBACK_TITLE = "اختبار مولَّد";
 
+function ctxSession(context: unknown): AuthSession {
+  return (context as { session: AuthSession }).session;
+}
+
+function ctxDb(context: unknown): D1Database {
+  return (context as { db: D1Database }).db;
+}
+
 export const generateAssessment = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
   .handler(async ({ data, context }): Promise<GenerateAssessmentResult> => {
     // Failures are RETURNED, never thrown: a thrown error is re-serialised
@@ -181,36 +171,24 @@ export const generateAssessment = createServerFn({ method: "POST" })
       return fail("VALIDATION");
     }
 
-    // requireSupabaseAuth puts userId + an RLS-scoped supabase client on
-    // context. The cast is defensive: if the installed TanStack version
-    // infers the middleware context, the coordinator can drop it.
-    const authed = context as unknown as Partial<AuthedContext>;
-    const userId = authed.userId ?? "";
-    const supabase = authed.supabase as SupabaseClient<Database> | undefined;
-    if (!userId || !supabase) return fail("NOT_TEACHER");
+    const session = ctxSession(context);
+    const db = ctxDb(context);
+    const userId = session.userId;
 
     // Role gate: teachers only (school_teacher + tutor; legacy "teacher"
     // rows map to school_teacher, mirroring src/lib/session.ts).
-    const { data: roleRow, error: roleErr } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (roleErr) return fail("DB_ERROR", describeThrown(roleErr));
-    const rawRole = roleRow?.role as string | undefined;
-    const role = rawRole === "teacher" ? "school_teacher" : rawRole;
+    const role = (session.role as string) === "teacher" ? "school_teacher" : session.role;
     if (role !== "school_teacher" && role !== "tutor") return fail("NOT_TEACHER");
 
-    // Optional subject link: must exist and be visible to this teacher
-    // (RLS hides other teachers' subjects, so a foreign id fails here).
+    // Optional subject link: must exist (subjects are names, not
+    // student data, so no ownership filter — same as the original).
     let subjectName: string | null = null;
     if (input.subjectId) {
-      const { data: subj, error } = await supabase
-        .from("subjects")
-        .select("id, name")
-        .eq("id", input.subjectId)
-        .maybeSingle();
-      if (error || !subj) return fail("VALIDATION", "SUBJECT_NOT_VISIBLE");
+      const subj = await db
+        .prepare("SELECT id, name FROM subjects WHERE id = ?")
+        .bind(input.subjectId)
+        .first<{ id: string; name: string }>();
+      if (!subj) return fail("VALIDATION", "SUBJECT_NOT_VISIBLE");
       subjectName = subj.name;
     }
 
@@ -218,7 +196,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
     // provider is a configuration state, not a silent failure.
     const aiConfig = resolveAiConfig();
     if (!aiConfig) return fail("AI_NOT_CONFIGURED");
-    if (!(await consumeAiRateQuota(supabase, Math.ceil(input.questionCount / 5)))) {
+    if (!(await consumeAiQuota(db, userId, Math.ceil(input.questionCount / 5)))) {
       return fail("AI_RATE_LIMIT");
     }
     const { baseUrl, model, apiKey } = aiConfig;
@@ -284,12 +262,14 @@ export const generateAssessment = createServerFn({ method: "POST" })
       }
       // Pilot cost measurement (best-effort, never fails generation):
       // one row per successful generation call, attributed to the teacher.
-      await logAiUsage(supabase, userId, {
+      const usage = extractOpenAiUsage(json);
+      await logAiUsageEvent(db, userId, {
         kind: "generate",
         provider: openAiProvider(baseUrl),
         model,
-        usage: extractOpenAiUsage(json),
-      });
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      }).catch(() => undefined);
     } catch (e) {
       const name = e instanceof Error ? e.name : "";
       if (name === "TimeoutError" || name === "AbortError") return fail("AI_TIMEOUT");
@@ -319,63 +299,42 @@ export const generateAssessment = createServerFn({ method: "POST" })
       );
     }
 
-    // Save as an UNPUBLISHED draft owned by the teacher. No assignments,
-    // no submissions, no publish step here.
-    const { data: assessment, error: aErr } = await supabase
-      .from("assessments")
-      .insert({
-        title: input.title || draft.title || FALLBACK_TITLE,
-        teacher_id: userId,
-        subject_id: input.subjectId,
-        grade_level: input.gradeLevel,
-        instructions: "",
-        status: "draft",
-      })
-      .select("id, title")
-      .single();
-    if (aErr || !assessment) return fail("DB_ERROR", describeThrown(aErr));
-
-    // Questions are inserted one by one (max 20) so each returned id can
-    // be paired with its question_keys row. If a later insert fails, the
-    // draft stays a draft with the questions saved so far — the teacher
-    // can fix or delete them in the builder; nothing is ever published
-    // automatically, so a partial draft is safe but visible (see NOTES).
-    for (let i = 0; i < draft.questions.length; i++) {
-      const q = draft.questions[i]!;
-      const { data: saved, error: qErr } = await supabase
-        .from("questions")
-        .insert({
-          assessment_id: assessment.id,
-          type: q.type,
-          position: i,
-          prompt: q.prompt,
-          marks: q.marks,
-          objective: q.objective,
-          options: q.options,
-          difficulty: q.difficulty,
-        })
-        .select("id")
-        .single();
-      if (qErr || !saved) {
-        return fail("DB_ERROR", `questions insert #${i + 1}: ${describeThrown(qErr)}`);
-      }
-      const { error: kErr } = await supabase.from("question_keys").insert({
-        question_id: saved.id,
-        correct_answer: q.correct_answer,
-        accepted_alternatives: q.accepted_alternatives,
-        rubric: q.rubric,
-        explanation: q.explanation,
-      });
-      if (kErr) {
-        return fail("DB_ERROR", `question_keys insert #${i + 1}: ${describeThrown(kErr)}`);
-      }
+    // Save as an UNPUBLISHED draft owned by the teacher via the single
+    // D1 draft saver — no second draft path, no assignments, no
+    // submissions, no publish step here.
+    let saved: { assessmentId: string; questionCount: number };
+    try {
+      saved = await saveGeneratedDraft(
+        db,
+        { id: userId, role },
+        {
+          title: input.title || draft.title || FALLBACK_TITLE,
+          subjectId: input.subjectId,
+          gradeLevel: input.gradeLevel,
+          questions: draft.questions.map((q) => ({
+            type: q.type,
+            prompt: q.prompt,
+            options: q.options,
+            marks: q.marks,
+            difficulty: q.difficulty,
+            objective: q.objective,
+            correctAnswer: q.correct_answer,
+            acceptedAlternatives: q.accepted_alternatives,
+            rubric: q.rubric,
+            explanation: q.explanation,
+          })),
+        },
+      );
+    } catch (e) {
+      if (e instanceof GenerationError) return fail("DB_ERROR", e.code);
+      return fail("DB_ERROR", describeThrown(e));
     }
 
     return {
       ok: true,
-      assessmentId: assessment.id,
-      title: assessment.title,
-      questionCount: draft.questions.length,
+      assessmentId: saved.assessmentId,
+      title: input.title || draft.title || FALLBACK_TITLE,
+      questionCount: saved.questionCount,
       requestedCount: input.questionCount,
     };
   });

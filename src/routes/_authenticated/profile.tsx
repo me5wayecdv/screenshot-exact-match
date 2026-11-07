@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { getMyProfileExtraD1, updateMyFullNameD1, updateMySubjectD1 } from "@/server/d1-profile";
 import { useMe } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { PageHeader, Panel } from "@/components/ui-kit";
@@ -26,60 +26,42 @@ function Profile() {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? me?.fullName ?? "";
-  const { data: createdAt } = useQuery({
-    queryKey: ["my-profile-created"],
-    enabled: !!me,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("created_at")
-        .eq("id", me!.id)
-        .maybeSingle();
-      return (data?.created_at as string | null) ?? null;
-    },
-  });
   const isTeacher = me?.role === "school_teacher" || me?.role === "tutor";
 
-  // Teacher subject lives on the teacher_profiles row the signup trigger
-  // already creates (subjects_text, default ''). The owner-only RLS
-  // policy ("owner manages own teacher profile") permits this read and
-  // upsert with no migration and no policy change.
-  const { data: subjectRow } = useQuery({
-    queryKey: ["my-teacher-subject"],
-    enabled: !!me && isTeacher,
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("teacher_profiles")
-        .select("subjects_text")
-        .eq("user_id", me!.id)
-        .maybeSingle();
-      return (data?.subjects_text as string | null) ?? null;
-    },
+  // D1, own row only: created_at + teacher subjects_text (stored on
+  // the profile only — deliberately NOT wired into any assistant
+  // prompt). The server function reads only the session user's rows.
+  const { data: extra } = useQuery({
+    queryKey: ["my-profile-extra"],
+    enabled: !!me,
+    queryFn: async () => getMyProfileExtraD1({ data: {} }),
   });
+  const createdAt = extra?.createdAt ?? null;
+  const subjectRow = isTeacher ? (extra?.subjectsText ?? null) : null;
   const [subjectDraft, setSubjectDraft] = useState<string | null>(null);
   const subjectValue = subjectDraft ?? subjectRow ?? "";
 
   async function saveSubject(e: FormEvent) {
     e.preventDefault();
     if (!me) return;
-    const trimmed = subjectValue.trim();
-    const { error } = await supabase
-      .from("teacher_profiles")
-      .upsert({ user_id: me.id, type: me.role, subjects_text: trimmed }, { onConflict: "user_id" });
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await updateMySubjectD1({ data: { subjectsText: subjectValue.trim() } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     toast.success(t("profileSaved"));
-    qc.invalidateQueries({ queryKey: ["my-teacher-subject"] });
+    qc.invalidateQueries({ queryKey: ["my-profile-extra"] });
   }
 
   async function save(e: FormEvent) {
     e.preventDefault();
     const trimmed = value.trim();
     if (!trimmed || !me) return;
-    const { error } = await supabase
-      .from("profiles")
-      .update({ full_name: trimmed })
-      .eq("id", me.id);
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await updateMyFullNameD1({ data: { fullName: trimmed } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     toast.success(t("profileSaved"));
     qc.invalidateQueries({ queryKey: ["me"] });
   }

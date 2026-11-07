@@ -2,8 +2,16 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import {
+  getTakeDataD1,
+  recordIntegrityEventD1,
+  saveDraftD1,
+  startAttemptD1,
+  submitAttemptD1,
+  type TakeAnswer,
+  type TakeQuestion,
+  type TakeSubmission,
+} from "@/server/d1-take";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
 import { useIntegrityRecorder } from "@/hooks/useIntegrityRecorder";
 import {
@@ -27,11 +35,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-type Q = Database["public"]["Tables"]["questions"]["Row"];
-type Submission = Database["public"]["Tables"]["submissions"]["Row"];
-// Answers live in the EXISTING public.answers table (see the base
-// migration). No second answer store is created.
-type AnswerRow = Database["public"]["Tables"]["answers"]["Row"];
+type Q = TakeQuestion;
+type Submission = TakeSubmission;
+// Answers are the student's OWN response rows only, without scores or
+// feedback (see d1-take.ts): the take payload never selects keys or
+// grading fields for a student.
+type AnswerRow = TakeAnswer;
 
 export const Route = createFileRoute("/_authenticated/assessments/take/$id")({
   head: () => ({
@@ -48,64 +57,30 @@ function useTakeData(id: string, studentId: string | undefined) {
     queryKey: ["take", id, studentId],
     enabled: !!studentId,
     queryFn: async () => {
-      const [a, asg, q] = await Promise.all([
-        supabase.from("assessments").select("*").eq("id", id).single(),
-        supabase
-          .from("assessment_assignments")
-          .select("student_id")
-          .eq("assessment_id", id)
-          .eq("student_id", studentId!)
-          .maybeSingle(),
-        // Questions ONLY. Never select question_keys here: keys are
-        // teacher-only via RLS and must never reach the student client.
-        supabase.from("questions").select("*").eq("assessment_id", id).order("position"),
-      ]);
-      if (a.error) throw a.error;
-      const subsRes = await supabase
-        .from("submissions")
-        .select("*")
-        .eq("assessment_id", id)
-        .eq("student_id", studentId!)
-        .order("attempt_number", { ascending: true });
-      if (subsRes.error) throw subsRes.error;
-      const submissions = (subsRes.data ?? []) as Submission[];
-      const answersBySubmission: Record<string, AnswerRow[]> = {};
-      if (submissions.length > 0) {
-        const ans = await supabase
-          .from("answers")
-          .select("*")
-          .in(
-            "submission_id",
-            submissions.map((s) => s.id),
-          );
-        if (ans.error) throw ans.error;
-        for (const row of (ans.data ?? []) as AnswerRow[]) {
-          (answersBySubmission[row.submission_id] ??= []).push(row);
-        }
-      }
-      // Pre-release, RLS hides submitted answer rows (scores and feedback
-      // stay teacher-only until release). The student's OWN response text
-      // is not secret from them, so fetch it through the security-definer
-      // function and merge it in for the history view only.
-      const latestSub = submissions[submissions.length - 1];
-      if (latestSub && latestSub.status !== "in_progress" && latestSub.status !== "released") {
-        const own = await supabase.rpc("own_submission_responses", {
-          _submission: latestSub.id,
-        });
-        if (!own.error && own.data) {
-          const rows = (answersBySubmission[latestSub.id] ??= []);
-          for (const r of own.data as { question_id: string; response: string | null }[]) {
-            if (!rows.some((x) => x.question_id === r.question_id))
-              rows.push({ question_id: r.question_id, response: r.response } as AnswerRow);
-          }
-        }
+      // D1 (Phase 2) + GATE FIRST: the server calls canTakeAssessment
+      // before loading any question or answer. A failed gate returns
+      // { allowed: false } with NO questions, answers, or submissions
+      // — except the §6 draft/history exceptions documented in
+      // d1-take.ts (an existing draft resumes, a submitted attempt's
+      // history stays visible, even after the window closes).
+      const result = await getTakeDataD1({ data: { assessmentId: id } });
+      if (!result.allowed) {
+        return {
+          allowed: false as const,
+          reason: result.reason,
+          assessment: null,
+          questions: [] as Q[],
+          submissions: [] as Submission[],
+          answersBySubmission: {} as Record<string, AnswerRow[]>,
+        };
       }
       return {
-        assessment: a.data,
-        assigned: !!asg.data,
-        questions: (q.data ?? []) as Q[],
-        submissions,
-        answersBySubmission,
+        allowed: true as const,
+        reason: null,
+        assessment: result.assessment,
+        questions: result.questions,
+        submissions: result.submissions,
+        answersBySubmission: result.answersBySubmission,
       };
     },
   });
@@ -137,8 +112,8 @@ function Take() {
   const draft = submissions.find((s) => s.status === "in_progress") ?? null;
   const submitted = submissions.filter((s) => s.status !== "in_progress");
   const latestSubmitted = submitted.length > 0 ? submitted[submitted.length - 1] : null;
-  const maxAttempts = Math.max(1, data?.assessment.max_attempts ?? 1);
-  const win = data
+  const maxAttempts = Math.max(1, data?.assessment?.max_attempts ?? 1);
+  const win = data?.assessment
     ? windowState(Date.now(), data.assessment.starts_at, data.assessment.due_at)
     : "open";
 
@@ -163,12 +138,22 @@ function Take() {
       } catch {
         // Non-fatal: events stay buffered for the next flush.
       }
-      const { error: ieErr } = await supabase.from("integrity_events").insert({
-        submission_id: draft.id,
-        event_type: "session_interrupted",
-        question_id: null,
-      });
-      if (!ieErr) toast.success(t("takeResumed"));
+      // D1 (Phase 2): the resume event goes through the owner-checked
+      // server function (the submission must be the student's own).
+      // The buffered-events flush still uses the recorder hook, which
+      // is a separate workstream (see report).
+      try {
+        await recordIntegrityEventD1({
+          data: {
+            submissionId: draft.id,
+            eventType: "session_interrupted",
+            questionId: null,
+          },
+        });
+        toast.success(t("takeResumed"));
+      } catch {
+        // Non-fatal: the draft itself still loads.
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.id, me?.id]);
@@ -178,7 +163,7 @@ function Take() {
   // call simply resumes the in-progress row it finds.
   useEffect(() => {
     if (!data || !me || me.role !== "student") return;
-    if (!data.assigned || data.assessment.status !== "published") return;
+    if (!data.allowed || !data.assessment || data.assessment.status !== "published") return;
     if (draft || win !== "open") return;
     if (!canStartAttempt(submissions.length, maxAttempts)) return;
     const key = `${id}:${me.id}:${submissions.length}`;
@@ -187,16 +172,15 @@ function Take() {
     const order = shuffleIds(data.questions.map((q) => q.id));
     saveQuestionOrder(id, me.id, order);
     setStarting(true);
-    supabase
-      .rpc("start_attempt", { _assessment: id, _question_order: order })
-      .then(({ data: subId, error: rpcErr }) => {
+    startAttemptD1({ data: { assessmentId: id, questionOrder: order } })
+      .then(({ submissionId }) => {
         setStarting(false);
-        if (rpcErr) {
-          toast.error(translateError(rpcErr, lang));
-          return;
-        }
-        if (typeof subId === "string") freshDraftIds.current.add(subId);
+        freshDraftIds.current.add(submissionId);
         void qc.invalidateQueries({ queryKey: ["take", id, me.id] });
+      })
+      .catch((err) => {
+        setStarting(false);
+        toast.error(translateError(err, lang));
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, me, draft, win]);
@@ -261,21 +245,19 @@ function Take() {
         response,
         time_spent_seconds: Math.max(0, Math.round(times[question_id] ?? 0)),
       }));
-      supabase
-        .rpc("save_draft", { _submission: draft.id, _answers: rows })
-        .then(async ({ data: ok }) => {
-          if (ok) {
-            lastSaved.current = payload;
-            setSaveState("saved");
-            try {
-              await recorder.flushEvents(draft.id);
-            } catch {
-              // Non-fatal: events stay buffered for the next flush.
-            }
-          } else {
-            setSaveState("idle");
+      saveDraftD1({ data: { submissionId: draft.id, answers: rows } }).then(async ({ ok }) => {
+        if (ok) {
+          lastSaved.current = payload;
+          setSaveState("saved");
+          try {
+            await recorder.flushEvents(draft.id);
+          } catch {
+            // Non-fatal: events stay buffered for the next flush.
           }
-        });
+        } else {
+          setSaveState("idle");
+        }
+      });
     }, 1500);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -283,7 +265,7 @@ function Take() {
 
   // --- §6: live countdown. The deadline is the earlier of the server
   // timer expiry and the assessment due date.
-  const deadlineMs = draft ? effectiveDeadlineMs(draft.expires_at, data?.assessment.due_at) : null;
+  const deadlineMs = draft ? effectiveDeadlineMs(draft.expires_at, data?.assessment?.due_at) : null;
   useEffect(() => {
     if (deadlineMs === null) return;
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
@@ -294,13 +276,17 @@ function Take() {
   async function submitAttempt() {
     if (!me || !draft || busy) return;
     setBusy(true);
-    const { data: ok, error: rpcErr } = await supabase.rpc("submit_attempt", {
-      _submission: draft.id,
-    });
+    let ok = false;
+    try {
+      ({ ok } = await submitAttemptD1({ data: { submissionId: draft.id } }));
+    } catch (err) {
+      setBusy(false);
+      toast.error(translateError(err, lang));
+      return;
+    }
     setBusy(false);
-    if (rpcErr || !ok) {
-      if (rpcErr) toast.error(translateError(rpcErr, lang));
-      else toast.error(t("errorGeneric"));
+    if (!ok) {
+      toast.error(t("errorGeneric"));
       return;
     }
     try {
@@ -323,36 +309,55 @@ function Take() {
   }, [remaining, draft?.id]);
 
   async function startNewAttempt() {
-    if (!me || !data) return;
+    if (!me || !data || !data.allowed) return;
     const order = shuffleIds(data.questions.map((q) => q.id));
     saveQuestionOrder(id, me.id, order);
     setStarting(true);
-    const { data: subId, error: rpcErr } = await supabase.rpc("start_attempt", {
-      _assessment: id,
-      _question_order: order,
-    });
-    setStarting(false);
-    if (rpcErr) {
-      toast.error(translateError(rpcErr, lang));
+    try {
+      const { submissionId } = await startAttemptD1({
+        data: {
+          assessmentId: id,
+          questionOrder: order,
+        },
+      });
+      freshDraftIds.current.add(submissionId);
+    } catch (err) {
+      setStarting(false);
+      toast.error(translateError(err, lang));
       return;
     }
-    if (typeof subId === "string") freshDraftIds.current.add(subId);
+    setStarting(false);
     await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
   }
 
   if (meLoading || isLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
+  // While a fresh fetch is in flight, never render a terminal "not
+  // assigned" state from possibly-stale cached data: a previous
+  // visit's allowed:false payload (e.g. a direct URL opened before
+  // approval) would otherwise flash here until the fresh fetch
+  // lands. Content states (allowed + published) keep rendering
+  // during background refetches, so a tab-switch refetch never
+  // blanks an in-progress draft.
+  if (
+    isFetching &&
+    (!data || !data.allowed || !data.assessment || data.assessment.status !== "published")
+  ) {
+    return <p className="text-muted-foreground">{t("loading")}</p>;
+  }
   // Student-only page. Teachers are never assigned as students, but gate
   // explicitly so a teacher opening this URL gets a clear message instead
   // of a misleading "not assigned" state.
   if (me && me.role !== "student") return <Empty>{t("takeStudentsOnly")}</Empty>;
   if (error || !data) return <Empty>{t("takeNotAssigned")}</Empty>;
 
+  // Gate failure: the server loaded nothing (no questions, answers,
+  // or submissions), so this message is the whole page.
+  if (!data.allowed || !data.assessment) return <Empty>{t("takeNotAssigned")}</Empty>;
   const { assessment } = data;
   const questions = displayOrder
     ? resolveQuestionOrder(data.questions, displayOrder)
     : data.questions;
-  if (!data.assigned || assessment.status !== "published")
-    return <Empty>{t("takeNotAssigned")}</Empty>;
+  if (assessment.status !== "published") return <Empty>{t("takeNotAssigned")}</Empty>;
   if (questions.length === 0) return <Empty>{t("takeNoQuestions")}</Empty>;
 
   const total = questions.reduce((s, q) => s + Number(q.marks), 0);

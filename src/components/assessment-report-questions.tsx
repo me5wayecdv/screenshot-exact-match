@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { listReportQuestionsD1 } from "@/server/d1-report";
 import { useI18n } from "@/lib/i18n";
 import { Panel, Pill, Empty } from "@/components/ui-kit";
 
@@ -49,52 +49,35 @@ function formatPct(value: number | null, lang: "ar" | "en"): string {
 export function AssessmentReportQuestions({ assessmentId }: { assessmentId: string }) {
   const { t, lang } = useI18n();
 
-  const submissionsQuery = useQuery({
-    queryKey: ["assessment-report-submission-ids", assessmentId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("submissions")
-        .select("id")
-        .eq("assessment_id", assessmentId);
-      if (error) throw error;
-      return (data ?? []).map((s) => s.id);
-    },
-  });
-
-  const submissionIds = submissionsQuery.data ?? [];
-
+  // D1 (Phase 2b): one owner-checked server call. It returns questions
+  // + answers for the caller's own assessment only — question_keys is
+  // never selected. An empty-submissions assessment yields empty
+  // answers, which renders the same "no submissions" state as before.
   const dataQuery = useQuery({
-    queryKey: ["assessment-report-questions", assessmentId, submissionIds.join(",")],
-    enabled: submissionIds.length > 0,
+    queryKey: ["assessment-report-questions", assessmentId],
     queryFn: async () => {
-      const [{ data: questions, error: questionsError }, { data: answers, error: answersError }] =
-        await Promise.all([
-          supabase
-            .from("questions")
-            .select("id, position, type, prompt, marks")
-            .eq("assessment_id", assessmentId)
-            .order("position", { ascending: true }),
-          supabase
-            .from("answers")
-            .select("question_id, auto_score, final_score")
-            .in("submission_id", submissionIds),
-        ]);
-      if (questionsError) throw questionsError;
-      if (answersError) throw answersError;
+      const data = await listReportQuestionsD1({ data: { assessmentId } });
       return {
-        questions: (questions ?? []) as QuestionRow[],
-        answers: (answers ?? []) as AnswerRow[],
+        questions: data.questions.map((q): QuestionRow => ({
+          id: q.id,
+          position: q.position,
+          type: q.type,
+          prompt: q.prompt,
+          marks: q.marks,
+        })),
+        answers: data.answers as AnswerRow[],
+        hasSubmissions: data.submissionCount > 0,
       };
     },
   });
 
-  if (submissionsQuery.isLoading || dataQuery.isLoading) {
+  if (dataQuery.isLoading) {
     return <p className="text-sm text-muted-foreground">{t("loading")}</p>;
   }
-  if (submissionsQuery.isError || dataQuery.isError) {
+  if (dataQuery.isError) {
     return <Empty>{t("errorGeneric")}</Empty>;
   }
-  if (submissionIds.length === 0) {
+  if (!dataQuery.data?.hasSubmissions) {
     return <Empty>{t("reportNoSubmissions")}</Empty>;
   }
 

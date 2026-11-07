@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { useI18n, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty } from "@/components/ui-kit";
@@ -19,6 +18,7 @@ import {
   type QuestionInput,
 } from "@/lib/analytics";
 import { askTutor, getTutorStatus, tutorPracticeFeedback, tutorStudyTips } from "@/server/tutor";
+import { getTutorDetailD1, listTutorAssessmentsD1, listTutorReleasedD1 } from "@/server/d1-tutor";
 
 // Phase 5 — smart tutor (students only).
 //
@@ -77,16 +77,8 @@ function TutorPage() {
   const releasedQuery = useQuery({
     queryKey: ["tutor-released", me?.id],
     enabled: !!me?.id && isStudent,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("submissions")
-        .select("id, assessment_id, final_score, total_possible")
-        .eq("student_id", me!.id)
-        .eq("status", "released")
-        .order("id", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
+    // D1: the caller's own released submissions only.
+    queryFn: async () => listTutorReleasedD1({ data: {} }),
   });
   const released = releasedQuery.data ?? [];
   const assessmentIds = [...new Set(released.map((s) => s.assessment_id))];
@@ -94,14 +86,8 @@ function TutorPage() {
   const assessmentsQuery = useQuery({
     queryKey: ["tutor-assessments", assessmentIds.join(",")],
     enabled: assessmentIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("assessments")
-        .select("id, title, subject_id")
-        .in("id", assessmentIds);
-      if (error) throw error;
-      return data ?? [];
-    },
+    // D1: intersected with the caller's own released submissions.
+    queryFn: async () => listTutorAssessmentsD1({ data: { assessmentIds } }),
   });
   const assessments = useMemo(() => assessmentsQuery.data ?? [], [assessmentsQuery.data]);
 
@@ -114,20 +100,11 @@ function TutorPage() {
   const detailQuery = useQuery({
     queryKey: ["tutor-detail", selectedId, submission?.id],
     enabled: !!selectedId && !!submission,
-    queryFn: async () => {
-      const { data: questions, error: qErr } = await supabase
-        .from("questions")
-        .select("id, position, type, prompt, marks, objective, options")
-        .eq("assessment_id", selectedId)
-        .order("position");
-      if (qErr) throw qErr;
-      const { data: answers, error: aErr } = await supabase
-        .from("answers")
-        .select("question_id, response, final_score, auto_score, feedback")
-        .eq("submission_id", submission!.id);
-      if (aErr) throw aErr;
-      return { questions: questions ?? [], answers: answers ?? [] };
-    },
+    // D1, hints-first: the caller's own answers for their own
+    // released submission, questions WITHOUT question_keys, and
+    // nothing belonging to another student.
+    queryFn: async () =>
+      getTutorDetailD1({ data: { assessmentId: selectedId, submissionId: submission!.id } }),
   });
 
   useEffect(() => {
@@ -145,11 +122,6 @@ function TutorPage() {
     }
   }, [detailQuery.data, practiceQ]);
 
-  async function getAccessToken(): Promise<string> {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? "";
-  }
-
   async function sendChat(mode: "hint" | "explain", customText?: string) {
     if (!questionId) return;
     const answer = detailQuery.data?.answers.find((a) => a.question_id === questionId);
@@ -158,10 +130,8 @@ function TutorPage() {
     setChat((prev) => [...prev, { role: "user", content: display }]);
     setChatBusy(true);
     try {
-      const accessToken = await getAccessToken();
       const result = await askTutor({
         data: {
-          accessToken,
           language: lang,
           questionId,
           studentAnswer: answer?.response ?? "",
@@ -195,9 +165,8 @@ function TutorPage() {
     setTopic("");
     setTopicBusy(true);
     try {
-      const accessToken = await getAccessToken();
       const result = await askTutor({
-        data: { accessToken, language: lang, topic: text, mode: "explain", messages: history },
+        data: { language: lang, topic: text, mode: "explain", messages: history },
       });
       if (!result.ok) {
         toast.error(
@@ -220,9 +189,8 @@ function TutorPage() {
     setPracticeBusy(true);
     setPracticeFeedback("");
     try {
-      const accessToken = await getAccessToken();
       const result = await tutorPracticeFeedback({
-        data: { accessToken, language: lang, questionId: practiceQ, newAnswer: newAnswer.trim() },
+        data: { language: lang, questionId: practiceQ, newAnswer: newAnswer.trim() },
       });
       if (!result.ok) {
         toast.error(
@@ -244,9 +212,8 @@ function TutorPage() {
     if (!selectedId || weakObjectives.length === 0) return;
     setTipsBusy(true);
     try {
-      const accessToken = await getAccessToken();
       const result = await tutorStudyTips({
-        data: { accessToken, language: lang, assessmentId: selectedId, objectives: weakObjectives },
+        data: { language: lang, assessmentId: selectedId, objectives: weakObjectives },
       });
       if (!result.ok) {
         toast.error(

@@ -9,19 +9,21 @@
  * auto-send attempt after release + the audit status).
  *
  * Behaviour: default OFF (column default false). When ON, the grading
- * page's release() calls sendWhatsAppReport({ trigger: "auto" }) after a
- * successful release; the server function re-checks the flag, so a stale
- * client can never auto-send for an assessment whose toggle was turned
- * off. When OFF, release sends nothing and shows no WhatsApp UI — the
- * teacher can still send manually from the report page.
+ * page's release() calls the D1 send function ({ trigger: "auto" })
+ * after a successful release; while sending stays OFF in the pilot
+ * that call always answers skipped, so a stale client can never
+ * auto-send for an assessment whose toggle was turned off. When OFF,
+ * release sends nothing and shows no WhatsApp UI — the teacher can
+ * still send manually from the report page once sending is on.
  *
- * Writes via the browser Supabase client; the existing "teacher manages
- * assessments" policy (owner + school_teacher/tutor role) already allows
- * the owner to update their own assessment row. No new policy needed.
+ * Writes via a D1 server function: the UPDATE is owner-only
+ * (teacher_id = caller in the WHERE clause). The toggle only stores
+ * the flag — no sender consumes it while WhatsApp sending stays OFF
+ * in the pilot (see d1-report.ts), so turning it on sends nothing.
  */
 import { useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { setAutoWhatsAppSendD1 } from "@/server/d1-report";
 import { useI18n, translateError } from "@/lib/i18n";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -40,15 +42,14 @@ export function WhatsAppAutoSendToggle({
   async function toggle(on: boolean) {
     setValue(on);
     setBusy(true);
-    const { error } = await supabase
-      .from("assessments")
-      .update({ auto_whatsapp_send: on })
-      .eq("id", assessmentId);
-    setBusy(false);
-    if (error) {
+    try {
+      await setAutoWhatsAppSendD1({ data: { assessmentId, on } });
+    } catch (error) {
+      setBusy(false);
       setValue(!on);
       return void toast.error(translateError(error, lang));
     }
+    setBusy(false);
     toast.success(t("save"));
   }
 

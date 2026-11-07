@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { recordIntegrityEventsD1 } from "@/server/d1-report";
 
 /**
  * Exam-integrity recorder — PRIVACY-SAFE BY DESIGN.
@@ -17,9 +17,11 @@ import { supabase } from "@/integrations/supabase/client";
  *
  * WHY BUFFERING: events + accumulated times are buffered in memory and
  * mirrored to localStorage (so a reload/resume keeps them), then flushed
- * to public.integrity_events — on resume, on every autosave, and at
- * submit — against the §6 draft submission id. A student who never
- * submits leaves nothing in the database.
+ * to integrity_events via a D1 server function — on resume, on every
+ * autosave, and at submit — against the §6 draft submission id. The
+ * server checks the submission belongs to the calling student before
+ * inserting anything. A student who never submits leaves nothing in
+ * the database.
  */
 
 export type IntegrityEventType = "tab_hidden" | "tab_visible" | "window_blur" | "window_focus";
@@ -181,18 +183,20 @@ export function useIntegrityRecorder(opts: {
           }
           return;
         }
-        const { error } = await supabase.from("integrity_events").insert(
-          events.map((e) => ({
-            submission_id: submissionId,
-            event_type: e.event_type,
-            question_id: e.question_id,
-            created_at: e.created_at,
-          })),
-        );
-        if (error) {
-          // Keep the buffer (and allow a retry) but surface the failure.
-          throw error;
-        }
+        // D1 (Phase 2b): the server verifies the submission belongs
+        // to the calling student and allow-lists the event types.
+        // A throw keeps the buffer (and allows a retry) but surfaces
+        // the failure to the caller, same as before.
+        await recordIntegrityEventsD1({
+          data: {
+            submissionId,
+            events: events.map((e) => ({
+              event_type: e.event_type,
+              question_id: e.question_id,
+              created_at: e.created_at,
+            })),
+          },
+        });
         eventsRef.current = [];
         try {
           window.localStorage.removeItem(key);

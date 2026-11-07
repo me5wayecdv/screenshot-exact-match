@@ -1,43 +1,34 @@
 /**
- * Server functions for AI grading suggestions (slice 1).
+ * Server functions for AI grading suggestions (slice 1) — D1 port
+ * (Phase 2b). Behavior preserved from the Supabase original; only the
+ * auth, quota, and usage plumbing changed:
  *
- * These run ONLY on the server (TanStack Start server functions). The client
- * imports only the function stubs; the AI key, the prompt call, and the
- * Supabase auth check never ship to the browser.
+ * - Auth: the session is resolved server-side from the HttpOnly cookie
+ *   by requireCloudflareAuth. The client sends NO access token. The
+ *   session role (legacy "teacher" rows map to school_teacher) must be
+ *   school_teacher, tutor, or admin, and — when assessmentId is
+ *   supplied — the assessment must belong to that teacher (admins
+ *   exempt). A student session, a missing session, or another
+ *   teacher's assessment all return UNAUTHORIZED and never reach the
+ *   AI provider.
+ * - Quota: D1 consumeAiQuota (30/min, 500/day, fail-closed).
+ * - Usage: D1 logAiUsageEvent via ai-client's onUsage callback —
+ *   token counts + model only, never prompts, answers, or feedback.
+ * - A blank answer still returns score 0 without an AI call, but
+ *   authorization still applies first.
  *
- * NOTE on repo conventions: at the time of writing, the repo has NO existing
- * server function to copy — all data access goes through the Supabase client
- * from the browser (see src/routes/_authenticated/grading.tsx). So this file
- * introduces the repo's first server function, using the standard
- * `createServerFn` API of the already-installed @tanstack/react-start
- * (v1.168.x). It deliberately does NOT use the installed `ai` / @ai-sdk
- * packages: plain fetch against an OpenAI-compatible endpoint honours the
- * required AI_API_KEY / AI_BASE_URL / AI_MODEL env names exactly, with any
- * compatible provider, and adds no new dependency.
- *
- * Server environment required (in addition to the AI vars in ai-client.ts):
- *   SUPABASE_URL       (or VITE_SUPABASE_URL as fallback)
- *   SUPABASE_ANON_KEY  (or VITE_SUPABASE_ANON_KEY / VITE_SUPABASE_PUBLISHABLE_KEY)
- * These are needed ONLY to validate the teacher's access token server-side.
- * If they are absent, the function fails closed (UNAUTHORIZED) rather than
- * grading without an auth check.
- *
- * Auth model: the /grading page already gates to school_teacher on the
- * client. This server function re-checks, defence in depth: the client sends
- * its Supabase session access token (obtained via supabase.auth.getSession()
- * — never a stored key), the server validates it with Supabase Auth, requires
- * a teacher/admin role from user_roles, and — when assessmentId is supplied —
- * requires that the assessment belongs to that teacher (admins exempt).
- * A student token, a missing/invalid token, or another teacher's assessment
- * all return UNAUTHORIZED and never reach the AI provider.
+ * The AI key, the prompt call, and the auth check never ship to the
+ * browser: the client imports only the function stubs.
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { createClient } from "@supabase/supabase-js";
+import type { D1Database } from "@/server/d1-auth-store";
+import { requireCloudflareAuth } from "@/server/d1-session";
+import type { AuthSession } from "@/lib/cloudflare-auth";
+import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
 import { isAiConfigured } from "./ai-config";
 import { suggestGradeWithAi, type AiGradeSuggestion } from "./ai-client";
 export type { AiGradeSuggestion } from "./ai-client";
-import { consumeAiRateQuota, createUsageClient } from "./ai-usage";
 
 export type AiGradeRequest = {
   questionPrompt: string;
@@ -47,8 +38,6 @@ export type AiGradeRequest = {
   maxMarks: number;
   /** Optional: when supplied, ownership is verified server-side. */
   assessmentId?: string;
-  /** Supabase session access token from the calling teacher's browser. */
-  accessToken: string;
 };
 
 export type AiGradeResult =
@@ -61,14 +50,8 @@ export type AiGradeResult =
 
 const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 
-function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
-  const anonKey =
-    process.env["SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
-  if (!url || !anonKey) return null;
-  return { url, anonKey };
+export function normalizeRole(role: string): string {
+  return role === "teacher" ? "school_teacher" : role;
 }
 
 function validateRequest(data: unknown): AiGradeRequest | { error: string } {
@@ -78,7 +61,6 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
   const questionPrompt = asString(d["questionPrompt"]);
   const rubric = asString(d["rubric"]) ?? "";
   const studentAnswer = asString(d["studentAnswer"]);
-  const accessToken = asString(d["accessToken"]);
   const maxMarks = typeof d["maxMarks"] === "number" ? d["maxMarks"] : Number(d["maxMarks"]);
   const rawAlternatives: unknown[] = Array.isArray(d["acceptedAlternatives"])
     ? d["acceptedAlternatives"]
@@ -86,7 +68,6 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
   const assessmentId = asString(d["assessmentId"]) ?? undefined;
   if (!questionPrompt?.trim()) return { error: "questionPrompt is required." };
   if (studentAnswer === null) return { error: "studentAnswer is required." };
-  if (!accessToken?.trim()) return { error: "accessToken is required." };
   if (!Number.isFinite(maxMarks) || maxMarks <= 0 || maxMarks > 1000) {
     return { error: "maxMarks must be a positive number." };
   }
@@ -123,51 +104,37 @@ function validateRequest(data: unknown): AiGradeRequest | { error: string } {
     studentAnswer,
     maxMarks,
     ...(assessmentId ? { assessmentId } : {}),
-    accessToken,
   };
 }
 
 /** Verify the caller is a teacher/admin and (when given) owns the assessment. */
 async function authorize(
-  accessToken: string,
+  db: D1Database,
+  session: AuthSession,
   assessmentId: string | undefined,
 ): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
-  const env = serverSupabaseEnv();
-  if (!env) {
-    return {
-      ok: false,
-      message: "Server Supabase environment is not configured.",
-    };
-  }
-  const supabase = createClient(env.url, env.anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
-  const user = userData?.user;
-  if (userError || !user) return { ok: false, message: "Invalid or expired session." };
-
-  const { data: roleRow } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  // Defensive, mirroring src/lib/session.ts: legacy 'teacher' rows count as school_teacher.
-  const role = roleRow?.role === "teacher" ? "school_teacher" : roleRow?.role;
-  if (!role || !TEACHER_ROLES.has(role)) {
+  const role = normalizeRole(session.role);
+  if (!TEACHER_ROLES.has(role)) {
     return { ok: false, message: "Only teachers can request grading suggestions." };
   }
   if (assessmentId && role !== "admin") {
-    const { data: assessment } = await supabase
-      .from("assessments")
-      .select("teacher_id")
-      .eq("id", assessmentId)
-      .maybeSingle();
-    if (!assessment || assessment.teacher_id !== user.id) {
+    const assessment = await db
+      .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
+      .bind(assessmentId)
+      .first<{ teacher_id: string }>();
+    if (!assessment || assessment.teacher_id !== session.userId) {
       return { ok: false, message: "This assessment does not belong to the caller." };
     }
   }
-  return { ok: true, userId: user.id };
+  return { ok: true, userId: session.userId };
+}
+
+function ctxSession(context: unknown): AuthSession {
+  return (context as { session: AuthSession }).session;
+}
+
+function ctxDb(context: unknown): D1Database {
+  return (context as { db: D1Database }).db;
 }
 
 /**
@@ -177,14 +144,17 @@ async function authorize(
  * the UI can distinguish "AI not configured" from other errors.
  */
 export const suggestGrade = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
-  .handler(async ({ data }): Promise<AiGradeResult> => {
+  .handler(async ({ data, context }): Promise<AiGradeResult> => {
     const request = validateRequest(data);
     if ("error" in request) {
       return { ok: false, code: "INVALID_INPUT", message: request.error };
     }
 
-    const auth = await authorize(request.accessToken, request.assessmentId);
+    const db = ctxDb(context);
+    const session = ctxSession(context);
+    const auth = await authorize(db, session, request.assessmentId);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
 
     // A blank answer needs no AI call, but authorization still applies.
@@ -195,10 +165,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
       };
     }
 
-    const env = serverSupabaseEnv();
-    if (!env) return { ok: false, code: "UNAUTHORIZED", message: "Server is not configured." };
-    const usageClient = createUsageClient(env.url, env.anonKey, request.accessToken);
-    if (!(await consumeAiRateQuota(usageClient))) {
+    if (!(await consumeAiQuota(db, auth.userId, 1))) {
       return {
         ok: false,
         code: "AI_RATE_LIMIT",
@@ -215,7 +182,16 @@ export const suggestGrade = createServerFn({ method: "POST" })
         studentAnswer: request.studentAnswer,
         maxMarks: request.maxMarks,
       },
-      { client: usageClient, teacherId: auth.userId },
+      undefined,
+      async (event) => {
+        await logAiUsageEvent(db, auth.userId, {
+          kind: "grade",
+          provider: event.provider,
+          model: event.model,
+          inputTokens: event.usage.inputTokens,
+          outputTokens: event.usage.outputTokens,
+        });
+      },
     );
     if (!result.ok) {
       return { ok: false, code: result.error.code, message: result.error.message };
@@ -230,6 +206,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
  * URL, so the grading UI can show the "AI not configured" state up front.
  */
 export const getAiGradingStatus = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
   .handler(async (): Promise<{ configured: boolean }> => {
     return { configured: isAiConfigured() };

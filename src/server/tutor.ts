@@ -1,41 +1,43 @@
 /**
- * Server functions for the Phase 5 smart tutor (student-facing).
- *
- * These run ONLY on the server (TanStack Start server functions). The
- * client imports only the function stubs; the AI key never reaches the
- * browser bundle.
+ * Server functions for the Phase 5 smart tutor (student-facing) —
+ * D1 port (Phase 2b). Behavior preserved from the Supabase original;
+ * only the auth, data, quota, and usage plumbing changed:
  *
  * PRIVACY MODEL — read this before touching this file:
- * - The caller must be a STUDENT (role "student" in user_roles).
+ * - The caller must be a STUDENT (session role "student").
  * - A question is discussable only when the student has a RELEASED
  *   submission for that question's assessment. Unreleased/ungraded work
  *   is never in context, so the tutor cannot leak it.
- * - `question_keys` is NEVER queried here (students cannot read that
- *   table under RLS anyway). The model judges attempts from the question
- *   prompt + options + the student's own answer — exactly what a human
- *   tutor sees. See src/lib/tutor-prompts.ts for the behavioral rules
- *   (hints first, never a ready-made answer, never a guessed key).
+ * - `question_keys` is NEVER queried here. The model judges attempts
+ *   from the question prompt + options + the student's own answer —
+ *   exactly what a human tutor sees. See src/lib/tutor-prompts.ts for
+ *   the behavioral rules (hints first, never a ready-made answer,
+ *   never a guessed key).
  * - Nothing is persisted: chat messages and practice attempts live in
  *   the student's browser session only. A future phase may add a
  *   practice-attempts table; until then the page says so plainly.
  *   Exception (pilot cost measurement only): one ai_usage_events row
  *   per tutor call — token counts + model, never chat content.
+ * - Every data query scopes to the caller's OWN rows in SQL
+ *   (student_id = caller, status = 'released'). The original relied
+ *   on Supabase RLS for that scoping; D1 has no RLS, so the WHERE
+ *   clauses below ARE the scoping. The original's unscoped answers
+ *   lookup (by question_id only) is tightened here to the caller's
+ *   own released submissions — a student can never see another
+ *   student's score through this path.
  *
  * Provider configuration (server env only, never VITE_): AI_BASE_URL,
  * AI_MODEL, AI_API_KEY — same semantics as src/server/ai-config.ts.
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { D1Database } from "@/server/d1-auth-store";
+import { requireCloudflareAuth } from "@/server/d1-session";
+import type { AuthSession } from "@/lib/cloudflare-auth";
+import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
 
 import { resolveAiConfig } from "./ai-config";
-import {
-  consumeAiRateQuota,
-  extractOpenAiUsage,
-  logAiUsage,
-  openAiProvider,
-  type AiUsageSink,
-} from "./ai-usage";
+import { extractOpenAiUsage, openAiProvider } from "./ai-usage";
 import { cleanAiOutputText } from "@/lib/ai-output";
 import {
   tutorExplainPrompt,
@@ -63,40 +65,25 @@ export type TutorTipsResult =
   | { ok: true; tips: { objective: string; tip: string }[]; model: string }
   | { ok: false; code: TutorErrorCode; message: string };
 
-function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
-  const anonKey =
-    process.env["SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
-  if (!url || !anonKey) return null;
-  return { url, anonKey };
+type UsageLogger = (event: {
+  provider: string;
+  model: string;
+  usage: { inputTokens: number | null; outputTokens: number | null };
+}) => Promise<void>;
+
+/** The session must be a student; anything else is refused before any query. */
+function requireStudent(session: AuthSession): string {
+  const role = (session.role as string) === "teacher" ? "school_teacher" : session.role;
+  if (role !== "student") throw new Error("Only students can use the tutor.");
+  return session.userId;
 }
 
-type StudentClient = SupabaseClient;
+function ctxSession(context: unknown): AuthSession {
+  return (context as { session: AuthSession }).session;
+}
 
-/** Validate the session and require the student role. */
-async function authorizeStudent(
-  accessToken: string,
-): Promise<{ ok: true; userId: string; client: StudentClient } | { ok: false; message: string }> {
-  const env = serverSupabaseEnv();
-  if (!env) return { ok: false, message: "Server Supabase environment is not configured." };
-  const client = createClient(env.url, env.anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: userData, error: userError } = await client.auth.getUser(accessToken);
-  const user = userData?.user;
-  if (userError || !user) return { ok: false, message: "Invalid or expired session." };
-  const { data: roleRow } = await client
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (roleRow?.role !== "student") {
-    return { ok: false, message: "Only students can use the tutor." };
-  }
-  return { ok: true, userId: user.id, client };
+function ctxDb(context: unknown): D1Database {
+  return (context as { db: D1Database }).db;
 }
 
 type ReleasedQuestion = {
@@ -115,58 +102,94 @@ type ReleasedQuestion = {
  * key) or null when the check fails.
  */
 async function loadReleasedQuestion(
-  client: StudentClient,
+  db: D1Database,
   userId: string,
   questionId: string,
 ): Promise<ReleasedQuestion | null> {
-  const { data: question } = await client
-    .from("questions")
-    .select("id, assessment_id, prompt, type, options, objective, marks")
-    .eq("id", questionId)
-    .maybeSingle();
+  const question = await db
+    .prepare(
+      "SELECT id, assessment_id, prompt, type, options, objective, marks " +
+        "FROM questions WHERE id = ?",
+    )
+    .bind(questionId)
+    .first<{
+      id: string;
+      assessment_id: string;
+      prompt: string | null;
+      type: string;
+      options: string | null;
+      objective: string | null;
+      marks: number;
+    }>();
   if (!question) return null;
   // §6: existence check only — a student may hold several released
-  // attempts, so maybeSingle would error on the second one. limit(1).
-  const { data: submission } = await client
-    .from("submissions")
-    .select("id")
-    .eq("assessment_id", question.assessment_id)
-    .eq("student_id", userId)
-    .eq("status", "released")
-    .limit(1);
-  if (!submission || submission.length === 0) return null;
+  // attempts, so this is LIMIT 1, never a single-row assertion.
+  const submission = await db
+    .prepare(
+      "SELECT id FROM submissions WHERE assessment_id = ? AND student_id = ? " +
+        "AND status = 'released' LIMIT 1",
+    )
+    .bind(question.assessment_id, userId)
+    .first<{ id: string }>();
+  if (!submission) return null;
+  let options: string[] = [];
+  try {
+    const parsed = question.options ? JSON.parse(question.options) : [];
+    options = Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    options = [];
+  }
   return {
     id: question.id,
     assessment_id: question.assessment_id,
     prompt: question.prompt ?? "",
     type: question.type,
-    options: Array.isArray(question.options) ? (question.options as string[]) : [],
+    options,
     objective: question.objective ?? "",
     marks: Number(question.marks) || 0,
   };
 }
 
 async function hasReleasedSubmission(
-  client: StudentClient,
+  db: D1Database,
   userId: string,
   assessmentId: string,
 ): Promise<boolean> {
-  // §6: see loadReleasedQuestion — limit(1), never maybeSingle, because
-  // a student may hold several released attempts.
-  const { data } = await client
-    .from("submissions")
-    .select("id")
-    .eq("assessment_id", assessmentId)
-    .eq("student_id", userId)
-    .eq("status", "released")
-    .limit(1);
-  return (data?.length ?? 0) > 0;
+  // §6: see loadReleasedQuestion — LIMIT 1, never a single-row
+  // assertion, because a student may hold several released attempts.
+  const row = await db
+    .prepare(
+      "SELECT id FROM submissions WHERE assessment_id = ? AND student_id = ? " +
+        "AND status = 'released' LIMIT 1",
+    )
+    .bind(assessmentId, userId)
+    .first<{ id: string }>();
+  return row !== null;
+}
+
+/** The caller's latest graded score for one question, own released submissions only. */
+async function loadLatestOwnScore(
+  db: D1Database,
+  userId: string,
+  questionId: string,
+): Promise<number | null> {
+  const row = await db
+    .prepare(
+      "SELECT a.final_score AS final_score, a.auto_score AS auto_score " +
+        "FROM answers a JOIN submissions s ON s.id = a.submission_id " +
+        "WHERE a.question_id = ? AND s.student_id = ? AND s.status = 'released' " +
+        "ORDER BY s.attempt_number DESC LIMIT 1",
+    )
+    .bind(questionId, userId)
+    .first<{ final_score: number | null; auto_score: number | null }>();
+  if (!row) return null;
+  return row.final_score ?? row.auto_score ?? null;
 }
 
 async function callChat(
   messages: { role: string; content: string }[],
   temperature: number,
-  usage?: AiUsageSink,
+  logUsage?: UsageLogger,
 ): Promise<
   { ok: true; reply: string; model: string } | { ok: false; code: TutorErrorCode; message: string }
 > {
@@ -208,13 +231,12 @@ async function callChat(
         message: "AI provider returned an empty response.",
       };
     }
-    if (usage) {
-      await logAiUsage(usage.client, usage.teacherId, {
-        kind: "tutor",
+    if (logUsage) {
+      await logUsage({
         provider: openAiProvider(config.baseUrl),
         model: config.model,
         usage: extractOpenAiUsage(payload),
-      });
+      }).catch(() => undefined);
     }
     return { ok: true, reply, model: config.model };
   } catch (error) {
@@ -273,17 +295,30 @@ function validateHistory(raw: unknown): ChatMessage[] | null {
   return out;
 }
 
+function usageLogger(db: D1Database, userId: string): UsageLogger {
+  return async (event) => {
+    await logAiUsageEvent(db, userId, {
+      kind: "tutor",
+      provider: event.provider,
+      model: event.model,
+      inputTokens: event.usage.inputTokens,
+      outputTokens: event.usage.outputTokens,
+    });
+  };
+}
+
 export const getTutorStatus = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
   .handler(async () => {
     return { configured: resolveAiConfig() !== null };
   });
 
 export const askTutor = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
-  .handler(async ({ data }): Promise<TutorResult> => {
+  .handler(async ({ data, context }): Promise<TutorResult> => {
     const d = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
-    const accessToken = asString(d["accessToken"]);
     const language = isLang(d["language"]) ? d["language"] : "ar";
     const questionId = asString(d["questionId"]) ?? undefined;
     const topic = asString(d["topic"])?.trim() || undefined;
@@ -292,7 +327,7 @@ export const askTutor = createServerFn({ method: "POST" })
     const mode = d["mode"] === "hint" ? "hint" : "explain";
     const customText = asString(d["customText"])?.trim() || undefined;
     const history = validateHistory(d["messages"]);
-    if (!accessToken?.trim() || history === null) {
+    if (history === null) {
       return { ok: false, code: "INVALID_INPUT", message: "Invalid request." };
     }
     if ((!questionId && !topic) || (questionId && topic)) {
@@ -315,9 +350,15 @@ export const askTutor = createServerFn({ method: "POST" })
       return { ok: false, code: "INVALID_INPUT", message: "Topic is too long." };
     }
 
-    const auth = await authorizeStudent(accessToken);
-    if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
-    if (!(await consumeAiRateQuota(auth.client))) {
+    const session = ctxSession(context);
+    const db = ctxDb(context);
+    let userId: string;
+    try {
+      userId = requireStudent(session);
+    } catch {
+      return { ok: false, code: "UNAUTHORIZED", message: "Only students can use the tutor." };
+    }
+    if (!(await consumeAiQuota(db, userId, 1))) {
       return {
         ok: false,
         code: "TUTOR_RATE_LIMIT",
@@ -327,7 +368,7 @@ export const askTutor = createServerFn({ method: "POST" })
 
     let finalUser: string;
     if (questionId) {
-      const question = await loadReleasedQuestion(auth.client, auth.userId, questionId);
+      const question = await loadReleasedQuestion(db, userId, questionId);
       if (!question) {
         return {
           ok: false,
@@ -336,18 +377,14 @@ export const askTutor = createServerFn({ method: "POST" })
         };
       }
       // The student's latest graded score for this question, for context.
-      const { data: answer } = await auth.client
-        .from("answers")
-        .select("final_score, auto_score, max_marks")
-        .eq("question_id", questionId)
-        .maybeSingle();
+      const score = await loadLatestOwnScore(db, userId, questionId);
       const ctx: TutorQuestionContext = {
         questionPrompt: question.prompt,
         options: question.options,
         studentAnswer,
         teacherFeedback,
         maxMarks: question.marks,
-        score: answer ? (answer.final_score ?? answer.auto_score) : null,
+        score,
       };
       finalUser =
         customText ??
@@ -367,37 +404,37 @@ export const askTutor = createServerFn({ method: "POST" })
         { role: "user", content: finalUser },
       ],
       0.3,
-      { client: auth.client, teacherId: auth.userId },
+      usageLogger(db, userId),
     );
   });
 
 export const tutorPracticeFeedback = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
-  .handler(async ({ data }): Promise<TutorResult> => {
+  .handler(async ({ data, context }): Promise<TutorResult> => {
     const d = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
-    const accessToken = asString(d["accessToken"]);
     const language = isLang(d["language"]) ? d["language"] : "ar";
     const questionId = asString(d["questionId"]);
     const newAnswer = asString(d["newAnswer"])?.trim() ?? "";
-    if (
-      !accessToken?.trim() ||
-      !questionId ||
-      questionId.length > 100 ||
-      !newAnswer ||
-      newAnswer.length > 5000
-    ) {
+    if (!questionId || questionId.length > 100 || !newAnswer || newAnswer.length > 5000) {
       return { ok: false, code: "INVALID_INPUT", message: "Invalid request." };
     }
-    const auth = await authorizeStudent(accessToken);
-    if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
-    if (!(await consumeAiRateQuota(auth.client))) {
+    const session = ctxSession(context);
+    const db = ctxDb(context);
+    let userId: string;
+    try {
+      userId = requireStudent(session);
+    } catch {
+      return { ok: false, code: "UNAUTHORIZED", message: "Only students can use the tutor." };
+    }
+    if (!(await consumeAiQuota(db, userId, 1))) {
       return {
         ok: false,
         code: "TUTOR_RATE_LIMIT",
         message: "AI usage limit reached. Try again later.",
       };
     }
-    const question = await loadReleasedQuestion(auth.client, auth.userId, questionId);
+    const question = await loadReleasedQuestion(db, userId, questionId);
     if (!question) {
       return {
         ok: false,
@@ -414,20 +451,19 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
         },
       ],
       0.3,
-      { client: auth.client, teacherId: auth.userId },
+      usageLogger(db, userId),
     );
   });
 
 export const tutorStudyTips = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
-  .handler(async ({ data }): Promise<TutorTipsResult> => {
+  .handler(async ({ data, context }): Promise<TutorTipsResult> => {
     const d = (typeof data === "object" && data !== null ? data : {}) as Record<string, unknown>;
-    const accessToken = asString(d["accessToken"]);
     const language = isLang(d["language"]) ? d["language"] : "ar";
     const assessmentId = asString(d["assessmentId"]);
     const objectivesRaw = d["objectives"];
     if (
-      !accessToken?.trim() ||
       !assessmentId ||
       assessmentId.length > 100 ||
       !Array.isArray(objectivesRaw) ||
@@ -438,16 +474,22 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
       return { ok: false, code: "INVALID_INPUT", message: "Invalid request." };
     }
     const objectives = objectivesRaw as string[];
-    const auth = await authorizeStudent(accessToken);
-    if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
-    if (!(await consumeAiRateQuota(auth.client))) {
+    const session = ctxSession(context);
+    const db = ctxDb(context);
+    let userId: string;
+    try {
+      userId = requireStudent(session);
+    } catch {
+      return { ok: false, code: "UNAUTHORIZED", message: "Only students can use the tutor." };
+    }
+    if (!(await consumeAiQuota(db, userId, 1))) {
       return {
         ok: false,
         code: "TUTOR_RATE_LIMIT",
         message: "AI usage limit reached. Try again later.",
       };
     }
-    if (!(await hasReleasedSubmission(auth.client, auth.userId, assessmentId))) {
+    if (!(await hasReleasedSubmission(db, userId, assessmentId))) {
       return {
         ok: false,
         code: "UNAUTHORIZED",
@@ -460,7 +502,7 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
         { role: "user", content: tutorTipsPrompt(objectives, language) },
       ],
       0.3,
-      { client: auth.client, teacherId: auth.userId },
+      usageLogger(db, userId),
     );
     if (!result.ok) return result;
     const tips = extractTips(result.reply);

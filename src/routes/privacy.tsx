@@ -5,12 +5,12 @@ import { useI18n } from "@/lib/i18n";
 export const Route = createFileRoute("/privacy")({
   head: () => ({
     meta: [
-      { title: "Privacy · Qayyimni" },
+      { title: "Privacy · Qemmini" },
       {
         name: "description",
-        content: "How Qayyimni collects, uses and protects account and student data.",
+        content: "How Qemmini collects, uses and protects account and student data.",
       },
-      { property: "og:title", content: "Privacy · Qayyimni" },
+      { property: "og:title", content: "Privacy · Qemmini" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -48,7 +48,7 @@ function PrivacyPage() {
         ))}
       </main>
       <footer className="border-t py-8 text-center text-sm text-muted-foreground">
-        <p>© {new Date().getFullYear()} Qayyimni</p>
+        <p>© {new Date().getFullYear()} Qemmini</p>
         <nav className="mt-2 flex justify-center gap-4">
           <Link to="/" className="hover:underline">
             {t("backHome")}

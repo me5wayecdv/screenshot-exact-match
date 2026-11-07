@@ -1,0 +1,23 @@
+-- Admin activity feed (2026-11-05): site-wide "Recent activity" list on
+-- /admin, newest first, admin-only (server-enforced in
+-- src/server/d1-admin.ts listSiteActivity).
+--
+-- NO new table and NO column change: the feed reuses the existing
+-- audit_log table (id, actor_id, action, entity_id, details, created_at)
+-- that the approval layer and the grading/group/exam flows already
+-- write. The only schema change here is a covering index for the
+-- feed's ORDER BY created_at DESC, id DESC — without it the feed
+-- query scans the whole audit_log on every page.
+--
+-- Safe to run? Yes: CREATE INDEX IF NOT EXISTS is idempotent, so
+-- this file is safe on existing databases AND on fresh databases
+-- (schema/d1-schema.sql declares the same index). Run it once per
+-- existing database (live + staging) BEFORE deploying code that
+-- renders the feed, so the first feed page is indexed from the start.
+-- Deploying before this migration does not break anything — the feed
+-- still works, just without the index — but run it first anyway.
+--
+-- Verify with:
+--   SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'audit_log';
+
+CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log(created_at DESC, id DESC);

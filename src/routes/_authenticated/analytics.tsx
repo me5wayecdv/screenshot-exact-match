@@ -2,8 +2,15 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import {
+  createPracticeDraftD1,
+  getAnalyticsDetailD1,
+  getAnalyticsOverviewD1,
+  getPracticeSourceD1,
+  listAnalyticsAssessmentsD1,
+  listAnalyticsStudentPageD1,
+} from "@/server/d1-analytics";
+import { listSubjectsD1 } from "@/server/d1-generation";
 import { useI18n, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty } from "@/components/ui-kit";
@@ -32,7 +39,17 @@ import {
 // per-question effective score = final_score ?? auto_score, graded
 // answers only. A student in two groups counts in both.
 
-type Q = Database["public"]["Tables"]["questions"]["Row"];
+// D1 question shape (options parsed to string[] server-side).
+type Q = {
+  id: string;
+  position: number;
+  type: string;
+  prompt: string;
+  marks: number;
+  objective: string;
+  difficulty: string;
+  options: string[];
+};
 
 export const Route = createFileRoute("/_authenticated/analytics")({
   head: () => ({
@@ -75,32 +92,14 @@ function Analytics() {
   const assessmentsQuery = useQuery({
     queryKey: ["an-assessments", me?.id, assessmentPage],
     enabled: !!me?.id && isTeacher,
-    queryFn: async () => {
-      const pageSize = 100;
-      const { data, error } = await supabase
-        .from("assessments")
-        .select("id, title, subject_id, grade_level, status, created_at")
-        .eq("teacher_id", me!.id)
-        .order("created_at", { ascending: false })
-        .range(assessmentPage * pageSize, assessmentPage * pageSize + pageSize);
-      if (error) throw error;
-      const rows = data ?? [];
-      return { assessments: rows.slice(0, pageSize), hasNext: rows.length > pageSize };
-    },
+    // D1: the caller's own assessments only.
+    queryFn: async () => listAnalyticsAssessmentsD1({ data: { page: assessmentPage } }),
   });
 
   const subjectsQuery = useQuery({
     queryKey: ["an-subjects"],
     enabled: isTeacher,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("subjects")
-        .select("id, name")
-        .order("name")
-        .limit(200);
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: async () => listSubjectsD1({ data: {} }),
   });
 
   const assessments = useMemo(
@@ -122,37 +121,14 @@ function Analytics() {
   const detailQuery = useQuery({
     queryKey: ["an-detail", selectedId, studentPage, groupPage],
     enabled: !!selectedId,
+    // D1: released-only stats for the caller's own assessment.
+    // question_keys are never selected by the stats queries.
     queryFn: async () => {
-      const [questionsResult, questionStatsResult, studentsResult, groupsResult] =
-        await Promise.all([
-          supabase
-            .from("questions")
-            .select("id, position, type, prompt, marks, objective, difficulty, options")
-            .eq("assessment_id", selectedId)
-            .order("position")
-            .limit(200),
-          supabase.rpc("teacher_analytics_question_stats", { _assessment: selectedId }),
-          supabase.rpc("teacher_analytics_student_page", {
-            _assessment: selectedId,
-            _offset: studentPage * 50,
-            _limit: 51,
-          }),
-          supabase.rpc("teacher_analytics_group_stats", {
-            _assessment: selectedId,
-            _offset: groupPage * 50,
-            _limit: 51,
-          }),
-        ]);
-      if (questionsResult.error) throw questionsResult.error;
-      if (questionStatsResult.error) throw questionStatsResult.error;
-      if (studentsResult.error) throw studentsResult.error;
-      if (groupsResult.error) throw groupsResult.error;
-      const questions = (questionsResult.data ?? []) as Q[];
-      const aggregates = new Map(
-        (questionStatsResult.data ?? []).map((row) => [row.question_id, row]),
-      );
-      const questionStats: QuestionStat[] = questions.map((q) => {
-        const stats = aggregates.get(q.id);
+      const detail = await getAnalyticsDetailD1({
+        data: { assessmentId: selectedId, studentPage, groupPage },
+      });
+      const questionStats: QuestionStat[] = detail.questions.map((q) => {
+        const stats = detail.questionStats.find((s) => s.questionId === q.id);
         return {
           questionId: q.id,
           prompt: q.prompt,
@@ -162,28 +138,17 @@ function Analytics() {
           marks: Number(q.marks),
           answered: stats?.answered ?? 0,
           graded: stats?.graded ?? 0,
-          avgPct: stats?.avg_pct ?? null,
-          fullCreditPct: stats?.full_credit_pct ?? null,
+          avgPct: stats?.avgPct ?? null,
+          fullCreditPct: stats?.fullCreditPct ?? null,
         };
       });
-      const studentRows = studentsResult.data ?? [];
       return {
-        questions,
+        questions: detail.questions as Q[],
         questionStats,
-        students: studentRows.slice(0, 50).map((row): StudentStat => ({
-          studentId: row.student_id,
-          name: row.full_name || "—",
-          released: row.released,
-          avgPct: row.avg_pct,
-        })),
-        hasMoreStudents: studentRows.length > 50,
-        groups: (groupsResult.data ?? []).slice(0, 50).map((row): GroupStat => ({
-          groupId: row.group_id,
-          name: row.name,
-          students: row.students,
-          avgPct: row.avg_pct,
-        })),
-        hasMoreGroups: (groupsResult.data ?? []).length > 50,
+        students: detail.students as StudentStat[],
+        hasMoreStudents: detail.hasMoreStudents,
+        groups: detail.groups as GroupStat[],
+        hasMoreGroups: detail.hasMoreGroups,
       };
     },
   });
@@ -191,13 +156,8 @@ function Analytics() {
   const overviewQuery = useQuery({
     queryKey: ["an-overview", me?.id, assessments.map((a) => a.id).join(",")],
     enabled: assessments.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("teacher_analytics_overview", {
-        _assessment_ids: assessments.map((assessment) => assessment.id),
-      });
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: async () =>
+      getAnalyticsOverviewD1({ data: { assessmentIds: assessments.map((a) => a.id) } }),
   });
 
   if (meLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
@@ -267,52 +227,21 @@ function Analytics() {
     if (!detail) return;
     setPracticeBusy(true);
     try {
-      const { data: draft, error: dErr } = await supabase
-        .from("assessments")
-        .insert({
+      // D1: keys are read only after the source assessment's owner
+      // check, and the copy is created as a draft, never published.
+      const source = await getPracticeSourceD1({ data: { assessmentId: selected.id } });
+      const questions = missed
+        .map((m) => source.find((q) => q.id === m.questionId))
+        .filter((q): q is NonNullable<typeof q> => Boolean(q));
+      if (questions.length === 0) throw new Error("No questions to copy.");
+      const draft = await createPracticeDraftD1({
+        data: {
           title: `${t("anPracticeTitle")}: ${selected.title}`,
-          teacher_id: me.id,
-          subject_id: selected.subject_id,
-          grade_level: selected.grade_level ?? "",
-          instructions: "",
-          status: "draft",
-        })
-        .select("id")
-        .single();
-      if (dErr || !draft) throw dErr ?? new Error("Draft failed.");
-      for (let i = 0; i < missed.length; i++) {
-        const m = missed[i]!;
-        const src = detail.questions.find((q) => q.id === m.questionId);
-        if (!src) continue;
-        const { data: key } = await supabase
-          .from("question_keys")
-          .select("*")
-          .eq("question_id", src.id)
-          .maybeSingle();
-        const { data: saved, error: qErr } = await supabase
-          .from("questions")
-          .insert({
-            assessment_id: draft.id,
-            type: src.type,
-            position: i,
-            prompt: src.prompt,
-            marks: src.marks,
-            objective: src.objective,
-            options: (src.options as string[]) ?? [],
-            difficulty: src.difficulty ?? "medium",
-          })
-          .select("id")
-          .single();
-        if (qErr || !saved) throw qErr ?? new Error("Copy failed.");
-        const { error: kErr } = await supabase.from("question_keys").insert({
-          question_id: saved.id,
-          correct_answer: key?.correct_answer ?? "",
-          accepted_alternatives: (key?.accepted_alternatives as string[]) ?? [],
-          rubric: key?.rubric ?? "",
-          explanation: key?.explanation ?? "",
-        });
-        if (kErr) throw kErr;
-      }
+          subjectId: selected.subject_id,
+          gradeLevel: selected.grade_level ?? "",
+          questions,
+        },
+      });
       toast.success(t("anPracticeCreated"));
       navigate({ to: "/assessments/$id", params: { id: draft.id } });
     } catch (err) {
@@ -329,21 +258,11 @@ function Analytics() {
       const rows: StudentStat[] = [];
       let offset = 0;
       while (true) {
-        const { data, error } = await supabase.rpc("teacher_analytics_student_page", {
-          _assessment: selected.id,
-          _offset: offset,
-          _limit: 51,
+        // D1: released-only page for the caller's own assessment.
+        const pageRows = await listAnalyticsStudentPageD1({
+          data: { assessmentId: selected.id, offset },
         });
-        if (error) throw error;
-        const pageRows = data ?? [];
-        rows.push(
-          ...pageRows.slice(0, 50).map((row) => ({
-            studentId: row.student_id,
-            name: row.full_name || "—",
-            released: row.released,
-            avgPct: row.avg_pct,
-          })),
-        );
+        rows.push(...(pageRows.slice(0, 50) as StudentStat[]));
         if (pageRows.length <= 50) break;
         offset += 50;
       }

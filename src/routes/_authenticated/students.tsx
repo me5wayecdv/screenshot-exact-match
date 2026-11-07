@@ -3,7 +3,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Check, X } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  approveAllEnrollmentsD1,
+  decideEnrollmentD1,
+  listStudentRosterD1,
+  removeStudentD1,
+} from "@/server/d1-students";
 import { useMe } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { displayName, pendingCount, splitRoster } from "@/lib/enrollment";
@@ -29,30 +34,10 @@ function Students() {
 
   const { data } = useQuery({
     queryKey: ["my-students"],
-    queryFn: async () => {
-      // The roster carries the status, so one read answers three questions:
-      // who is waiting, who is mine, and who was turned down.
-      const roster = (await supabase.rpc("my_student_roster")).data ?? [];
-      const approved = roster.filter((s) => s.status === "approved");
-      const ids = approved.map((s) => s.student_id);
-      // Teacher read of approved students' profiles is allowed by
-      // "teacher profile readable by owner and linked students" (is_teacher_of).
-      const { data: profiles } =
-        ids.length > 0
-          ? await supabase
-              .from("profiles")
-              .select("id, parent_phone, whatsapp_consent")
-              .in("id", ids)
-          : {
-              data: [] as { id: string; parent_phone: string | null; whatsapp_consent: boolean }[],
-            };
-      const byId = new Map((profiles ?? []).map((p) => [p.id, p]));
-      return roster.map((s) => ({
-        ...s,
-        parent_phone: (byId.get(s.student_id)?.parent_phone ?? null) as string | null,
-        whatsapp_consent: (byId.get(s.student_id)?.whatsapp_consent ?? false) as boolean,
-      }));
-    },
+    // D1 roster: the status rides along, so one read answers three
+    // questions — who is waiting, who is mine, who was turned down.
+    // Contact data rides only on approved rows (server-side CASE).
+    queryFn: async () => listStudentRosterD1({ data: {} }),
   });
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["my-students"] });
@@ -61,32 +46,37 @@ function Students() {
   async function decide(studentId: string, approve: boolean) {
     setBusy(studentId);
     const name = displayName(data?.find((r) => r.student_id === studentId) ?? {});
-    const { error } = await supabase.rpc("decide_enrollment", {
-      _student: studentId,
-      _approve: approve,
-    });
+    try {
+      await decideEnrollmentD1({ data: { studentId, approve } });
+    } catch (err) {
+      setBusy(null);
+      return void toast.error(translateError(err, lang));
+    }
     setBusy(null);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(approve ? t("enrollmentApproved", { name }) : t("enrollmentRejected", { name }));
     refresh();
   }
 
   async function approveAll() {
     setBusy("all");
-    const { data: count, error } = await supabase.rpc("approve_all_enrollments");
+    let count: number;
+    try {
+      count = await approveAllEnrollmentsD1({ data: {} });
+    } catch (err) {
+      setBusy(null);
+      return void toast.error(translateError(err, lang));
+    }
     setBusy(null);
-    if (error) return void toast.error(translateError(error, lang));
     toast.success(t("enrollmentApprovedAll", { count: String(count ?? pending.length) }));
     refresh();
   }
 
   async function remove(id: string) {
-    const { error } = await supabase
-      .from("teacher_students")
-      .delete()
-      .eq("teacher_id", me!.id)
-      .eq("student_id", id);
-    if (error) return void toast.error(translateError(error, lang));
+    try {
+      await removeStudentD1({ data: { studentId: id } });
+    } catch (err) {
+      return void toast.error(translateError(err, lang));
+    }
     refresh();
   }
 

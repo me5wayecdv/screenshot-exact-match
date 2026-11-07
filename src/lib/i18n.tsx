@@ -118,6 +118,10 @@ const dict = {
     signOut: "تسجيل الخروج",
     email: "البريد الإلكتروني",
     password: "كلمة المرور",
+    confirmPassword: "تأكيد كلمة المرور",
+    passwordMismatch: "كلمتا المرور غير متطابقتين.",
+    showPassword: "إظهار كلمة المرور",
+    hidePassword: "إخفاء كلمة المرور",
     fullName: "الاسم الكامل",
     iAm: "أنا",
     teacher: "معلم",
@@ -434,6 +438,11 @@ const dict = {
     hwRubric: "معايير التصحيح",
     hwMaxMarks: "درجة السؤال",
     hwStudentName: "اسم الطالب (كما هو مكتوب على الورقة)",
+    hwStudentAccount: "الطالب المسجّل (اختياري)",
+    hwStudentAccountNone: "بدون حساب — الاسم المكتوب فقط",
+    hwStudentAccountHint:
+      "لو اخترت طالباً معتمداً، يظهر له التقدير فور الحفظ. اتركه فارغاً للأوراق بدون حساب.",
+    hwStudentResults: "نتائج التصحيح الورقي",
     hwUpload: "صورة ورقة الإجابة",
     hwUploadHint:
       "ورقة واحدة = سؤال واحد. الصورة تُحفظ على الخادم في مساحة خاصة بك، وتظهر مع التصحيح لاحقاً.",
@@ -671,6 +680,26 @@ const dict = {
     // Segmentation roles, schools, lessons (slice 3)
     admin: "مشرف",
     adminOnly: "هذه الصفحة للمشرفين فقط.",
+    // Admin approval queue (2026-11-04)
+    adminAccounts: "حسابات المستخدمين",
+    approveAccount: "قبول",
+    rejectAccount: "رفض",
+    accountPending: "بانتظار الموافقة",
+    accountApproved: "مقبول",
+    accountRejected: "مرفوض",
+    noAccounts: "مفيش حسابات لسه.",
+    teacherPhone: "رقم الموبايل",
+    subjectsTaught: "المواد التي يدرّسها",
+    schoolCenter: "المدرسة / المركز",
+    teacherPhoneInvalid: "رقم موبايل المعلم لازم يكون رقم مصري صحيح (010/011/012/015).",
+    accountPendingNotice:
+      "تم إرسال طلبك — حسابك بانتظار موافقة الأدمن، جرّب تدخل تاني بعد الموافقة.",
+    resetPassword: "تعيين كلمة سر مؤقتة",
+    tempPasswordLabel: "كلمة السر المؤقتة",
+    tempPasswordNote:
+      "كلمة السر دي هتظهر مرة واحدة بس — انسخها وابعتهالو بره المنصة، ومش هتعرف تشوفها تاني.",
+    passwordResetDone: "تم تعيين كلمة سر مؤقتة.",
+    accountDecisionDone: "تم تحديث حالة الحساب.",
     className: "اسم الفصل",
     classes: "الفصول",
     createClass: "إنشاء فصل",
@@ -1023,6 +1052,10 @@ const dict = {
     signOut: "Sign out",
     email: "Email",
     password: "Password",
+    confirmPassword: "Confirm password",
+    passwordMismatch: "Passwords do not match.",
+    showPassword: "Show password",
+    hidePassword: "Hide password",
     fullName: "Full name",
     iAm: "I am a",
     teacher: "Teacher",
@@ -1347,6 +1380,11 @@ const dict = {
     hwRubric: "Rubric",
     hwMaxMarks: "Question marks",
     hwStudentName: "Student name (as written on the paper)",
+    hwStudentAccount: "Enrolled student (optional)",
+    hwStudentAccountNone: "No account — paper name only",
+    hwStudentAccountHint:
+      "If you pick an approved student, the grade appears to them immediately on save. Leave empty for papers without an account.",
+    hwStudentResults: "Handwritten results",
     hwUpload: "Answer paper photo",
     hwUploadHint:
       "One photo = one question. The photo is saved on the server in your private space and shows with the grade later.",
@@ -1590,6 +1628,26 @@ const dict = {
     // Segmentation roles, schools, lessons (slice 3)
     admin: "Admin",
     adminOnly: "This page is for admins only.",
+    // Admin approval queue (2026-11-04)
+    adminAccounts: "User accounts",
+    approveAccount: "Approve",
+    rejectAccount: "Reject",
+    accountPending: "Pending approval",
+    accountApproved: "Approved",
+    accountRejected: "Rejected",
+    noAccounts: "No accounts yet.",
+    teacherPhone: "Mobile number",
+    subjectsTaught: "Subjects taught",
+    schoolCenter: "School / center",
+    teacherPhoneInvalid: "The teacher's mobile must be a valid Egyptian mobile (010/011/012/015).",
+    accountPendingNotice:
+      "Request sent — your account is waiting for admin approval; try signing in again after approval.",
+    resetPassword: "Set temporary password",
+    tempPasswordLabel: "Temporary password",
+    tempPasswordNote:
+      "This password is shown only once — copy it and send it to the user outside the platform; you will not see it again.",
+    passwordResetDone: "Temporary password set.",
+    accountDecisionDone: "Account status updated.",
     className: "Class name",
     classes: "Classes",
     createClass: "Create class",
@@ -1838,6 +1896,47 @@ export type TKey = keyof (typeof dict)["ar"];
 
 const errorMap: Record<string, { ar: string; en: string }> = {
   invalid_code: { ar: "الرمز غير صحيح.", en: "Invalid code." },
+  RATE_LIMITED: {
+    ar: "محاولات كتير في وقت قصير — استنى شوية وحاول تاني.",
+    en: "Too many attempts in a short time — wait a little and try again.",
+  },
+  RESET_TOKEN_INVALID: {
+    ar: "رابط الاستعادة ده مش صالح أو خلصت مدته — اطلب واحد جديد.",
+    en: "That recovery link is invalid or expired — request a new one.",
+  },
+  EMAIL_NOT_CONFIGURED: {
+    ar: "إرسال البريد مش مظبوط لسه — كلم المشرف.",
+    en: "Email sending is not configured yet — contact the administrator.",
+  },
+  EMAIL_SEND_FAILED: {
+    ar: "إرسال البريد فشل — حاول تاني بعد شوية.",
+    en: "Sending the email failed — try again in a little while.",
+  },
+  ACCOUNT_NOT_FOUND: {
+    ar: "مفيش حساب بالبريد ده.",
+    en: "No account with that email.",
+  },
+  NOT_PASSWORDLESS: {
+    ar: "الحساب ده عنده كلمة سر بالفعل.",
+    en: "That account already has a password.",
+  },
+  INVALID_CREDENTIALS: {
+    ar: "البريد أو كلمة السر مش صح.",
+    en: "The email or password is incorrect.",
+  },
+  ACCOUNT_PENDING: {
+    ar: "حسابك لسه مستني موافقة الأدمن — جرّب تدخل تاني بعد الموافقة.",
+    en: "Your account is waiting for admin approval — try signing in again after approval.",
+  },
+  ACCOUNT_REJECTED: {
+    ar: "تم رفض حسابك من الأدمن.",
+    en: "Your account was rejected by an admin.",
+  },
+  INVALID_PHONE: {
+    ar: "رقم الموبايل مش صحيح — لازم يكون رقم مصري.",
+    en: "That mobile number is not valid — it must be an Egyptian mobile.",
+  },
+  FORBIDDEN: { ar: "مش مسموح لك تعمل ده.", en: "You're not allowed to do that." },
   name_required: {
     ar: "اكتب اسمك الأول قبل ما تنضم — المعلم محتاج يعرف مين بيطلب.",
     en: "Add your name before joining — the teacher needs to know who is asking.",

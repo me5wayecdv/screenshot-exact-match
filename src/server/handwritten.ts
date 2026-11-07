@@ -29,24 +29,30 @@
  *                               images" error instead of a silent failure.
  *   AI_API_KEY      (hosted providers) / optional for local endpoints.
  *
- * Auth model (mirrors src/server/ai-grade.ts): the client sends its
- * Supabase session access token, the server validates it with Supabase
- * Auth, requires a teacher/admin role, and — when assessmentId is
- * supplied — requires that the assessment belongs to that teacher
- * (admins exempt). A student token, a missing/invalid token, or another
- * teacher's assessment all return UNAUTHORIZED and never reach the AI
- * provider.
+ * Auth model (D1 port, Phase 2b — mirrors src/server/ai-grade.ts):
+ * the session is resolved server-side from the HttpOnly cookie by
+ * requireCloudflareAuth; the client sends NO access token. The server
+ * requires a teacher/admin role, and — when assessmentId is supplied —
+ * requires that the assessment belongs to that teacher (admins
+ * exempt). A student session, a missing session, or another teacher's
+ * assessment all return UNAUTHORIZED and never reach the AI provider.
+ * Quota and usage go through D1 (consumeAiQuota / logAiUsageEvent).
+ * All pure vision helpers below (resolveVisionConfig,
+ * resolveGeminiConfig, runImageToTextModel, runMoondreamQuery,
+ * runGeminiQuery, textFromContent, stripDataUris,
+ * extractTranscription, callVisionOcr) are UNCHANGED from the
+ * Supabase original, so the provider behavior is identical.
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import { createClient } from "@supabase/supabase-js";
+import type { D1Database } from "@/server/d1-auth-store";
+import { requireCloudflareAuth } from "@/server/d1-session";
+import type { AuthSession } from "@/lib/cloudflare-auth";
+import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
 import { isLocalBaseUrl } from "./ai-config";
 import {
-  consumeAiRateQuota,
-  createUsageClient,
   extractGeminiUsage,
   extractOpenAiUsage,
-  logAiUsage,
   openAiProvider,
   type AiTokenUsage,
 } from "./ai-usage";
@@ -98,8 +104,6 @@ export type OcrRequest = {
   imageDataUrl: string;
   /** Optional: when supplied, ownership is verified server-side. */
   assessmentId?: string;
-  /** Supabase session access token from the calling teacher's browser. */
-  accessToken: string;
 };
 
 export type OcrErrorCode =
@@ -121,22 +125,11 @@ const TEACHER_ROLES = new Set(["school_teacher", "tutor", "admin"]);
 const MAX_DATA_URL_CHARS = 4_000_000;
 const DATA_URL_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 
-function serverSupabaseEnv(): { url: string; anonKey: string } | null {
-  const url = process.env["SUPABASE_URL"]?.trim() || process.env["VITE_SUPABASE_URL"]?.trim();
-  const anonKey =
-    process.env["SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_ANON_KEY"]?.trim() ||
-    process.env["VITE_SUPABASE_PUBLISHABLE_KEY"]?.trim();
-  if (!url || !anonKey) return null;
-  return { url, anonKey };
-}
-
 function validateRequest(data: unknown): OcrRequest | { error: string } {
   if (typeof data !== "object" || data === null) return { error: "Request must be an object." };
   const d = data as Record<string, unknown>;
   const asString = (v: unknown) => (typeof v === "string" ? v : null);
   const imageDataUrl = asString(d["imageDataUrl"]);
-  const accessToken = asString(d["accessToken"]);
   const assessmentId = asString(d["assessmentId"]) ?? undefined;
   if (!imageDataUrl || !DATA_URL_RE.test(imageDataUrl)) {
     return { error: "imageDataUrl must be a jpeg/png/webp data URL." };
@@ -144,48 +137,38 @@ function validateRequest(data: unknown): OcrRequest | { error: string } {
   if (imageDataUrl.length > MAX_DATA_URL_CHARS) {
     return { error: "Image is too large. Compress it before uploading." };
   }
-  if (!accessToken?.trim()) return { error: "accessToken is required." };
-  return { imageDataUrl, accessToken, ...(assessmentId ? { assessmentId } : {}) };
+  return { imageDataUrl, ...(assessmentId ? { assessmentId } : {}) };
 }
 
 /** Verify the caller is a teacher/admin and (when given) owns the assessment. */
 async function authorize(
-  accessToken: string,
+  db: D1Database,
+  session: AuthSession,
   assessmentId: string | undefined,
 ): Promise<{ ok: true; userId: string } | { ok: false; message: string }> {
-  const env = serverSupabaseEnv();
-  if (!env) {
-    return { ok: false, message: "Server Supabase environment is not configured." };
-  }
-  const supabase = createClient(env.url, env.anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
-  const user = userData?.user;
-  if (userError || !user) return { ok: false, message: "Invalid or expired session." };
-
-  const { data: roleRow } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
   // Defensive, mirroring src/lib/session.ts: legacy 'teacher' rows count as school_teacher.
-  const role = roleRow?.role === "teacher" ? "school_teacher" : roleRow?.role;
-  if (!role || !TEACHER_ROLES.has(role)) {
+  const role = (session.role as string) === "teacher" ? "school_teacher" : session.role;
+  if (!TEACHER_ROLES.has(role)) {
     return { ok: false, message: "Only teachers can extract handwritten text." };
   }
   if (assessmentId && role !== "admin") {
-    const { data: assessment } = await supabase
-      .from("assessments")
-      .select("teacher_id")
-      .eq("id", assessmentId)
-      .maybeSingle();
-    if (!assessment || assessment.teacher_id !== user.id) {
+    const assessment = await db
+      .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
+      .bind(assessmentId)
+      .first<{ teacher_id: string }>();
+    if (!assessment || assessment.teacher_id !== session.userId) {
       return { ok: false, message: "This assessment does not belong to the caller." };
     }
   }
-  return { ok: true, userId: user.id };
+  return { ok: true, userId: session.userId };
+}
+
+function ctxSession(context: unknown): AuthSession {
+  return (context as { session: AuthSession }).session;
+}
+
+function ctxDb(context: unknown): D1Database {
+  return (context as { db: D1Database }).db;
 }
 
 /**
@@ -781,13 +764,15 @@ async function callVisionOcr(
  * from transient errors.
  */
 export const ocrHandwrittenImage = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
-  .handler(async ({ data }): Promise<OcrResult> => {
+  .handler(async ({ data, context }): Promise<OcrResult> => {
     const request = validateRequest(data);
     if ("error" in request) {
       return { ok: false, code: "INVALID_INPUT", message: request.error };
     }
-    const auth = await authorize(request.accessToken, request.assessmentId);
+    const db = ctxDb(context);
+    const auth = await authorize(db, ctxSession(context), request.assessmentId);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
 
     const config = resolveVisionConfig();
@@ -799,15 +784,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
           "Vision provider is not configured on the server (set AI_BASE_URL and AI_MODEL, plus AI_VISION_MODEL for a vision-capable model, and AI_API_KEY for hosted providers).",
       };
     }
-    const env = serverSupabaseEnv();
-    if (!env)
-      return {
-        ok: false,
-        code: "VISION_NOT_CONFIGURED",
-        message: "Server Supabase is not configured.",
-      };
-    const usageClient = createUsageClient(env.url, env.anonKey, request.accessToken);
-    if (!(await consumeAiRateQuota(usageClient))) {
+    if (!(await consumeAiQuota(db, auth.userId, 1))) {
       return {
         ok: false,
         code: "VISION_RATE_LIMIT",
@@ -817,12 +794,13 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
     const result = await callVisionOcr(config, request.imageDataUrl);
     if (!result.ok) return { ok: false, code: result.code, message: result.message };
     // Pilot cost measurement (best-effort, never fails the OCR result).
-    await logAiUsage(usageClient, auth.userId, {
+    await logAiUsageEvent(db, auth.userId, {
       kind: "ocr",
       provider: result.provider,
       model: result.model,
-      usage: result.usage,
-    });
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+    }).catch(() => undefined);
     return { ok: true, text: result.text, model: config.model };
   });
 
@@ -833,6 +811,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
  * base URL, so the page can show the "not configured" state up front.
  */
 export const getHandwritingStatus = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data)
   .handler(async (): Promise<{ configured: boolean; visionModelExplicit: boolean }> => {
     const config = resolveVisionConfig();

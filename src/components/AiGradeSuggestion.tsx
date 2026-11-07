@@ -5,8 +5,9 @@
  * Behaviour (teacher-final-word, unchanged release gate):
  *  - Renders only for written answers (the parent guards q.type === "written").
  *  - "Suggest" calls the server function suggestGrade; the AI key never
- *    touches this component — only the teacher's Supabase session token is
- *    forwarded so the server can re-check role + assessment ownership.
+ *    touches this component — the server resolves the teacher's session
+ *    from the HttpOnly cookie and re-checks role + assessment ownership.
+ *    No token is sent from the browser (D1 port, Phase 2b).
  *  - On success it shows suggested score + Arabic feedback + confidence,
  *    with Accept / Edit / Reject.
  *  - Accept fills the parent's teacher score/feedback fields via onAccept.
@@ -25,7 +26,6 @@
  */
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,8 +112,6 @@ export function AiGradeSuggestion({
   async function handleSuggest() {
     setPhase({ kind: "loading" });
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token ?? "";
       const result = await suggestGrade({
         data: {
           questionPrompt,
@@ -122,7 +120,6 @@ export function AiGradeSuggestion({
           studentAnswer,
           maxMarks,
           assessmentId,
-          accessToken,
         },
       });
       if (!result.ok) {
