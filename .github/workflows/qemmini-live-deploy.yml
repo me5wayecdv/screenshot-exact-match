@@ -30,8 +30,9 @@ jobs:
       # binding. Today the committed file already holds the live names
       # (the rebind is then a no-op safeguard); if the file is ever
       # restored to staging names, this step makes the deploy live.
-      # NOTE: the queue name appears twice (producer + consumer), so
-      # the replaces use /g.
+      # NOTE: the producer queue name appears twice (producer +
+      # consumer), so its replace uses /g. The DLQ name appears once,
+      # under "dead_letter_queue" — NOT under "queue".
       - name: Rebind wrangler config to live
         run: |
           node -e "
@@ -40,9 +41,9 @@ jobs:
           s = s.replace(/\"database_name\": \"qemmini-db\"/, '\"database_name\": \"qemmini-live-db\"');
           s = s.replace(/\"database_id\": \"382015c0-8484-4143-b2e3-7391b0fffb7d\"/, '\"database_id\": \"3d9fae1b-acb7-426c-a7ec-307217fab151\"');
           s = s.replace(/\"queue\": \"qemmini-take-writes-staging\"/g, '\"queue\": \"qemmini-take-writes\"');
-          s = s.replace(/\"queue\": \"qemmini-take-writes-dlq-staging\"/g, '\"queue\": \"qemmini-take-writes-dlq\"');
+          s = s.replace(/\"dead_letter_queue\": \"qemmini-take-writes-dlq-staging\"/g, '\"dead_letter_queue\": \"qemmini-take-writes-dlq\"');
           if (!s.includes('qemmini-live-db') || !s.includes('3d9fae1b-acb7-426c-a7ec-307217fab151')) throw new Error('live rebind failed');
-          if (!s.includes('\"queue\": \"qemmini-take-writes\"') || !s.includes('\"queue\": \"qemmini-take-writes-dlq\"')) throw new Error('live queue rebind failed');
+          if (!s.includes('\"queue\": \"qemmini-take-writes\"') || !s.includes('\"dead_letter_queue\": \"qemmini-take-writes-dlq\"')) throw new Error('live queue rebind failed');
           fs.writeFileSync('wrangler.jsonc', s);
           console.log('wrangler.jsonc rebound to qemmini-live-db + qemmini-take-writes');
           "
