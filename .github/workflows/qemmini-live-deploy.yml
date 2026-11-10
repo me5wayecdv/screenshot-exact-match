@@ -1,0 +1,48 @@
+name: Qemmini Live Deploy
+# Manual-only deploy of the OLD Qemmini site (screenshot-exact-match main)
+# to the live Worker `qemmini`. Created 2026-11-10 because the user has no
+# repo checkout on his laptop and the browser has no terminal.
+# Binding procedure (durable lesson): the build generates
+# dist/server/wrangler.json from the ROOT wrangler.jsonc, so the config must
+# be rebound to live BEFORE `npm run build`. Never --config wrangler-live.jsonc.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      - name: Rebind wrangler config to live
+        run: |
+          node -e "
+          const fs = require('fs');
+          let s = fs.readFileSync('wrangler.jsonc', 'utf8');
+          s = s.replace(/\"database_name\": \"qemmini-db\"/, '\"database_name\": \"qemmini-live-db\"');
+          s = s.replace(/\"database_id\": \"382015c0-8484-4143-b2e3-7391b0fffb7d\"/, '\"database_id\": \"3d9fae1b-acb7-426c-a7ec-307217fab151\"');
+          if (!s.includes('qemmini-live-db') || !s.includes('3d9fae1b-acb7-426c-a7ec-307217fab151')) throw new Error('live rebind failed');
+          fs.writeFileSync('wrangler.jsonc', s);
+          console.log('wrangler.jsonc rebound to qemmini-live-db');
+          "
+      - run: npm run build
+      - name: Confirm generated binding is live
+        run: grep -q 'qemmini-live-db' dist/server/wrangler.json && echo "generated binding is live"
+      - name: Deploy to Cloudflare Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --name qemmini
+      - name: Verify live site
+        run: |
+          curl -s https://qemmini.adhamelhansye.workers.dev | grep -q 'rel="manifest"' && echo "live manifest OK"
