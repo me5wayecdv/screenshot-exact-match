@@ -12,12 +12,11 @@
   // explicitly so the behaviour never depends on a forgotten default.
   "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
   // Official TanStack Start entry for Cloudflare Workers, wrapped
-  // in src/worker-entry.ts (Phase 3, 2026-11-10) so the same Worker
-  // can also export the Queues `queue` handler. The wrapper ONLY
-  // re-exports the entry default plus `queue` — it never touches
-  // fetch handling. See src/worker-entry.ts and docs in
-  // ports-queues/DESIGN.md. If this ever breaks the build, the
-  // fallback is a separate consumer worker (DESIGN.md §1).
+  // in src/worker-entry.ts (Phase 4, 2026-11-10) so the same Worker
+  // can also export the TakeSession Durable Object class. The wrapper
+  // ONLY re-exports the entry default plus the DO class — it never
+  // touches fetch handling. See src/worker-entry.ts and docs in
+  // ports-do/DESIGN.md.
   "main": "src/worker-entry.ts",
   "observability": {
     "enabled": true
@@ -76,48 +75,31 @@
       "bucket_name": "qemmini-generation-sources"
     }
   ],
-  // Phase 3 (2026-11-10): take-writes Queue. The producer binding
-  // TAKE_QUEUE is read by src/server/d1.ts (getTakeQueue); the
-  // consumer is the `queue` export of src/worker-entry.ts. One queue
-  // per environment: the committed names below are LIVE (this file
-  // holds the live D1 binding since the beb92fce snapshot); the
-  // staging names are qemmini-take-writes-staging /
-  // qemmini-take-writes-dlq-staging, and the deploy workflow's rebind
-  // swaps staging→live names as a safeguard. A missing queue is
-  // auto-created on deploy (Cloudflare docs), and the deploy workflow
-  // also creates both queues explicitly first.
-  // Throttling (see DESIGN.md §5): max_batch_size 5,
-  // max_concurrency 2 keeps the consumer's write rate under the D1
-  // 10s-window budget the 2026-11-10 load test measured; retune the
-  // numbers here (no code change) after the post-deploy load test.
-  "queues": {
-    "producers": [
+  // Phase 4 (2026-11-10): one TakeSession Durable Object per exam.
+  // The binding TAKE_SESSIONS is read by src/server/d1.ts
+  // (getTakeSessions); the class is exported from src/worker-entry.ts
+  // so wrangler deploys it. The Phase 3 take-writes Queue is gone —
+  // the DO holds the live session and flushes to D1 in the
+  // background (see ports-do/DESIGN.md). The queue resources
+  // (qemmini-take-writes + DLQ) are left in place on Cloudflare,
+  // idle and $0; deleting them is a separate cleanup decision.
+  // Migrations: `v1` creates the SQLite-backed TakeSession class.
+  // A later schema change to the DO class needs a new tag, never an
+  // edit of v1.
+  "durable_objects": {
+    "bindings": [
       {
-        "queue": "qemmini-take-writes",
-        "binding": "TAKE_QUEUE"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "qemmini-take-writes",
-        "max_batch_size": 5,
-        "max_batch_timeout": 5,
-        "max_retries": 5,
-        "retry_delay": 10,
-        // Consumer throttling — retuned 2026-11-10 after the first live
-        // ladder: at max_concurrency 2 the start drain took ~15–22s at
-        // 50 concurrent, and at 100 the status polls themselves
-        // overloaded D1 (93% startPoll errors, all poll reads) before
-        // the drain could finish. 5 concurrent batches x 5 messages =
-        // 25 writes in flight: still far below the ~100 concurrent
-        // direct writes that broke the pre-queue runs, but 2.5x the
-        // drain rate, so polls finish sooner and pile up less.
-        // Retune HERE only (wrangler.jsonc), then redeploy.
-        "max_concurrency": 5,
-        "dead_letter_queue": "qemmini-take-writes-dlq"
+        "name": "TAKE_SESSIONS",
+        "class_name": "TakeSession"
       }
     ]
   },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["TakeSession"]
+    }
+  ],
   // MailChannels Workers integration (cutover gap #1, second provider).
   // The SEB binding is only usable after MailChannels is enabled for
   // the Worker's domain (DNS/DKIM in the Cloudflare dashboard) and
