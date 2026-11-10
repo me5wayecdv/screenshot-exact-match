@@ -22,7 +22,9 @@ import {
   flushOne,
   getCachedMarks,
   getSessionStatus,
+  hydrateAnswers,
   hydrateFromD1,
+  loadTakeData,
   validateStart,
   TAKE_SESSION_CACHE_TTL_MS,
   TAKE_SESSION_FLUSH_MAX_ATTEMPTS,
@@ -30,6 +32,7 @@ import {
   type DoSubmissionState,
   type ExamConfig,
   type ExamConfigStore,
+  type ExamQuestion,
   type SessionStore,
 } from "@/server/take-session-logic";
 
@@ -101,30 +104,55 @@ class MapStore implements SessionStore {
       (s) => s.studentId === studentId && s.assessmentId === assessmentId,
     ).length;
   }
+  async listStudentSubmissions(studentId: string, assessmentId: string) {
+    return [...this.subs.values()]
+      .filter((s) => s.studentId === studentId && s.assessmentId === assessmentId)
+      .sort((a, b) => a.attemptNumber - b.attemptNumber)
+      .map((s) => ({ ...s }));
+  }
+  hydrated = new Set<string>();
+  async areAnswersHydrated(submissionId: string) {
+    return this.hydrated.has(submissionId);
+  }
+  async setAnswersHydrated(submissionId: string) {
+    this.hydrated.add(submissionId);
+  }
 }
 
 /* --------------------------------------- Map-backed config store (V2) */
 
 class MapConfigStore implements ExamConfigStore {
   config: ExamConfig | null = null;
-  marks: Record<string, number> = {};
+  questions: ExamQuestion[] = [];
   enrolled = new Map<string, number>();
   seeded = new Set<string>();
+  scoreRefresh = new Map<string, number>();
 
   async getConfig() {
     return this.config;
   }
   async setConfig(
     config: ExamConfig,
-    marks: Record<string, number>,
+    questions: ExamQuestion[],
     enrolledStudentIds: string[],
   ) {
     this.config = { ...config };
-    this.marks = { ...marks };
+    this.questions = questions.map((q) => ({ ...q }));
     this.enrolled = new Map(enrolledStudentIds.map((id) => [id, config.loadedAt]));
   }
   async getMarks() {
-    return { ...this.marks };
+    const marks: Record<string, number> = {};
+    for (const q of this.questions) marks[q.id] = q.marks;
+    return marks;
+  }
+  async getQuestions() {
+    return this.questions.map((q) => ({ ...q }));
+  }
+  async getScoreRefreshedAt(studentId: string) {
+    return this.scoreRefresh.get(studentId) ?? null;
+  }
+  async setScoreRefreshedAt(studentId: string, refreshedAt: number) {
+    this.scoreRefresh.set(studentId, refreshedAt);
   }
   async getEnrolledCheckedAt(studentId: string) {
     return this.enrolled.get(studentId) ?? null;
@@ -162,7 +190,7 @@ async function startedStore(submissionId = "sub-1") {
 /* --------------------------------------- compact D1 dispatch fake */
 
 type FakeState = {
-  questions: Record<string, { id: string; marks: number }[]>;
+  questions: Record<string, ExamQuestion[]>;
   submissions: Record<string, Record<string, unknown>>;
   answers: Record<string, { id: string; response: string; max_marks: number }>;
   audit: { action: string; entity_id: string }[];
@@ -175,6 +203,8 @@ type FakeState = {
     due_at: string | null;
     max_attempts: number;
     duration_minutes: number | null;
+    title: string;
+    instructions: string;
   };
   assignments: string[];
   groupLinks: string[];
@@ -281,8 +311,23 @@ function makeFakeDb(state: FakeState): D1Database {
       const a = state.assessment;
       return { status: a.status, starts_at: a.starts_at, due_at: a.due_at };
     }
-    if (s.startsWith("SELECT id, marks FROM questions")) {
-      return (state.questions[EXAM] ?? []).map((q) => ({ id: q.id, marks: q.marks }));
+    if (s.startsWith("SELECT id, prompt, type, options, marks, position FROM questions")) {
+      return (state.questions[EXAM] ?? []).map((q) => ({ ...q }));
+    }
+    if (s.startsWith("SELECT id, status, final_score FROM submissions")) {
+      // V3 score refresh: the student's submitted attempts.
+      return Object.values(state.submissions)
+        .filter(
+          (r) =>
+            r["assessment_id"] === params[0] &&
+            r["student_id"] === params[1] &&
+            r["status"] !== "in_progress",
+        )
+        .map((r) => ({
+          id: r["id"] as string,
+          status: r["status"] as string,
+          final_score: (r["final_score"] as number | null) ?? null,
+        }));
     }
     if (s.startsWith("SELECT student_id FROM assessment_assignments")) {
       return state.assignments.map((student_id) => ({ student_id }));
@@ -378,7 +423,26 @@ function makeFakeDb(state: FakeState): D1Database {
 
 function fakeState(): FakeState {
   return {
-    questions: { [EXAM]: [{ id: Q1, marks: 5 }, { id: Q2, marks: 10 }] },
+    questions: {
+      [EXAM]: [
+        {
+          id: Q1,
+          prompt: "What is 2+2?",
+          type: "mcq",
+          options: JSON.stringify(["3", "4", "5"]),
+          marks: 5,
+          position: 1,
+        },
+        {
+          id: Q2,
+          prompt: "Explain the water cycle.",
+          type: "written",
+          options: "[]",
+          marks: 10,
+          position: 2,
+        },
+      ],
+    },
     submissions: {},
     answers: {},
     audit: [],
@@ -390,6 +454,8 @@ function fakeState(): FakeState {
       due_at: null,
       max_attempts: 10,
       duration_minutes: 60,
+      title: "Exam 1",
+      instructions: "Read carefully.",
     },
     assignments: [STUDENT, OTHER],
     groupLinks: ["g-1"],
@@ -864,5 +930,172 @@ describe("getCachedMarks (V2 cache)", () => {
     const before = state.reads;
     expect(await getCachedMarks(cfg, db, EXAM, Date.now())).toEqual(MARKS);
     expect(state.reads - before).toBe(0);
+  });
+});
+
+/* ------------------------------------------------- V3: DO-served take data */
+
+async function doData(
+  store: MapStore,
+  cfg: MapConfigStore,
+  db: D1Database,
+  studentId = STUDENT,
+) {
+  return loadTakeData(store, cfg, db, {
+    studentId,
+    assessmentId: EXAM,
+    nowIso: NOW,
+  });
+}
+
+function fakeSubmissionRow(
+  id: string,
+  studentId: string,
+  status: string,
+  attemptNumber = 1,
+): Record<string, unknown> {
+  return {
+    id,
+    assessment_id: EXAM,
+    student_id: studentId,
+    status,
+    attempt_number: attemptNumber,
+    started_at: NOW,
+    submitted_at: status === "in_progress" ? null : NOW,
+    expires_at: "2026-11-10T18:00:00.000Z",
+    question_order: JSON.stringify([Q1, Q2]),
+    total_possible: 15,
+    final_score: null,
+    draft_seq: 0,
+  };
+}
+
+describe("loadTakeData (V3 cache)", () => {
+  it("serves the full body on first load, then zero reads when warm", async () => {
+    const state = fakeState();
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+
+    // First load: config (5) + seed (1) = 6.
+    const first = await doData(store, cfg, db);
+    expect(state.reads).toBe(6);
+    expect(first.allowed).toBe(true);
+    if (first.allowed) {
+      expect(first.assessment).toMatchObject({
+        id: EXAM,
+        title: "Exam 1",
+        instructions: "Read carefully.",
+        status: "published",
+      });
+      expect(first.questions).toHaveLength(2);
+      expect(first.questions[0]).toMatchObject({
+        id: Q1,
+        prompt: "What is 2+2?",
+        type: "mcq",
+        options: ["3", "4", "5"],
+        marks: 5,
+        position: 1,
+      });
+      expect(first.questions[1]).toMatchObject({ id: Q2, type: "written", marks: 10 });
+      expect(first.submissions).toEqual([]);
+    }
+
+    // Warm load: everything cached, zero reads.
+    const before = state.reads;
+    const second = await doData(store, cfg, db);
+    expect(second.allowed).toBe(true);
+    expect(state.reads - before).toBe(0);
+  });
+
+  it("denies a student who is not assigned (no questions leak)", async () => {
+    const state = fakeState();
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+    const result = await doData(store, cfg, db, "student-3");
+    expect(result).toEqual({ allowed: false, reason: "NOT_ASSIGNED" });
+  });
+
+  it("loads a draft after the window closes, but nothing without an attempt", async () => {
+    const state = fakeState();
+    state.assessment.due_at = "2026-11-10T16:00:00.000Z";
+    state.submissions["sub-draft"] = fakeSubmissionRow("sub-draft", STUDENT, "in_progress");
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+
+    const resumed = await doData(store, cfg, db);
+    expect(resumed.allowed).toBe(true);
+    if (resumed.allowed) {
+      expect(resumed.submissions).toHaveLength(1);
+      expect(resumed.submissions[0]).toMatchObject({ id: "sub-draft", status: "in_progress" });
+    }
+
+    const other = await doData(store, cfg, db, OTHER);
+    expect(other).toEqual({ allowed: false, reason: "WINDOW_CLOSED" });
+  });
+
+  it("shows a released score only after the TTL-gated refresh", async () => {
+    const state = fakeState();
+    state.submissions["sub-rel"] = fakeSubmissionRow("sub-rel", STUDENT, "awaiting_review");
+    state.answers["sub-rel:q-1"] = { id: "a-1", response: "hello", max_marks: 5 };
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+
+    const first = await doData(store, cfg, db);
+    expect(first.allowed).toBe(true);
+    if (first.allowed) {
+      expect(first.submissions[0]).toMatchObject({ status: "awaiting_review", final_score: null });
+      expect(first.answersBySubmission["sub-rel"]).toEqual([
+        { question_id: Q1, response: "hello" },
+      ]);
+    }
+
+    // The teacher releases it in D1 (after the seed).
+    const row = state.submissions["sub-rel"];
+    row["status"] = "released";
+    row["final_score"] = 12;
+    // Age the score refresh past the TTL so the next load re-reads.
+    cfg.scoreRefresh.set(STUDENT, Date.parse(NOW) - TAKE_SESSION_CACHE_TTL_MS - 1);
+    const second = await doData(store, cfg, db);
+    expect(second.allowed).toBe(true);
+    if (second.allowed) {
+      expect(second.submissions[0]).toMatchObject({ status: "released", final_score: 12 });
+    }
+  });
+
+  it("hydrates a seeded draft's answers, then never overwrites a fresher DO answer", async () => {
+    const state = fakeState();
+    state.submissions["sub-draft"] = fakeSubmissionRow("sub-draft", STUDENT, "in_progress");
+    state.answers["sub-draft:q-1"] = { id: "a-1", response: "A", max_marks: 5 };
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+
+    const first = await doData(store, cfg, db);
+    expect(first.allowed).toBe(true);
+    if (first.allowed) {
+      expect(first.answersBySubmission["sub-draft"]).toEqual([
+        { question_id: Q1, response: "A" },
+      ]);
+    }
+
+    // The student re-answers through the DO (fresher than D1).
+    await applyDraft(store, {
+      submissionId: "sub-draft",
+      studentId: STUDENT,
+      answers: [{ question_id: Q1, response: "B", time_spent_seconds: 5 }],
+      seq: 1,
+      marks: MARKS,
+    });
+    const second = await doData(store, cfg, db);
+    expect(second.allowed).toBe(true);
+    if (second.allowed) {
+      expect(second.answersBySubmission["sub-draft"]).toEqual([
+        { question_id: Q1, response: "B" },
+      ]);
+    }
   });
 });
