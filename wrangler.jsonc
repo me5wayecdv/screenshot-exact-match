@@ -11,11 +11,14 @@
   // default for compatibility dates on/after 2025-04-01; it is listed here
   // explicitly so the behaviour never depends on a forgotten default.
   "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env"],
-  // Official TanStack Start entry for Cloudflare Workers.
-  // NOTE: src/server.ts (the Nitro/h3-era error-page wrapper) is NOT on this
-  // request path. See docs/cloudflare-deploy.md "known follow-up" before
-  // re-wiring main to it.
-  "main": "@tanstack/react-start/server-entry",
+  // Official TanStack Start entry for Cloudflare Workers, wrapped
+  // in src/worker-entry.ts (Phase 3, 2026-11-10) so the same Worker
+  // can also export the Queues `queue` handler. The wrapper ONLY
+  // re-exports the entry default plus `queue` — it never touches
+  // fetch handling. See src/worker-entry.ts and docs in
+  // ports-queues/DESIGN.md. If this ever breaks the build, the
+  // fallback is a separate consumer worker (DESIGN.md §1).
+  "main": "src/worker-entry.ts",
   "observability": {
     "enabled": true
   },
@@ -73,6 +76,39 @@
       "bucket_name": "qemmini-generation-sources"
     }
   ],
+  // Phase 3 (2026-11-10): take-writes Queue. The producer binding
+  // TAKE_QUEUE is read by src/server/d1.ts (getTakeQueue); the
+  // consumer is the `queue` export of src/worker-entry.ts. One queue
+  // per environment: the committed names below are LIVE (this file
+  // holds the live D1 binding since the beb92fce snapshot); the
+  // staging names are qemmini-take-writes-staging /
+  // qemmini-take-writes-dlq-staging, and the deploy workflow's rebind
+  // swaps staging→live names as a safeguard. A missing queue is
+  // auto-created on deploy (Cloudflare docs), and the deploy workflow
+  // also creates both queues explicitly first.
+  // Throttling (see DESIGN.md §5): max_batch_size 5,
+  // max_concurrency 2 keeps the consumer's write rate under the D1
+  // 10s-window budget the 2026-11-10 load test measured; retune the
+  // numbers here (no code change) after the post-deploy load test.
+  "queues": {
+    "producers": [
+      {
+        "queue": "qemmini-take-writes",
+        "binding": "TAKE_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "qemmini-take-writes",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 5,
+        "retry_delay": 10,
+        "max_concurrency": 2,
+        "dead_letter_queue": "qemmini-take-writes-dlq"
+      }
+    ]
+  },
   // MailChannels Workers integration (cutover gap #1, second provider).
   // The SEB binding is only usable after MailChannels is enabled for
   // the Worker's domain (DNS/DKIM in the Cloudflare dashboard) and
