@@ -394,7 +394,7 @@ function seedRows(): AccountRow[] {
 describe("admin approval: admin functions", () => {
   it("list shows full identity with pending first, and never selects password hashes", async () => {
     const db = fakeAdminDb(seedRows());
-    const accounts = await listAccounts(db, ADMIN);
+    const { rows: accounts } = await listAccounts(db, ADMIN);
     expect(accounts.map((a) => a.id)).toEqual([
       "u-pending-teacher",
       "u-approved-student",

@@ -184,7 +184,7 @@ describe("passwordless accounts report", () => {
       { id: "u2", email: "b@example.test", created_at: "2026-01-02", password_hash: "hash" },
       { id: "u3", email: "c@example.test", created_at: "2026-01-03", password_hash: null },
     ]);
-    const rows = await listPasswordlessAccounts(db, ADMIN);
+    const { rows } = await listPasswordlessAccounts(db, ADMIN);
     expect(rows).toEqual([
       { id: "u1", email: "a@example.test", createdAt: "2026-01-01" },
       { id: "u3", email: "c@example.test", createdAt: "2026-01-03" },
