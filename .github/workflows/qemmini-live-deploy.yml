@@ -50,7 +50,11 @@ jobs:
       - run: npm run build
       - name: Confirm generated binding is live
         run: |
-          grep -q 'qemmini-live-db' dist/server/wrangler.json && grep -q '"queue": "qemmini-take-writes"' dist/server/wrangler.json && echo "generated binding is live"
+          # NOTE: the generated file is minified JSON — no space after
+          # the colon, so the queue pattern must match "queue":"..."
+          # exactly (a spaced '"queue": "qemmini-take-writes"' never
+          # matches and failed run #5).
+          grep -q 'qemmini-live-db' dist/server/wrangler.json && grep -q '"queue":"qemmini-take-writes"' dist/server/wrangler.json && echo "generated binding is live"
       # Phase 3: create the take-write queue + DLQ before deploy.
       # Wrangler auto-creates a missing queue named in the config at
       # deploy time, but an explicit create is the reliable path (and
