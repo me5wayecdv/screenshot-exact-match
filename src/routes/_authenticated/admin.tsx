@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   createSetPasswordInvitationD1,
@@ -30,6 +30,8 @@ type ActivityT = ReturnType<typeof useI18n>["t"];
 // to the raw action string (never blank). Only curated fields are
 // rendered downstream: time / actor / type / target — never raw
 // details (ids, scores) and never anything password-shaped.
+// The server whitelists details to these keys before they reach us:
+// target_label, exam_label, group_label, decision, to.
 function activityLabel(row: SiteActivityRow, t: ActivityT, lang: "ar" | "en"): string {
   const details = typeof row.details === "object" ? row.details : {};
   const str = (v: unknown) => (typeof v === "string" ? v : "");
@@ -112,32 +114,97 @@ function Admin() {
     // D1 (admin-gated server-side): counts only, never user rows.
     queryFn: async () => getAdminCountsD1({ data: {} }),
   });
-  const { data: passwordless, refetch: refetchPasswordless } = useQuery({
-    queryKey: ["admin-passwordless"],
+  // Passwordless list: 50 per page, oldest first. Pages accumulate
+  // below; "Load more" fetches the next page while one exists.
+  const [passwordlessPage, setPasswordlessPage] = useState(0);
+  const [passwordlessAll, setPasswordlessAll] = useState<PasswordlessAccount[]>([]);
+  const [passwordlessHasNext, setPasswordlessHasNext] = useState(false);
+  const { data: passwordlessData, refetch: refetchPasswordless } = useQuery({
+    queryKey: ["admin-passwordless", passwordlessPage],
     enabled: me?.role === "admin",
     // Admin-only server function: id + email + created date only.
-    queryFn: async () => (await listPasswordlessAccountsD1({ data: {} })) as PasswordlessAccount[],
+    queryFn: async () =>
+      (await listPasswordlessAccountsD1({ data: { page: passwordlessPage } })) as {
+        rows: PasswordlessAccount[];
+        hasNext: boolean;
+      },
   });
-  const { data: accounts, refetch: refetchAccounts } = useQuery({
-    queryKey: ["admin-accounts"],
+  useEffect(() => {
+    if (!passwordlessData) return;
+    setPasswordlessHasNext(passwordlessData.hasNext);
+    setPasswordlessAll((prev) =>
+      passwordlessPage === 0
+        ? passwordlessData.rows
+        : [
+            ...prev,
+            ...passwordlessData.rows.filter((r) => !prev.some((p) => p.id === r.id)),
+          ],
+    );
+  }, [passwordlessData, passwordlessPage]);
+  const passwordless = passwordlessAll;
+  // Approval queue: 50 per page, pending first. Pages accumulate
+  // below; "Load more" fetches the next page while one exists.
+  const [accountsPage, setAccountsPage] = useState(0);
+  const [accountsAll, setAccountsAll] = useState<AdminAccount[]>([]);
+  const [accountsHasNext, setAccountsHasNext] = useState(false);
+  const { data: accountsData, refetch: refetchAccounts } = useQuery({
+    queryKey: ["admin-accounts", accountsPage],
     enabled: me?.role === "admin",
     // Admin-only server function: full identity + status, never passwords.
-    queryFn: async () => (await listAccountsD1({ data: {} })) as AdminAccount[],
+    queryFn: async () =>
+      (await listAccountsD1({ data: { page: accountsPage } })) as {
+        rows: AdminAccount[];
+        hasNext: boolean;
+      },
   });
-  // Site-wide activity feed: latest 100 first, "load more" grows the
-  // limit by 100 (offset pagination would duplicate rows if new
-  // events arrive between pages; refetching the prefix cannot).
-  const [activityLimit, setActivityLimit] = useState(100);
-  const { data: activity } = useQuery({
-    queryKey: ["admin-activity", activityLimit],
+  useEffect(() => {
+    if (!accountsData) return;
+    setAccountsHasNext(accountsData.hasNext);
+    setAccountsAll((prev) =>
+      accountsPage === 0
+        ? accountsData.rows
+        : [...prev, ...accountsData.rows.filter((r) => !prev.some((p) => p.id === r.id))],
+    );
+  }, [accountsData, accountsPage]);
+  const accounts = accountsAll;
+  // After a decision the queue order can change (pending sorts first),
+  // so restart from page 0 instead of refetching the current page.
+  function refreshAccounts() {
+    if (accountsPage === 0) void refetchAccounts();
+    else setAccountsPage(0);
+  }
+  function refreshPasswordless() {
+    if (passwordlessPage === 0) void refetchPasswordless();
+    else setPasswordlessPage(0);
+  }
+  // Site-wide activity feed: newest first, keyset cursor paging (50
+  // per page). The cursor points at the last row shown, so new events
+  // arriving between pages cannot duplicate or skip rows. "Load more"
+  // is hidden once the server reports a null nextCursor (end-of-feed).
+  const [activityCursor, setActivityCursor] = useState<string | null>(null);
+  const [activityRows, setActivityRows] = useState<SiteActivityRow[]>([]);
+  const [activityNextCursor, setActivityNextCursor] = useState<string | null>(null);
+  const { data: activityData } = useQuery({
+    queryKey: ["admin-activity", activityCursor ?? "first"],
     enabled: me?.role === "admin",
     // Admin-only server function, display only: time / actor / type /
     // target. Never answer content, never passwords or hashes.
     queryFn: async () =>
-      (await listSiteActivityD1({
-        data: { limit: activityLimit, offset: 0 },
-      })) as SiteActivityRow[],
+      (await listSiteActivityD1({ data: { cursor: activityCursor } })) as {
+        rows: SiteActivityRow[];
+        nextCursor: string | null;
+      },
   });
+  useEffect(() => {
+    if (!activityData) return;
+    setActivityNextCursor(activityData.nextCursor);
+    setActivityRows((prev) =>
+      activityCursor === null
+        ? activityData.rows
+        : [...prev, ...activityData.rows.filter((r) => !prev.some((p) => p.id === r.id))],
+    );
+  }, [activityData, activityCursor]);
+  const activity = activityRows;
   const [deciding, setDeciding] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
   // Temporary password from the last reset: kept ONLY in component
@@ -151,7 +218,7 @@ function Admin() {
     try {
       await decideAccountD1({ data: { userId, decision } });
       toast.success(t("accountDecisionDone"));
-      void refetchAccounts();
+      refreshAccounts();
     } catch (err) {
       toast.error(translateError(err, lang));
     } finally {
@@ -166,7 +233,7 @@ function Admin() {
       };
       setTempPassword({ email, value: result.temporaryPassword });
       toast.success(t("passwordResetDone"));
-      void refetchAccounts();
+      refreshAccounts();
     } catch (err) {
       toast.error(translateError(err, lang));
     } finally {
@@ -179,7 +246,7 @@ function Admin() {
     try {
       await createSetPasswordInvitationD1({ data: { email } });
       toast.success(lang === "ar" ? "اتبعَت دعوة تعيين كلمة سر." : "Set-password invitation sent.");
-      void refetchPasswordless();
+      refreshPasswordless();
     } catch (err) {
       toast.error(translateError(err, lang));
     } finally {
@@ -325,7 +392,7 @@ function Admin() {
         ) : (
           <>
             <h3 className="mt-5 text-sm font-bold">
-              {t("teachers")} ({teachers.length})
+              {t("teachers")} ({data?.teachers ?? teachers.length})
             </h3>
             {teachers.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">
@@ -335,7 +402,7 @@ function Admin() {
               <ul className="mt-2 space-y-3">{teachers.map((a) => accountRow(a))}</ul>
             )}
             <h3 className="mt-5 text-sm font-bold">
-              {t("students")} ({students.length})
+              {t("students")} ({data?.students ?? students.length})
             </h3>
             {students.length === 0 ? (
               <p className="mt-2 text-sm text-muted-foreground">
@@ -351,6 +418,16 @@ function Admin() {
                 </h3>
                 <ul className="mt-2 space-y-3">{admins.map((a) => accountRow(a))}</ul>
               </>
+            ) : null}
+            {accountsHasNext ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-4"
+                onClick={() => setAccountsPage((p) => p + 1)}
+              >
+                {lang === "ar" ? "عرض المزيد" : "Load more"}
+              </Button>
             ) : null}
           </>
         )}
@@ -391,12 +468,12 @@ function Admin() {
                 </li>
               ))}
             </ul>
-            {activity.length >= activityLimit ? (
+            {activityNextCursor !== null ? (
               <Button
                 size="sm"
                 variant="outline"
                 className="mt-4"
-                onClick={() => setActivityLimit((l) => l + 100)}
+                onClick={() => setActivityCursor(activityNextCursor)}
               >
                 {lang === "ar" ? "عرض المزيد" : "Load more"}
               </Button>
@@ -419,31 +496,43 @@ function Admin() {
             {lang === "ar" ? "مفيش حسابات بلا كلمة سر." : "No passwordless accounts."}
           </p>
         ) : (
-          <ul className="mt-4 space-y-3">
-            {passwordless.map((a) => (
-              <li
-                key={a.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-sm border px-3 py-2"
-              >
-                <span className="min-w-0">
-                  <span dir="ltr" className="block truncate text-sm font-medium">
-                    {a.email}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {lang === "ar" ? "أُنشئ في " : "Created "}
-                    {a.createdAt}
-                  </span>
-                </span>
-                <Button
-                  size="sm"
-                  disabled={inviting === a.email}
-                  onClick={() => void invite(a.email)}
+          <>
+            <ul className="mt-4 space-y-3">
+              {passwordless.map((a) => (
+                <li
+                  key={a.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-sm border px-3 py-2"
                 >
-                  {lang === "ar" ? "ابعت دعوة" : "Send invitation"}
-                </Button>
-              </li>
-            ))}
-          </ul>
+                  <span className="min-w-0">
+                    <span dir="ltr" className="block truncate text-sm font-medium">
+                      {a.email}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {lang === "ar" ? "أُنشئ في " : "Created "}
+                      {a.createdAt}
+                    </span>
+                  </span>
+                  <Button
+                    size="sm"
+                    disabled={inviting === a.email}
+                    onClick={() => void invite(a.email)}
+                  >
+                    {lang === "ar" ? "ابعت دعوة" : "Send invitation"}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            {passwordlessHasNext ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-4"
+                onClick={() => setPasswordlessPage((p) => p + 1)}
+              >
+                {lang === "ar" ? "عرض المزيد" : "Load more"}
+              </Button>
+            ) : null}
+          </>
         )}
       </Panel>
     </>
