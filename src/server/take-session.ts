@@ -580,6 +580,37 @@ export class TakeSession extends DurableObjectBase {
       // SQLite storage is synchronous: the schema is ready before the
       // first request is served.
       for (const statement of SCHEMA) state.storage.sql.exec(statement);
+      // V3 migration: CREATE TABLE IF NOT EXISTS does NOT add columns
+      // to a table an earlier deploy created. The V2 instances have
+      // do_config without title/instructions and do_submissions
+      // without final_score — the first V3 request 500'd on the
+      // missing column (2026-11-11). Add them, then drop the stale
+      // config row so the next request reloads it (with the real
+      // title/instructions) instead of serving empty strings.
+      let migrated = false;
+      const configCols = state.storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(do_config)")
+        .toArray()
+        .map((c) => c.name);
+      if (!configCols.includes("title")) {
+        state.storage.sql.exec("ALTER TABLE do_config ADD COLUMN title TEXT NOT NULL DEFAULT ''");
+        migrated = true;
+      }
+      if (!configCols.includes("instructions")) {
+        state.storage.sql.exec(
+          "ALTER TABLE do_config ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
+        );
+        migrated = true;
+      }
+      const submissionCols = state.storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(do_submissions)")
+        .toArray()
+        .map((c) => c.name);
+      if (!submissionCols.includes("final_score")) {
+        state.storage.sql.exec("ALTER TABLE do_submissions ADD COLUMN final_score INTEGER");
+        migrated = true;
+      }
+      if (migrated) state.storage.sql.exec("DELETE FROM do_config");
     } catch (error) {
       console.error(
         "[TakeSession] construct failed:",
