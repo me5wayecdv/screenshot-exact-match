@@ -9,10 +9,12 @@ import {
   listAccountsD1,
   listPasswordlessAccountsD1,
   listSiteActivityD1,
+  listTakeWriteFailuresD1,
   resetUserPasswordD1,
   type AdminAccount,
   type PasswordlessAccount,
   type SiteActivityRow,
+  type TakeWriteFailureRow,
 } from "@/server/d1-admin";
 import { useMe } from "@/lib/session";
 import { useI18n, translateError } from "@/lib/i18n";
@@ -205,6 +207,16 @@ function Admin() {
     );
   }, [activityData, activityCursor]);
   const activity = activityRows;
+
+  // Phase 3: failed take-queue writes (ids + reason only). A row here
+  // means the message ALSO sits in the dead-letter queue — the DLQ is
+  // the replay source, this panel is the visible surface.
+  const { data: failures } = useQuery({
+    queryKey: ["admin-take-failures"],
+    queryFn: async () => (await listTakeWriteFailuresD1({ data: undefined })) as TakeWriteFailureRow[],
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+  });
   const [deciding, setDeciding] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
   // Temporary password from the last reset: kept ONLY in component
@@ -479,6 +491,44 @@ function Admin() {
               </Button>
             ) : null}
           </>
+        )}
+      </Panel>
+
+      <Panel>
+        <h2 className="text-base font-bold">
+          {lang === "ar" ? "محاولات التسليم الفاشلة" : "Failed take writes"}
+        </h2>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          {lang === "ar"
+            ? "رسايل بدء/حفظ/تسليم ماتطبقتش بعد كل المحاولات — لأغراض العرض بس، مفيش محتوى إجابات بيظهر هنا. الرسالة نفسها محفوظة في قائمة الرسايل الميتة (DLQ) على Cloudflare، ومنها تقدر تعيد تشغيلها."
+            : "Start/draft/submit messages that failed after all retries — display only, no answer content is shown here. The message itself is kept in the dead-letter queue (DLQ) on Cloudflare, where it can be retried from."}
+        </p>
+        {!failures || failures.length === 0 ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            {lang === "ar" ? "مفيش محاولات فاشلة." : "No failed writes."}
+          </p>
+        ) : (
+          <ul className="mt-4 space-y-3">
+            {failures.map((f) => (
+              <li key={f.id} className="rounded-sm border px-3 py-2">
+                <span className="block text-sm font-medium">
+                  {f.studentName || f.studentEmail}
+                  {f.assessmentTitle ? ` — ${f.assessmentTitle}` : ""}
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                  <span className="me-2">{f.messageType}</span>
+                  <span className="me-2">
+                    {lang === "ar" ? "محاولات: " : "attempts: "}
+                    {f.attempts}
+                  </span>
+                  <span className="me-2">{f.createdAt}</span>
+                </span>
+                <span className="mt-1 block truncate text-sm" dir="ltr">
+                  {f.reason}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </Panel>
 

@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   getTakeDataD1,
+  getTakeStatusD1,
   recordIntegrityEventD1,
   saveDraftD1,
   startAttemptD1,
   submitAttemptD1,
   type TakeAnswer,
   type TakeQuestion,
+  type TakeStatus,
   type TakeSubmission,
 } from "@/server/d1-take";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
@@ -96,7 +98,18 @@ function Take() {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [starting, setStarting] = useState(false);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "queued" | "saved">("idle");
+  // Phase 3: submit goes through the queue — "submitting" is the
+  // enqueue, "processing" is the consumer working, "done" is the
+  // submitted row visible. queueStuck is the honest timeout notice:
+  // the message is durable in the queue, the student just hasn't seen
+  // the applied state yet.
+  const [submitState, setSubmitState] = useState<"idle" | "submitting" | "processing">("idle");
+  const [queueStuck, setQueueStuck] = useState(false);
+  // Monotonic draft counter, seeded from the server's draft_seq (see
+  // the draft effect below) so a reload never re-uses a stale low
+  // number — the consumer skips seq <= draft_seq as already applied.
+  const draftSeqRef = useRef(0);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const initKey = useRef("");
   const startKey = useRef("");
@@ -116,6 +129,37 @@ function Take() {
   const win = data?.assessment
     ? windowState(Date.now(), data.assessment.starts_at, data.assessment.due_at)
     : "open";
+
+  // Phase 3: poll the queued-write status until `done` holds. Backoff
+  // 1s → 5s cap, 90s total cap, then throws TAKE_QUEUE_TIMEOUT — the
+  // caller shows the stuck notice (the message is durable in the
+  // queue; nothing is re-enqueued).
+  async function pollTakeStatus(
+    submissionId: string,
+    done: (s: TakeStatus) => boolean,
+  ): Promise<TakeStatus> {
+    const start = Date.now();
+    let delay = 1000;
+    for (;;) {
+      const status = await getTakeStatusD1({ data: { submissionId, assessmentId: id } });
+      if (done(status)) return status;
+      if (status.status === "failed") return status;
+      if (Date.now() - start > 90_000) throw new Error("TAKE_QUEUE_TIMEOUT");
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * 1.5, 5000);
+    }
+  }
+
+  // Current answers as draft rows (shared by autosave and submit —
+  // the queued submit carries the FULL final answers).
+  function currentAnswerRows() {
+    const times = recorder.getTimesSeconds();
+    return Object.entries(answers).map(([question_id, response]) => ({
+      question_id,
+      response,
+      time_spent_seconds: Math.max(0, Math.round(times[question_id] ?? 0)),
+    }));
+  }
 
   // --- §6 (integrity): recorder mounts only while a draft is being edited.
   const recorder = useIntegrityRecorder({
@@ -161,6 +205,47 @@ function Take() {
   // --- §6: auto-start a new attempt when the student lands with no draft
   // and attempts remain. start_attempt is idempotent: a concurrent second
   // call simply resumes the in-progress row it finds.
+  // Phase 3: the start is queued — the producer returns the
+  // client-generated submission id immediately, and this effect polls
+  // the status until the consumer creates the row (or redirects to an
+  // existing in-progress row). A resume returns synchronously.
+  async function startAttemptAndWait(order: string[]) {
+    const submissionId = crypto.randomUUID();
+    setStarting(true);
+    try {
+      const { queued, submissionId: returnedId } = await startAttemptD1({
+        data: { assessmentId: id, questionOrder: order, submissionId },
+      });
+      let finalId = returnedId;
+      if (queued) {
+        try {
+          const status = await pollTakeStatus(
+            returnedId,
+            (s) => s.status === "started" || s.status === "submitted",
+          );
+          if (status.status === "started" || status.status === "submitted") {
+            finalId = status.submissionId;
+          } else {
+            throw new Error(status.status === "failed" ? status.reason : "TAKE_QUEUE_TIMEOUT");
+          }
+        } catch (err) {
+          // Start timed out or failed in the queue: let the auto-start
+          // effect run again (the consumer dedupes by student+exam),
+          // and show the stuck notice in the meantime.
+          startKey.current = "";
+          setQueueStuck(true);
+          throw err;
+        }
+      }
+      freshDraftIds.current.add(finalId);
+    } catch (err) {
+      toast.error(translateError(err, lang));
+    } finally {
+      setStarting(false);
+    }
+    await qc.invalidateQueries({ queryKey: ["take", id, me?.id] });
+  }
+
   useEffect(() => {
     if (!data || !me || me.role !== "student") return;
     if (!data.allowed || !data.assessment || data.assessment.status !== "published") return;
@@ -171,17 +256,7 @@ function Take() {
     startKey.current = key;
     const order = shuffleIds(data.questions.map((q) => q.id));
     saveQuestionOrder(id, me.id, order);
-    setStarting(true);
-    startAttemptD1({ data: { assessmentId: id, questionOrder: order } })
-      .then(({ submissionId }) => {
-        setStarting(false);
-        freshDraftIds.current.add(submissionId);
-        void qc.invalidateQueries({ queryKey: ["take", id, me.id] });
-      })
-      .catch((err) => {
-        setStarting(false);
-        toast.error(translateError(err, lang));
-      });
+    void startAttemptAndWait(order);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, me, draft, win]);
 
@@ -224,6 +299,9 @@ function Take() {
     const key = `${id}:${draft.id}`;
     if (initKey.current === key) return;
     initKey.current = key;
+    // Phase 3: seed the draft counter from the server's applied seq so
+    // a reload never re-uses a stale low number.
+    draftSeqRef.current = Math.max(draftSeqRef.current, draft.draft_seq ?? 0);
     const next: Record<string, string> = {};
     for (const q of data.questions) next[q.id] = "";
     for (const a of data.answersBySubmission[draft.id] ?? [])
@@ -233,22 +311,24 @@ function Take() {
 
   // --- §6: debounced autosave into the draft (server-enforced: edits
   // freeze at expiry / window end inside save_draft).
+  // Phase 3: the save is queued — "queued" means durable in the queue
+  // but not yet applied; the poll below waits for the consumer to
+  // apply this seq (or a newer one, which subsumes it). A poll timeout
+  // leaves the draft dirty so a later edit re-sends it.
   useEffect(() => {
     if (!draft || !me) return;
     const payload = JSON.stringify(answers);
     if (payload === lastSaved.current) return;
     setSaveState("saving");
     const timer = setTimeout(() => {
-      const times = recorder.getTimesSeconds();
-      const rows = Object.entries(answers).map(([question_id, response]) => ({
-        question_id,
-        response,
-        time_spent_seconds: Math.max(0, Math.round(times[question_id] ?? 0)),
-      }));
+      const rows = currentAnswerRows();
+      const seq = (draftSeqRef.current += 1);
       const saveWithRetry = async () => {
         for (let attempt = 0; ; attempt += 1) {
           try {
-            return await saveDraftD1({ data: { submissionId: draft.id, answers: rows } });
+            return await saveDraftD1({
+              data: { submissionId: draft.id, answers: rows, seq },
+            });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             if (
@@ -263,8 +343,12 @@ function Take() {
         }
       };
       void saveWithRetry()
-        .then(async ({ ok }) => {
-          if (ok) {
+        .then(async ({ ok, queued }) => {
+          if (!ok) {
+            setSaveState("idle");
+            return;
+          }
+          if (!queued) {
             lastSaved.current = payload;
             setSaveState("saved");
             try {
@@ -272,8 +356,40 @@ function Take() {
             } catch {
               // Non-fatal: events stay buffered for the next flush.
             }
-          } else {
+            return;
+          }
+          setSaveState("queued");
+          try {
+            const status = await pollTakeStatus(
+              draft.id,
+              (s) =>
+                (s.status === "started" || s.status === "submitted") &&
+                (s.lastAppliedDraftSeq ?? 0) >= seq,
+            );
+            if (status.status === "failed" || status.status === "pending") {
+              // "pending" cannot happen here (the poll only returns
+              // once the draft applied), but treat it as not-saved so
+              // the draft stays dirty and a later edit re-sends it.
+              setSaveState("idle");
+              return;
+            }
+            lastSaved.current = payload;
+            draftSeqRef.current = Math.max(
+              draftSeqRef.current,
+              status.lastAppliedDraftSeq ?? seq,
+            );
+            setSaveState("saved");
+            try {
+              await recorder.flushEvents(draft.id);
+            } catch {
+              // Non-fatal: events stay buffered for the next flush.
+            }
+          } catch {
+            // Poll timed out: leave the draft dirty so a later edit or
+            // the next autosave attempt can persist it without
+            // interrupting the student.
             setSaveState("idle");
+            setQueueStuck(true);
           }
         })
         .catch(() => {
@@ -296,22 +412,53 @@ function Take() {
   }, [deadlineMs]);
   const remaining = remainingSeconds(deadlineMs, nowMs);
 
+  // Phase 3: submit is queued with the FULL final answers — the
+  // consumer applies them, then flips the status. The poll waits for
+  // the submitted row; on timeout the draft stays (the message is
+  // durable in the queue) and the stuck notice offers a re-check.
   async function submitAttempt() {
     if (!me || !draft || busy) return;
     setBusy(true);
-    let ok = false;
+    setSubmitState("submitting");
+    const rows = currentAnswerRows();
+    const seq = draftSeqRef.current + 1;
+    let result: { ok: boolean; queued?: boolean };
     try {
-      ({ ok } = await submitAttemptD1({ data: { submissionId: draft.id } }));
+      result = await submitAttemptD1({ data: { submissionId: draft.id, answers: rows, seq } });
     } catch (err) {
       setBusy(false);
+      setSubmitState("idle");
       toast.error(translateError(err, lang));
       return;
     }
-    setBusy(false);
-    if (!ok) {
+    if (!result.ok) {
+      setBusy(false);
+      setSubmitState("idle");
       toast.error(t("errorGeneric"));
       return;
     }
+    if (result.queued) {
+      setSubmitState("processing");
+      try {
+        const status = await pollTakeStatus(
+          draft.id,
+          (s) => s.status === "submitted" || s.status === "failed",
+        );
+        if (status.status === "failed") {
+          setBusy(false);
+          setSubmitState("idle");
+          toast.error(t("errorGeneric"));
+          return;
+        }
+      } catch {
+        setBusy(false);
+        setSubmitState("idle");
+        setQueueStuck(true);
+        return;
+      }
+    }
+    setSubmitState("idle");
+    setBusy(false);
     try {
       await recorder.flushEvents(draft.id);
     } catch {
@@ -335,22 +482,7 @@ function Take() {
     if (!me || !data || !data.allowed) return;
     const order = shuffleIds(data.questions.map((q) => q.id));
     saveQuestionOrder(id, me.id, order);
-    setStarting(true);
-    try {
-      const { submissionId } = await startAttemptD1({
-        data: {
-          assessmentId: id,
-          questionOrder: order,
-        },
-      });
-      freshDraftIds.current.add(submissionId);
-    } catch (err) {
-      setStarting(false);
-      toast.error(translateError(err, lang));
-      return;
-    }
-    setStarting(false);
-    await qc.invalidateQueries({ queryKey: ["take", id, me.id] });
+    await startAttemptAndWait(order);
   }
 
   if (meLoading || isLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
@@ -390,7 +522,26 @@ function Take() {
   // Window hasn't opened and no draft exists (a draft always wins: a
   // student who already started is never locked out by a later edit).
   if (!draft && win === "not_started") return <Empty>{t("takeNotStarted")}</Empty>;
-  if (!draft && starting) return <p className="text-muted-foreground">{t("loading")}</p>;
+  if (!draft && starting)
+    return (
+      <>
+        <p className="text-muted-foreground">{t("loading")}</p>
+        {queueStuck && (
+          <Panel className="mt-6 space-y-2 text-sm">
+            <p>{t("takeQueueStuck")}</p>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setQueueStuck(false);
+                void qc.invalidateQueries({ queryKey: ["take", id, me?.id] });
+              }}
+            >
+              {t("takeRecheck")}
+            </Button>
+          </Panel>
+        )}
+      </>
+    );
 
   // History view: latest submitted attempt, with a new-attempt button
   // while the teacher's max_attempts allows it and the window is open.
@@ -477,6 +628,9 @@ function Take() {
             {saveState === "saving" && (
               <span className="text-xs text-muted-foreground">{t("takeSaving")}</span>
             )}
+            {saveState === "queued" && (
+              <span className="text-xs text-muted-foreground">{t("takeQueued")}</span>
+            )}
             {saveState === "saved" && (
               <span className="text-xs text-muted-foreground">{t("takeSaved")}</span>
             )}
@@ -485,6 +639,23 @@ function Take() {
       />
       {assessment.instructions && (
         <Panel className="mb-6 whitespace-pre-wrap text-sm">{assessment.instructions}</Panel>
+      )}
+      {submitState === "processing" && (
+        <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">{t("takeProcessing")}</p>
+      )}
+      {queueStuck && (
+        <Panel className="mb-6 space-y-2 text-sm">
+          <p>{t("takeQueueStuck")}</p>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setQueueStuck(false);
+              void qc.invalidateQueries({ queryKey: ["take", id, me?.id] });
+            }}
+          >
+            {t("takeRecheck")}
+          </Button>
+        </Panel>
       )}
       {!editing && (
         <p className="mb-6 rounded-md bg-destructive/15 p-3 text-sm">{t("takeLateBlocked")}</p>
