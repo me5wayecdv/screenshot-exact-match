@@ -282,10 +282,36 @@ export class TakeSession extends DurableObjectBase {
     super(state, env);
     this.state = state;
     this.env = (env ?? {}) as CloudflareEnv;
-    this.store = new SqliteSessionStore(state.storage.sql);
-    // SQLite storage is synchronous: the schema is ready before the
-    // first request is served.
-    for (const statement of SCHEMA) state.storage.sql.exec(statement);
+    // Diagnostic (Phase 4, 2026-11-10): the first live deploy 500'd
+    // every /start at 0ms CPU with no stack in the dashboard. Log the
+    // two facts that decide the cause before touching storage: whether
+    // the runtime DurableObject global resolved, and whether this
+    // class has SQLite storage (undefined = the v1 migration did not
+    // enable it for this class).
+    const globalKind = typeof (
+      globalThis as { DurableObject?: unknown }
+    ).DurableObject;
+    const sqlKind = typeof state?.storage?.sql;
+    console.error(
+      `[TakeSession] construct: DurableObject global=${globalKind}, storage.sql=${sqlKind}`,
+    );
+    if (!state?.storage?.sql) {
+      throw new Error(
+        "TakeSession: SQLite storage unavailable — state.storage.sql is undefined (the DO migration did not enable SQLite storage for this class)",
+      );
+    }
+    try {
+      this.store = new SqliteSessionStore(state.storage.sql);
+      // SQLite storage is synchronous: the schema is ready before the
+      // first request is served.
+      for (const statement of SCHEMA) state.storage.sql.exec(statement);
+    } catch (error) {
+      console.error(
+        "[TakeSession] construct failed:",
+        error instanceof Error ? error.stack ?? error.message : String(error),
+      );
+      throw error;
+    }
   }
 
   private get db(): D1Database | null {
@@ -364,7 +390,17 @@ export class TakeSession extends DurableObjectBase {
       if (isTakeError(error)) {
         return jsonResponse({ error: (error as Error).message }, 400);
       }
-      return jsonResponse({ error: "INTERNAL" }, 500);
+      // Diagnostic (Phase 4, 2026-11-10): log the real error — the
+      // dashboard shows only the 500 request line, no stack. Return
+      // the message (not a bare "INTERNAL") so the caller surfaces it.
+      console.error(
+        "[TakeSession] fetch failed:",
+        error instanceof Error ? error.stack ?? error.message : String(error),
+      );
+      return jsonResponse(
+        { error: error instanceof Error ? error.message : "INTERNAL" },
+        500,
+      );
     }
   }
 
