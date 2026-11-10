@@ -6,7 +6,6 @@ import {
   createPracticeDraftD1,
   getAnalyticsDetailD1,
   getAnalyticsOverviewD1,
-  getPracticeSourceD1,
   listAnalyticsAssessmentsD1,
   listAnalyticsStudentPageD1,
 } from "@/server/d1-analytics";
@@ -31,8 +30,10 @@ import {
 
 // Phase 4 — analytics page. Read-only over existing tables, plus ONE
 // write: the suggested-practice draft (a new unpublished assessment
-// built by copying the most-missed questions + keys, same pattern as
-// the builder's question-bank copy). No migration, no schema change.
+// built by copying the most-missed questions; the client sends question
+// ids only and the server re-reads the questions and their keys from
+// its own rows, so no answer key ever reaches the browser).
+// No migration, no schema change.
 //
 // DEFINITIONS (shared with src/lib/analytics.ts and the report page):
 // released = status "released" + final_score + total_possible > 0;
@@ -227,19 +228,15 @@ function Analytics() {
     if (!detail) return;
     setPracticeBusy(true);
     try {
-      // D1: keys are read only after the source assessment's owner
-      // check, and the copy is created as a draft, never published.
-      const source = await getPracticeSourceD1({ data: { assessmentId: selected.id } });
-      const questions = missed
-        .map((m) => source.find((q) => q.id === m.questionId))
-        .filter((q): q is NonNullable<typeof q> => Boolean(q));
-      if (questions.length === 0) throw new Error("No questions to copy.");
+      // D1: the client sends question ids only. The server re-reads
+      // the questions and their keys from the caller's own rows and
+      // creates the copy as a draft, never published — no key material
+      // ever reaches the browser.
       const draft = await createPracticeDraftD1({
         data: {
+          assessmentId: selected.id,
+          questionIds: missed.map((m) => m.questionId),
           title: `${t("anPracticeTitle")}: ${selected.title}`,
-          subjectId: selected.subject_id,
-          gradeLevel: selected.grade_level ?? "",
-          questions,
         },
       });
       toast.success(t("anPracticeCreated"));

@@ -11,9 +11,13 @@
  * - Released-only: student/question/group stats count released
  *   submissions only, exactly as the old RPCs did. Draft and
  *   unreleased work never appears in a stat.
- * - question_keys are selected ONLY for the practice-draft copy,
- *   and only after the source assessment's owner check passes.
- *   The stats queries never touch question_keys.
+ * - question_keys are selected ONLY inside createPracticeDraft's
+ *   server-side copy, and only from the caller's own rows. They
+ *   are never returned to the browser: there is no practice-source
+ *   read any more (the old getPracticeSource, which returned keys
+ *   to the client, was retired with the D-022 fix — the client
+ *   sends question ids only). The stats queries never touch
+ *   question_keys.
  * - Practice drafts are created with status = 'draft' only, copying
  *   the teacher's own questions and their keys into the new draft.
  */
@@ -304,104 +308,101 @@ export async function listAnalyticsStudentPage(
   }));
 }
 
-export type PracticeQuestionInput = {
+/** Questions copied into one practice draft (client sends ids only). */
+export const MAX_PRACTICE_QUESTIONS = 20;
+/** Draft titles are client-composed ("Practice: <exam title>"); cap the length. */
+export const MAX_PRACTICE_TITLE_CHARS = 200;
+
+type OwnedAssessmentSource = { subjectId: string | null; gradeLevel: string };
+
+/**
+ * The source assessment's owner + the subject/grade the draft inherits.
+ * Same error shape as assertOwnsAssessment above: missing is NOT_FOUND,
+ * another teacher's is FORBIDDEN.
+ */
+async function readOwnedAssessmentSource(
+  db: D1Database,
+  caller: Caller,
+  assessmentId: string,
+): Promise<OwnedAssessmentSource> {
+  const row = await db
+    .prepare("SELECT teacher_id, subject_id, grade_level FROM assessments WHERE id = ?")
+    .bind(assessmentId)
+    .first<{ teacher_id: string; subject_id: string | null; grade_level: string }>();
+  if (!row) throw new AnalyticsError("NOT_FOUND", "Assessment not found.");
+  if (row.teacher_id !== caller.id) {
+    throw new AnalyticsError("FORBIDDEN", "Assessment belongs to another teacher.");
+  }
+  return { subjectId: row.subject_id, gradeLevel: row.grade_level };
+}
+
+type OwnedPracticeQuestion = {
   id: string;
   type: string;
   prompt: string;
   marks: number;
-  objective: string;
-  options: string[];
-  difficulty: string;
-  key: {
-    correct_answer: string;
-    accepted_alternatives: string[];
-    rubric: string;
-    explanation: string;
-  };
+  objective: string | null;
+  options: string;
+  difficulty: string | null;
+  correct_answer: string | null;
+  accepted_alternatives: string | null;
+  rubric: string | null;
+  explanation: string | null;
 };
 
 /**
- * Practice-draft source: the teacher's own questions for an
- * assessment, WITH their keys (teacher-only, owner-checked).
+ * Create a practice DRAFT by copying the caller's own most-missed
+ * questions (D-022 fix, ported from the rebuild's analytics.ts).
+ *
+ * The client sends ids only (assessmentId + questionIds). Subject,
+ * grade level, marks, options and keys are re-read from the caller's
+ * OWN rows, so a tampered body cannot change the content, attach a
+ * foreign subject, or post an unbounded question array — and answer
+ * keys are copied inside the database, never returned to the browser.
+ * The copy is independent: editing it never touches the original.
+ * Always `draft`, never published, and no assignments are created.
  */
-export async function getPracticeSource(
+export async function createPracticeDraft(
   db: D1Database,
   caller: Caller,
-  assessmentId: string,
-): Promise<PracticeQuestionInput[]> {
+  input: { assessmentId: string; questionIds: string[]; title: string },
+): Promise<{ id: string; copied: number }> {
   requireTeacher(caller);
-  await assertOwnsAssessment(db, caller, assessmentId);
+  const title = input.title.trim();
+  if (title === "" || title.length > MAX_PRACTICE_TITLE_CHARS) {
+    throw new AnalyticsError("INVALID_INPUT", "Invalid practice title.");
+  }
+  // Check the raw length first: 21 copies of one id is still an
+  // oversized request, and de-duplicating before the check would
+  // quietly accept it.
+  if (!Array.isArray(input.questionIds) || input.questionIds.length === 0) {
+    throw new AnalyticsError("INVALID_INPUT", "No questions to copy.");
+  }
+  if (input.questionIds.length > MAX_PRACTICE_QUESTIONS) {
+    throw new AnalyticsError("INVALID_INPUT", "Too many questions to copy.");
+  }
+  const ids = [...new Set(input.questionIds)];
+  const source = await readOwnedAssessmentSource(db, caller, input.assessmentId);
+
+  // Ids must belong to the source assessment; a foreign id yields
+  // NOT_FOUND rather than silently copying a smaller set than the
+  // teacher asked for.
+  const placeholders = ids.map(() => "?").join(",");
   const { results } = await db
     .prepare(
       "SELECT q.id, q.type, q.prompt, q.marks, q.objective, q.options, q.difficulty, " +
         "k.correct_answer, k.accepted_alternatives, k.rubric, k.explanation " +
-        "FROM questions q LEFT JOIN question_keys k ON k.question_id = q.id " +
-        "WHERE q.assessment_id = ? ORDER BY q.position",
+        "FROM questions q JOIN assessments own ON own.id = q.assessment_id AND own.teacher_id = ? " +
+        "LEFT JOIN question_keys k ON k.question_id = q.id " +
+        `WHERE q.assessment_id = ? AND q.id IN (${placeholders}) ORDER BY q.position, q.id`,
     )
-    .bind(assessmentId)
-    .all<{
-      id: string;
-      type: string;
-      prompt: string;
-      marks: number;
-      objective: string;
-      options: string;
-      difficulty: string;
-      correct_answer: string | null;
-      accepted_alternatives: string | null;
-      rubric: string | null;
-      explanation: string | null;
-    }>();
-  return (results ?? []).map((r) => {
-    let options: string[] = [];
-    try {
-      const parsed: unknown = JSON.parse(r.options);
-      if (Array.isArray(parsed)) options = parsed.filter((x): x is string => typeof x === "string");
-    } catch {
-      options = [];
-    }
-    let alternatives: string[] = [];
-    try {
-      const parsed: unknown = r.accepted_alternatives ? JSON.parse(r.accepted_alternatives) : [];
-      if (Array.isArray(parsed)) {
-        alternatives = parsed.filter((x): x is string => typeof x === "string");
-      }
-    } catch {
-      alternatives = [];
-    }
-    return {
-      id: r.id,
-      type: r.type,
-      prompt: r.prompt,
-      marks: r.marks,
-      objective: r.objective ?? "",
-      options,
-      difficulty: r.difficulty ?? "medium",
-      key: {
-        correct_answer: r.correct_answer ?? "",
-        accepted_alternatives: alternatives,
-        rubric: r.rubric ?? "",
-        explanation: r.explanation ?? "",
-      },
-    };
-  });
-}
-
-/** Create a practice DRAFT (never published) from copied questions. */
-export async function createPracticeDraft(
-  db: D1Database,
-  caller: Caller,
-  input: {
-    title: string;
-    subjectId: string | null;
-    gradeLevel: string;
-    questions: PracticeQuestionInput[];
-  },
-): Promise<{ id: string }> {
-  requireTeacher(caller);
-  if (input.questions.length === 0) {
-    throw new AnalyticsError("INVALID_INPUT", "No questions to copy.");
+    .bind(caller.id, input.assessmentId, ...ids)
+    .all<OwnedPracticeQuestion>();
+  const found = results ?? [];
+  if (found.length !== ids.length) {
+    throw new AnalyticsError("NOT_FOUND", "One or more questions were not found.");
   }
+
   const id = crypto.randomUUID();
   const stmts = [
     db
@@ -410,9 +411,9 @@ export async function createPracticeDraft(
           "(id, teacher_id, subject_id, title, grade_level, instructions, status) " +
           "VALUES (?, ?, ?, ?, ?, '', 'draft')",
       )
-      .bind(id, caller.id, input.subjectId, input.title, input.gradeLevel),
+      .bind(id, caller.id, source.subjectId, title, source.gradeLevel),
   ];
-  input.questions.forEach((q, i) => {
+  found.forEach((q, i) => {
     const questionId = crypto.randomUUID();
     stmts.push(
       db
@@ -428,8 +429,8 @@ export async function createPracticeDraft(
           i,
           q.prompt,
           q.marks,
-          q.objective,
-          JSON.stringify(q.options ?? []),
+          q.objective ?? "",
+          q.options,
           q.difficulty ?? "medium",
         ),
       db
@@ -439,16 +440,44 @@ export async function createPracticeDraft(
         )
         .bind(
           questionId,
-          q.key.correct_answer,
-          JSON.stringify(q.key.accepted_alternatives ?? []),
-          q.key.rubric,
-          q.key.explanation,
+          q.correct_answer ?? "",
+          q.accepted_alternatives ?? "[]",
+          q.rubric ?? "",
+          q.explanation ?? "",
         ),
     );
   });
+  stmts.push(
+    db
+      .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
+      .bind(
+        caller.id,
+        "analytics.practice_draft",
+        id,
+        JSON.stringify({ sourceAssessmentId: input.assessmentId, copied: found.length }),
+      ),
+  );
   if (db.batch) await db.batch(stmts);
   else for (const s of stmts) await s.run();
-  return { id };
+
+  // A batched write is not one transaction; confirm the draft row
+  // exists (and holds every copied question) so a partial failure
+  // surfaces as an error instead of a link to nothing.
+  const created = await db
+    .prepare("SELECT id FROM assessments WHERE id = ? AND teacher_id = ?")
+    .bind(id, caller.id)
+    .first<{ id: string }>();
+  if (!created) {
+    throw new AnalyticsError("INVALID_INPUT", "Practice draft was not created.");
+  }
+  const count = await db
+    .prepare("SELECT COUNT(*) AS n FROM questions WHERE assessment_id = ?")
+    .bind(id)
+    .first<{ n: number }>();
+  if (Number(count?.n ?? 0) !== found.length) {
+    throw new AnalyticsError("INVALID_INPUT", "Practice draft questions were not created.");
+  }
+  return { id, copied: found.length };
 }
 
 function ctxSession(context: unknown): AuthSession {
@@ -500,23 +529,11 @@ export const listAnalyticsStudentPageD1 = createServerFn({ method: "POST" })
     listAnalyticsStudentPage(ctxDb(context), ctxCaller(context), data.assessmentId, data.offset),
   );
 
-export const getPracticeSourceD1 = createServerFn({ method: "POST" })
-  .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
-  .handler(async ({ data, context }) =>
-    getPracticeSource(ctxDb(context), ctxCaller(context), data.assessmentId),
-  );
-
 export const createPracticeDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
     (data: unknown) =>
-      data as {
-        title: string;
-        subjectId: string | null;
-        gradeLevel: string;
-        questions: PracticeQuestionInput[];
-      },
+      data as { assessmentId: string; questionIds: string[]; title: string },
   )
   .handler(async ({ data, context }) =>
     createPracticeDraft(ctxDb(context), ctxCaller(context), data),
