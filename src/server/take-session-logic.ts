@@ -30,6 +30,7 @@ import {
   type SubmissionRow,
   type TakeStatus,
 } from "@/server/d1-take";
+import { canTakeAssessment } from "@/server/d1-take-gate";
 import { retryD1Overload } from "@/server/d1-retry";
 
 /** One submission as the DO holds it (mirrors the D1 row, plus the
@@ -70,7 +71,56 @@ export interface SessionStore {
   markClean(id: string): Promise<void>;
   bumpFlushAttempt(id: string, error: string): Promise<number>;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+  /** The student's current in-progress attempt for this exam, if any
+   *  (the resume target — the DO store is the authority, including
+   *  rows seeded from D1). */
+  getInProgressSubmission(
+    studentId: string,
+    assessmentId: string,
+  ): Promise<DoSubmissionState | null>;
+  /** How many attempts the student has used on this exam (DO rows
+   *  only — the seed imports their pre-DO rows first, so the count
+   *  is exact). */
+  countSubmissions(studentId: string, assessmentId: string): Promise<number>;
 }
+
+/** Cached exam config (DESIGN-V2.md): what start validation needs,
+ *  read from D1 once per TTL per exam instead of once per student. */
+export type ExamConfig = {
+  assessmentId: string;
+  status: string;
+  startsAt: string | null;
+  dueAt: string | null;
+  maxAttempts: number;
+  durationMinutes: number | null;
+  totalPossible: number;
+  loadedAt: number; // ms epoch
+};
+
+/** The config cache surface. The production implementation is the
+ *  DO SQLite adapter (take-session.ts); tests use a Map. Only
+ *  POSITIVE enrollment results are stored: a missing row means
+ *  "check D1", never "denied", so a late approval is always picked
+ *  up by the fallback. */
+export interface ExamConfigStore {
+  getConfig(): Promise<ExamConfig | null>;
+  setConfig(
+    config: ExamConfig,
+    marks: Record<string, number>,
+    enrolledStudentIds: string[],
+  ): Promise<void>;
+  getMarks(): Promise<Record<string, number>>;
+  getEnrolledCheckedAt(studentId: string): Promise<number | null>;
+  setEnrolled(studentId: string, checkedAt: number): Promise<void>;
+  isStudentSeeded(studentId: string): Promise<boolean>;
+  setStudentSeeded(studentId: string, seededAt: number): Promise<void>;
+}
+
+/** How long a cached config / enrolled row is trusted (DESIGN-V2.md).
+ *  A synchronized burst lasts seconds, so the TTL is never hit
+ *  mid-burst; it only bounds staleness (unpublish / window change /
+ *  membership removal all take effect within this). */
+export const TAKE_SESSION_CACHE_TTL_MS = 60_000;
 
 /** Flush is recorded as a failure after this many failed cycles —
  *  the same visibility the queue's DLQ gave (DESIGN.md §5). */
@@ -80,6 +130,204 @@ export const TAKE_SESSION_FLUSH_MAX_ATTEMPTS = 3;
  *  Small on purpose: a flush is several D1 statements, and the alarm
  *  re-arms while dirty rows remain. */
 export const TAKE_SESSION_FLUSH_BATCH = 20;
+
+/* ------------------------------------------- V2: DO-side config cache */
+
+/** Read the exam config + question marks + enrolled set from D1
+ *  (DESIGN-V2.md). Five reads, once per TTL per exam — the first
+ *  student pays them, the rest of the burst reads the cache. The
+ *  enrolled set is computed in JS from three small id lists (no
+ *  correlated subqueries). Throws TAKE_NOT_FOUND when the exam does
+ *  not exist. */
+export async function loadExamConfig(
+  db: D1Database,
+  assessmentId: string,
+  nowMs: number,
+): Promise<{
+  config: ExamConfig;
+  marks: Record<string, number>;
+  enrolled: string[];
+}> {
+  const assessment = await db
+    .prepare(
+      "SELECT status, starts_at, due_at, max_attempts, duration_minutes " +
+        "FROM assessments WHERE id = ?",
+    )
+    .bind(assessmentId)
+    .first<{
+      status: string;
+      starts_at: string | null;
+      due_at: string | null;
+      max_attempts: number | null;
+      duration_minutes: number | null;
+    }>();
+  if (!assessment) throw new Error("TAKE_NOT_FOUND");
+  const questions = await db
+    .prepare("SELECT id, marks FROM questions WHERE assessment_id = ?")
+    .bind(assessmentId)
+    .all<{ id: string; marks: number }>();
+  const marks: Record<string, number> = {};
+  let totalPossible = 0;
+  for (const q of questions.results ?? []) {
+    marks[q.id] = q.marks;
+    totalPossible += q.marks;
+  }
+  const assignments = await db
+    .prepare("SELECT student_id FROM assessment_assignments WHERE assessment_id = ?")
+    .bind(assessmentId)
+    .all<{ student_id: string }>();
+  const assigned = (assignments.results ?? []).map((r) => r.student_id);
+  const links = await db
+    .prepare("SELECT group_id FROM group_exams WHERE assessment_id = ?")
+    .bind(assessmentId)
+    .all<{ group_id: string }>();
+  const groupIds = (links.results ?? []).map((r) => r.group_id);
+  let enrolled = assigned;
+  if (groupIds.length > 0) {
+    const placeholders = groupIds.map(() => "?").join(", ");
+    const members = await db
+      .prepare(
+        `SELECT student_id FROM group_members WHERE group_id IN (${placeholders}) ` +
+          "AND status = 'approved'",
+      )
+      .bind(...groupIds)
+      .all<{ student_id: string }>();
+    const memberSet = new Set((members.results ?? []).map((r) => r.student_id));
+    enrolled = assigned.filter((id) => memberSet.has(id));
+  }
+  return {
+    config: {
+      assessmentId,
+      status: assessment.status,
+      startsAt: assessment.starts_at ?? null,
+      dueAt: assessment.due_at ?? null,
+      maxAttempts: assessment.max_attempts ?? 1,
+      durationMinutes: assessment.duration_minutes ?? null,
+      totalPossible,
+      loadedAt: nowMs,
+    },
+    marks,
+    enrolled,
+  };
+}
+
+/** Import a student's pre-DO submissions for this exam into the DO
+ *  store (lightweight rows, no answers — the flush merges answers
+ *  onto the D1 row, and the take page reads answers from D1). Runs
+ *  once per student; the marker makes later starts free. Without
+ *  this, the attempt count would miss pre-cutover history and a
+ *  student could exceed max_attempts. */
+export async function seedStudentSubmissions(
+  db: D1Database,
+  store: SessionStore,
+  configStore: ExamConfigStore,
+  studentId: string,
+  assessmentId: string,
+): Promise<void> {
+  if (await configStore.isStudentSeeded(studentId)) return;
+  const rows = await db
+    .prepare("SELECT * FROM submissions WHERE assessment_id = ? AND student_id = ?")
+    .bind(assessmentId, studentId)
+    .all<SubmissionRow>();
+  await store.transaction(async () => {
+    for (const row of rows.results ?? []) {
+      await store.putSubmission({
+        id: row.id,
+        assessmentId: row.assessment_id,
+        studentId: row.student_id,
+        status: row.status === "awaiting_review" ? "awaiting_review" : "in_progress",
+        attemptNumber: row.attempt_number ?? 1,
+        startedAt: row.started_at ?? new Date().toISOString(),
+        submittedAt: row.submitted_at,
+        expiresAt: row.expires_at,
+        questionOrder: row.question_order ? (JSON.parse(row.question_order) as string[]) : [],
+        totalPossible: row.total_possible ?? 0,
+        draftSeq: row.draft_seq ?? 0,
+        dirty: false,
+        flushAttempts: 0,
+        flushError: null,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    await configStore.setStudentSeeded(studentId, Date.now());
+  });
+}
+
+/** Start validation, inside the DO (DESIGN-V2.md) — the replacement
+ *  for the Worker's resolveStart. Reads D1 only on cache misses: the
+ *  config load (once per TTL per exam), the full gate fallback (a
+ *  student missing from the cached enrolled set — e.g. a late
+ *  approval), and the one-time student seed. A steady-state start
+ *  costs ZERO D1 reads. Throws the same TAKE_* errors as
+ *  resolveStart. Returns the existing in-progress id for a resume,
+ *  otherwise the values applyStart needs. */
+export async function validateStart(
+  store: SessionStore,
+  configStore: ExamConfigStore,
+  db: D1Database,
+  input: { studentId: string; assessmentId: string; nowIso: string },
+): Promise<
+  | { existingId: string }
+  | { attemptNumber: number; totalPossible: number; expiresAt: string | null }
+> {
+  const nowMs = Date.parse(input.nowIso);
+  let config = await configStore.getConfig();
+  if (
+    !config ||
+    config.assessmentId !== input.assessmentId ||
+    nowMs - config.loadedAt > TAKE_SESSION_CACHE_TTL_MS
+  ) {
+    const loaded = await loadExamConfig(db, input.assessmentId, nowMs);
+    await configStore.setConfig(loaded.config, loaded.marks, loaded.enrolled);
+    config = loaded.config;
+  }
+  if (config.status !== "published") throw new Error("TAKE_NOT_PUBLISHED");
+  if (config.startsAt && config.startsAt > input.nowIso) throw new Error("TAKE_NOT_STARTED");
+  if (config.dueAt && config.dueAt <= input.nowIso) throw new Error("TAKE_WINDOW_CLOSED");
+  const checkedAt = await configStore.getEnrolledCheckedAt(input.studentId);
+  if (checkedAt === null || nowMs - checkedAt > TAKE_SESSION_CACHE_TTL_MS) {
+    // Not in the cached enrolled set (or stale): the full D1 gate is
+    // the fallback, so a late approval is always picked up. Denials
+    // are never cached.
+    const gate = await canTakeAssessment(db, input.studentId, input.assessmentId, input.nowIso);
+    if (!gate.allowed) throw new Error(`TAKE_${gate.reason}`);
+    await configStore.setEnrolled(input.studentId, nowMs);
+  }
+  await seedStudentSubmissions(db, store, configStore, input.studentId, input.assessmentId);
+  const existing = await store.getInProgressSubmission(input.studentId, input.assessmentId);
+  if (existing) return { existingId: existing.id };
+  const used = await store.countSubmissions(input.studentId, input.assessmentId);
+  if (used >= Math.max(1, config.maxAttempts)) throw new Error("TAKE_NO_ATTEMPTS_LEFT");
+  const expiresAt =
+    config.durationMinutes != null
+      ? new Date(nowMs + config.durationMinutes * 60_000).toISOString()
+      : null;
+  return { attemptNumber: used + 1, totalPossible: config.totalPossible, expiresAt };
+}
+
+/** Question marks for draft/submit, from the cache (DESIGN-V2.md).
+ *  Loads the config from D1 only when the cache is missing or stale;
+ *  `db` may be null when the cache is warm (the DO always has the
+ *  binding in production — null only means "cannot load"). */
+export async function getCachedMarks(
+  configStore: ExamConfigStore,
+  db: D1Database | null,
+  assessmentId: string,
+  nowMs: number,
+): Promise<Record<string, number>> {
+  const config = await configStore.getConfig();
+  if (
+    config &&
+    config.assessmentId === assessmentId &&
+    nowMs - config.loadedAt <= TAKE_SESSION_CACHE_TTL_MS
+  ) {
+    return configStore.getMarks();
+  }
+  if (!db) throw new Error("TakeSession: D1 binding unavailable — cannot load exam config");
+  const loaded = await loadExamConfig(db, assessmentId, nowMs);
+  await configStore.setConfig(loaded.config, loaded.marks, loaded.enrolled);
+  return loaded.marks;
+}
 
 export type StartInput = {
   submissionId: string;
