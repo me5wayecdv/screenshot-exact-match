@@ -36,6 +36,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
+import { getTakeQueue } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { canTakeAssessment } from "@/server/d1-take-gate";
 import type { AuthSession } from "@/lib/cloudflare-auth";
@@ -74,6 +75,11 @@ export type TakeSubmission = {
   question_order: string[] | null;
   final_score: number | null;
   total_possible: number | null;
+  // Phase 3: highest draft seq the consumer has applied to this
+  // submission. The client seeds its draft counter from this value so
+  // a page reload never re-uses a stale low number (an older seq would
+  // be skipped as already-applied and the new edits would never save).
+  draft_seq: number;
 };
 
 export type TakeAnswer = { question_id: string; response: string };
@@ -97,7 +103,7 @@ export type TakeData =
     };
 
 type AssessmentRow = TakeAssessment & { created_at?: string };
-type SubmissionRow = {
+export type SubmissionRow = {
   id: string;
   assessment_id: string;
   student_id: string;
@@ -109,6 +115,7 @@ type SubmissionRow = {
   question_order: string | null;
   final_score: number | null;
   total_possible: number | null;
+  draft_seq: number | null;
 };
 type QuestionRow = {
   id: string;
@@ -151,6 +158,7 @@ function toSubmission(row: SubmissionRow): TakeSubmission {
     question_order: parseOrder(row.question_order),
     final_score: row.final_score,
     total_possible: row.total_possible,
+    draft_seq: row.draft_seq ?? 0,
   };
 }
 
@@ -260,15 +268,73 @@ export async function getTakeData(
   return loadTakeBody(db, studentId, assessmentId, assessment);
 }
 
+/* ------------------------------------------------- Phase 3: queue types */
+
+/** Take-write queue messages (v1). `submissionId` is a client-generated
+ *  UUID that becomes `submissions.id`, so the client can poll for it
+ *  before any write lands. `seq` is monotonic per submission (client
+ *  counter, seeded from the server's `draft_seq`); `submit` carries the
+ *  FULL final answers and is the source of truth — drafts are progress
+ *  insurance, so draft/submit ordering cannot corrupt a grade. */
+export type TakeQueueMessage =
+  | {
+      v: 1;
+      type: "start";
+      id: string;
+      submissionId: string;
+      studentId: string;
+      assessmentId: string;
+      questionOrder: string[];
+      sentAt: string;
+    }
+  | {
+      v: 1;
+      type: "draft";
+      id: string;
+      submissionId: string;
+      studentId: string;
+      seq: number;
+      answers: DraftAnswerInput[];
+      sentAt: string;
+    }
+  | {
+      v: 1;
+      type: "submit";
+      id: string;
+      submissionId: string;
+      studentId: string;
+      seq: number;
+      answers: DraftAnswerInput[];
+      sentAt: string;
+    };
+
+/** Enqueue one take-write message. `send()` resolves only after the
+ *  queue durably accepts the message, so a resolved call is a
+ *  durability guarantee — the producer returns "queued" only then. */
+export async function enqueueTakeMessage(message: TakeQueueMessage): Promise<void> {
+  const queue = await getTakeQueue();
+  await queue.send(message);
+}
+
 /* ------------------------------------------------------------- attempts */
 
-async function startAttemptOnce(
+/** Read-only start validation, shared by the producer (pre-enqueue
+ *  check, so a gated-out student gets an immediate error instead of a
+ *  queued failure) and the consumer (re-validation at apply time, in
+ *  case the window closed between enqueue and processing). Throws the
+ *  same TAKE_* errors as the old synchronous start. */
+export async function resolveStart(
   db: D1Database,
   studentId: string,
   assessmentId: string,
-  questionOrder: string[],
-  nowIso: string = new Date().toISOString(),
-): Promise<{ submissionId: string }> {
+  nowIso: string,
+): Promise<{
+  assessment: AssessmentRow;
+  existingId: string | null;
+  attemptNumber: number;
+  totalPossible: number;
+  expiresAt: string | null;
+}> {
   // The gate (including the group check) is the authority for a NEW
   // start; a draft resume is idempotent below, not a new start.
   const gate = await canTakeAssessment(db, studentId, assessmentId, nowIso);
@@ -285,7 +351,9 @@ async function startAttemptOnce(
     )
     .bind(assessmentId, studentId)
     .first<{ id: string }>();
-  if (existing) return { submissionId: existing.id };
+  if (existing) {
+    return { assessment, existingId: existing.id, attemptNumber: 0, totalPossible: 0, expiresAt: null };
+  }
   const usedRow = await db
     .prepare("SELECT COUNT(*) AS n FROM submissions WHERE assessment_id = ? AND student_id = ?")
     .bind(assessmentId, studentId)
@@ -296,31 +364,105 @@ async function startAttemptOnce(
     .prepare("SELECT COALESCE(SUM(marks), 0) AS total FROM questions WHERE assessment_id = ?")
     .bind(assessmentId)
     .first<{ total: number }>();
-  const id = crypto.randomUUID();
   const started = new Date(nowIso);
   const expiresAt =
     assessment.duration_minutes != null
       ? new Date(started.getTime() + assessment.duration_minutes * 60_000).toISOString()
       : null;
-  await db
-    .prepare(
-      "INSERT INTO submissions (id, assessment_id, student_id, status, attempt_number, started_at, " +
-        "submitted_at, expires_at, question_order, total_possible) " +
-        "VALUES (?, ?, ?, 'in_progress', ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(
-      id,
-      assessmentId,
-      studentId,
-      used + 1,
-      nowIso,
-      nowIso,
-      expiresAt,
-      JSON.stringify(questionOrder.slice(0, 500)),
-      totalRow?.total ?? 0,
-    )
-    .run();
-  return { submissionId: id };
+  return {
+    assessment,
+    existingId: null,
+    attemptNumber: used + 1,
+    totalPossible: totalRow?.total ?? 0,
+    expiresAt,
+  };
+}
+
+/** Insert a submission with a caller-provided id (Phase 3: the client's
+ *  UUID, so the client can poll for it). Idempotent: a duplicate
+ *  delivery (same id) returns the existing row, and a second start for
+ *  the same student+assessment returns the existing in-progress row
+ *  (the P4 one-in-progress partial index is the backstop — a conflict
+ *  there is resolved to the existing row, never to a second draft). */
+export async function insertSubmission(
+  db: D1Database,
+  input: {
+    id: string;
+    assessmentId: string;
+    studentId: string;
+    attemptNumber: number;
+    totalPossible: number;
+    expiresAt: string | null;
+    questionOrder: string[];
+    nowIso: string;
+  },
+): Promise<{ submissionId: string }> {
+  const byId = await db
+    .prepare("SELECT id FROM submissions WHERE id = ?")
+    .bind(input.id)
+    .first<{ id: string }>();
+  if (byId) return { submissionId: byId.id };
+  try {
+    await db
+      .prepare(
+        "INSERT INTO submissions (id, assessment_id, student_id, status, attempt_number, started_at, " +
+          "submitted_at, expires_at, question_order, total_possible) " +
+          "VALUES (?, ?, ?, 'in_progress', ?, ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        input.id,
+        input.assessmentId,
+        input.studentId,
+        input.attemptNumber,
+        input.nowIso,
+        input.nowIso,
+        input.expiresAt,
+        JSON.stringify(input.questionOrder.slice(0, 500)),
+        input.totalPossible,
+      )
+      .run();
+    return { submissionId: input.id };
+  } catch (error) {
+    // PK or one-in-progress conflict under a race/duplicate delivery:
+    // resolve to the row that won instead of failing the student.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/UNIQUE constraint failed/i.test(message)) throw error;
+    const winner = await db
+      .prepare(
+        "SELECT id FROM submissions WHERE assessment_id = ? AND student_id = ? AND status = 'in_progress' " +
+          "ORDER BY attempt_number DESC LIMIT 1",
+      )
+      .bind(input.assessmentId, input.studentId)
+      .first<{ id: string }>();
+    if (winner) return { submissionId: winner.id };
+    const sameId = await db
+      .prepare("SELECT id FROM submissions WHERE id = ?")
+      .bind(input.id)
+      .first<{ id: string }>();
+    if (sameId) return { submissionId: sameId.id };
+    throw error;
+  }
+}
+
+async function startAttemptOnce(
+  db: D1Database,
+  studentId: string,
+  assessmentId: string,
+  questionOrder: string[],
+  nowIso: string = new Date().toISOString(),
+): Promise<{ submissionId: string }> {
+  const resolved = await resolveStart(db, studentId, assessmentId, nowIso);
+  if (resolved.existingId) return { submissionId: resolved.existingId };
+  return insertSubmission(db, {
+    id: crypto.randomUUID(),
+    assessmentId,
+    studentId,
+    attemptNumber: resolved.attemptNumber,
+    totalPossible: resolved.totalPossible,
+    expiresAt: resolved.expiresAt,
+    questionOrder,
+    nowIso,
+  });
 }
 
 export function startAttempt(
@@ -341,29 +483,65 @@ export type DraftAnswerInput = {
   time_spent_seconds: number;
 };
 
-async function saveDraftOnce(
+/** Load + validate a draft target. Returns null when the submission
+ *  does not exist or is not the caller's; `editable` is false when the
+ *  draft is frozen (already submitted, expired, or past the window).
+ *  The caller decides the failure mode: the sync path returns false,
+ *  the queue consumer throws a permanent error (never retryable). */
+export async function loadDraftTarget(
   db: D1Database,
   studentId: string,
   submissionId: string,
-  answers: DraftAnswerInput[],
-  nowIso: string = new Date().toISOString(),
-): Promise<boolean> {
+  nowIso: string,
+): Promise<{ submission: SubmissionRow; editable: boolean } | null> {
   const submission = await db
     .prepare("SELECT * FROM submissions WHERE id = ?")
     .bind(submissionId)
     .first<SubmissionRow>();
-  if (!submission || submission.student_id !== studentId) return false;
-  if (submission.status !== "in_progress") return false;
+  if (!submission || submission.student_id !== studentId) return null;
+  if (submission.status !== "in_progress") return { submission, editable: false };
   const assessment = await db
     .prepare("SELECT due_at FROM assessments WHERE id = ?")
     .bind(submission.assessment_id)
     .first<{ due_at: string | null }>();
   // Edits freeze at expiry and at the window end (old save_draft rule).
-  if (submission.expires_at && nowIso > submission.expires_at) return false;
-  if (assessment?.due_at && nowIso > assessment.due_at) return false;
+  if (submission.expires_at && nowIso > submission.expires_at)
+    return { submission, editable: false };
+  if (assessment?.due_at && nowIso > assessment.due_at)
+    return { submission, editable: false };
+  return { submission, editable: true };
+}
+
+/** Apply draft answers (INSERT new / UPDATE existing, ownership-scoped
+ *  by the assessment's questions; max_marks comes from the question,
+ *  never the client).
+ *
+ *  Queue path (`seq !== null`): the seq claim is the single gate and
+ *  every answer write is conditional on the claim still being current
+ *  (`draft_seq = seq`). That closes the two holes a naive guard has:
+ *  (1) a stale redelivery must not overwrite a newer draft's answers —
+ *  the pre-check (`seq <= draft_seq`) skips it before any write, and
+ *  the conditional writes stop a concurrent newer batch from being
+ *  clobbered; (2) a retry after a mid-write failure must not lose the
+ *  answers — when `draft_seq == seq` the claim already landed, so the
+ *  answers are compared with what is stored and only the missing or
+ *  differing ones are re-applied. The newer seq always wins; a stale
+ *  batch writes nothing. Returns whether the message applied.
+ *
+ *  Sync path (`seq === null`): the old unconditional behaviour —
+ *  single-writer, no redelivery, no claim. */
+export async function applyDraftAnswers(
+  db: D1Database,
+  submission: SubmissionRow,
+  answers: DraftAnswerInput[],
+  seq: number | null,
+): Promise<{ applied: "applied" | "duplicate"; lastAppliedDraftSeq: number }> {
   const requested = answers.slice(0, 500);
   const byQuestion = new Map(requested.map((answer) => [answer.question_id, answer]));
   const questionIds = [...byQuestion.keys()];
+  if (seq !== null) {
+    return applyQueuedDraftAnswers(db, submission, byQuestion, questionIds, seq);
+  }
   const writes: D1Statement[] = [];
   if (questionIds.length > 0) {
     // One ownership-scoped read replaces per-answer question + answer lookups.
@@ -374,7 +552,7 @@ async function saveDraftOnce(
           "LEFT JOIN answers a ON a.question_id = q.id AND a.submission_id = ? " +
           `WHERE q.assessment_id = ? AND q.id IN (${placeholders})`,
       )
-      .bind(submissionId, submission.assessment_id, ...questionIds)
+      .bind(submission.id, submission.assessment_id, ...questionIds)
       .all<{ question_id: string; marks: number; answer_id: string | null }>();
     const validQuestions = new Map((rows.results ?? []).map((row) => [row.question_id, row]));
     for (const [questionId, answer] of byQuestion) {
@@ -397,7 +575,7 @@ async function saveDraftOnce(
             )
             .bind(
               crypto.randomUUID(),
-              submissionId,
+              submission.id,
               questionId,
               answer.response ?? "",
               question.marks,
@@ -412,6 +590,147 @@ async function saveDraftOnce(
     if (db.batch) await db.batch(batch);
     else for (const statement of batch) await statement.run();
   }
+  return { applied: "applied", lastAppliedDraftSeq: submission.draft_seq ?? 0 };
+}
+
+/** Queue-path draft apply: claim the seq, then write answers only
+ *  while the claim is current. Two passes at most: the second read
+ *  always resolves a concurrent claim to "duplicate" or "re-apply". */
+async function applyQueuedDraftAnswers(
+  db: D1Database,
+  submission: SubmissionRow,
+  byQuestion: Map<string, DraftAnswerInput>,
+  questionIds: string[],
+  seq: number,
+): Promise<{ applied: "applied" | "duplicate"; lastAppliedDraftSeq: number }> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const current = await db
+      .prepare("SELECT draft_seq FROM submissions WHERE id = ?")
+      .bind(submission.id)
+      .first<{ draft_seq: number }>();
+    const draftSeq = current?.draft_seq ?? 0;
+    if (seq < draftSeq) return { applied: "duplicate", lastAppliedDraftSeq: draftSeq };
+    if (seq === draftSeq) {
+      // The claim already landed for this seq — a previous attempt may
+      // have died mid-write. Compare with what is stored and re-apply
+      // only the answers that are missing or differ.
+      const stored = await db
+        .prepare("SELECT question_id, response FROM answers WHERE submission_id = ?")
+        .bind(submission.id)
+        .all<{ question_id: string; response: string }>();
+      const storedByQuestion = new Map(
+        (stored.results ?? []).map((row) => [row.question_id, row.response]),
+      );
+      const missing = [...byQuestion].filter(
+        ([questionId, answer]) =>
+          storedByQuestion.get(questionId) !== (answer.response ?? ""),
+      );
+      if (missing.length === 0) return { applied: "duplicate", lastAppliedDraftSeq: seq };
+      await writeQueuedDraftAnswers(db, submission, missing, seq);
+      const after = await db
+        .prepare("SELECT draft_seq FROM submissions WHERE id = ?")
+        .bind(submission.id)
+        .first<{ draft_seq: number }>();
+      const afterSeq = after?.draft_seq ?? seq;
+      return afterSeq > seq
+        ? { applied: "duplicate", lastAppliedDraftSeq: afterSeq }
+        : { applied: "applied", lastAppliedDraftSeq: seq };
+    }
+    // seq > draftSeq: claim it. The guarded update is the atomic gate —
+    // if a concurrent newer draft claimed first, changes === 0 and
+    // nothing is written; loop once and re-read.
+    const guard = await db
+      .prepare("UPDATE submissions SET draft_seq = ? WHERE id = ? AND draft_seq < ?")
+      .bind(seq, submission.id, seq)
+      .run();
+    const changed =
+      (guard as unknown as { meta?: { changes?: number } } | undefined)?.meta?.changes ?? 0;
+    if (changed === 0) continue;
+    await writeQueuedDraftAnswers(db, submission, [...byQuestion], seq);
+    return { applied: "applied", lastAppliedDraftSeq: seq };
+  }
+  const final = await db
+    .prepare("SELECT draft_seq FROM submissions WHERE id = ?")
+    .bind(submission.id)
+    .first<{ draft_seq: number }>();
+  return { applied: "duplicate", lastAppliedDraftSeq: final?.draft_seq ?? seq };
+}
+
+/** Write queued draft answers. Every write is conditional on the seq
+ *  claim still being current (`draft_seq = seq`), so a concurrent
+ *  newer batch can never be clobbered by a stale one. The INSERT uses
+ *  a SELECT source so the condition can gate the insert itself; the
+ *  ON CONFLICT clause keeps the upsert idempotent. */
+async function writeQueuedDraftAnswers(
+  db: D1Database,
+  submission: SubmissionRow,
+  entries: [string, DraftAnswerInput][],
+  seq: number,
+): Promise<void> {
+  const questionIds = entries.map(([questionId]) => questionId);
+  if (questionIds.length === 0) return;
+  const placeholders = questionIds.map(() => "?").join(", ");
+  const rows = await db
+    .prepare(
+      "SELECT q.id AS question_id, q.marks, a.id AS answer_id FROM questions q " +
+        "LEFT JOIN answers a ON a.question_id = q.id AND a.submission_id = ? " +
+        `WHERE q.assessment_id = ? AND q.id IN (${placeholders})`,
+    )
+    .bind(submission.id, submission.assessment_id, ...questionIds)
+    .all<{ question_id: string; marks: number; answer_id: string | null }>();
+  const validQuestions = new Map((rows.results ?? []).map((row) => [row.question_id, row]));
+  const writes: D1Statement[] = [];
+  for (const [questionId, answer] of entries) {
+    const question = validQuestions.get(questionId);
+    if (!question) continue;
+    const time = Math.max(0, Math.round(answer.time_spent_seconds || 0));
+    if (question.answer_id) {
+      writes.push(
+        db
+          .prepare(
+            "UPDATE answers SET response = ?, time_spent_seconds = ? WHERE id = ? " +
+              "AND (SELECT draft_seq FROM submissions WHERE id = ?) = ?",
+          )
+          .bind(answer.response ?? "", time, question.answer_id, submission.id, seq),
+      );
+    } else {
+      writes.push(
+        db
+          .prepare(
+            "INSERT INTO answers (id, submission_id, question_id, response, max_marks, review_status, time_spent_seconds) " +
+              "SELECT ?, ?, ?, ?, ?, 'not_graded', ? WHERE (SELECT draft_seq FROM submissions WHERE id = ?) = ? " +
+              "ON CONFLICT(submission_id, question_id) DO UPDATE SET response = excluded.response, time_spent_seconds = excluded.time_spent_seconds",
+          )
+          .bind(
+            crypto.randomUUID(),
+            submission.id,
+            questionId,
+            answer.response ?? "",
+            question.marks,
+            time,
+            submission.id,
+            seq,
+          ),
+      );
+    }
+  }
+  for (let offset = 0; offset < writes.length; offset += 50) {
+    const batch = writes.slice(offset, offset + 50);
+    if (db.batch) await db.batch(batch);
+    else for (const statement of batch) await statement.run();
+  }
+}
+
+async function saveDraftOnce(
+  db: D1Database,
+  studentId: string,
+  submissionId: string,
+  answers: DraftAnswerInput[],
+  nowIso: string = new Date().toISOString(),
+): Promise<boolean> {
+  const target = await loadDraftTarget(db, studentId, submissionId, nowIso);
+  if (!target || !target.editable) return false;
+  await applyDraftAnswers(db, target.submission, answers, null);
   return true;
 }
 
@@ -423,6 +742,42 @@ export function saveDraft(
   nowIso?: string,
 ): Promise<boolean> {
   return retryD1Overload(() => saveDraftOnce(db, studentId, submissionId, answers, nowIso));
+}
+
+/** Flip a validated in-progress submission to awaiting_review + write
+ *  the exam-submitted audit row (label = exam title, never answers).
+ *  The caller owns validation; the flip itself is idempotent-safe only
+ *  through the caller's status check — a duplicate submit is caught
+ *  there, never here. */
+export async function markSubmitted(
+  db: D1Database,
+  submission: SubmissionRow,
+  nowIso: string,
+): Promise<void> {
+  // Activity feed: exam submitted (label = exam title, never answers).
+  const exam = await db
+    .prepare("SELECT title FROM assessments WHERE id = ?")
+    .bind(submission.assessment_id)
+    .first<{ title: string }>();
+  const statusWrite = db
+    .prepare("UPDATE submissions SET status = 'awaiting_review', submitted_at = ? WHERE id = ?")
+    .bind(nowIso, submission.id);
+  const auditWrite = db
+    .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
+    .bind(
+      submission.student_id,
+      "exam_submitted",
+      submission.id,
+      JSON.stringify({
+        assessment_id: submission.assessment_id,
+        target_label: exam?.title ?? "",
+      }),
+    );
+  if (db.batch) await db.batch([statusWrite, auditWrite]);
+  else {
+    await statusWrite.run();
+    await auditWrite.run();
+  }
 }
 
 async function submitAttemptOnce(
@@ -439,30 +794,7 @@ async function submitAttemptOnce(
   if (submission.status !== "in_progress") return false;
   // Submit stays allowed after expiry/window end: edits are already
   // frozen by saveDraft, and rejecting here would destroy frozen work.
-  // Activity feed: exam submitted (label = exam title, never answers).
-  const exam = await db
-    .prepare("SELECT title FROM assessments WHERE id = ?")
-    .bind(submission.assessment_id)
-    .first<{ title: string }>();
-  const statusWrite = db
-    .prepare("UPDATE submissions SET status = 'awaiting_review', submitted_at = ? WHERE id = ?")
-    .bind(nowIso, submissionId);
-  const auditWrite = db
-    .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
-    .bind(
-      studentId,
-      "exam_submitted",
-      submissionId,
-      JSON.stringify({
-        assessment_id: submission.assessment_id,
-        target_label: exam?.title ?? "",
-      }),
-    );
-  if (db.batch) await db.batch([statusWrite, auditWrite]);
-  else {
-    await statusWrite.run();
-    await auditWrite.run();
-  }
+  await markSubmitted(db, submission, nowIso);
   return true;
 }
 
@@ -513,6 +845,78 @@ export async function recordIntegrityEvent(
     .run();
 }
 
+/* --------------------------------------------- Phase 3: take status */
+
+/** Poll result for a queued take write. Only status + the applied
+ *  draft marker — never scores, feedback, or ai_feedback (P6 holds on
+ *  this endpoint exactly as on the old surfaces). */
+export type TakeStatus =
+  | { status: "pending" }
+  | {
+      status: "started";
+      submissionId: string;
+      lastAppliedDraftSeq: number;
+      redirected: boolean;
+    }
+  | { status: "submitted"; submissionId: string; lastAppliedDraftSeq: number }
+  | { status: "failed"; reason: string };
+
+export async function getTakeStatus(
+  db: D1Database,
+  studentId: string,
+  submissionId: string,
+  assessmentId: string,
+): Promise<TakeStatus> {
+  const row = await db
+    .prepare("SELECT * FROM submissions WHERE id = ?")
+    .bind(submissionId)
+    .first<SubmissionRow>();
+  if (row) {
+    // Never leak another student's row through a guessed id.
+    if (row.student_id !== studentId) return { status: "pending" };
+    if (row.status === "in_progress") {
+      return {
+        status: "started",
+        submissionId: row.id,
+        lastAppliedDraftSeq: row.draft_seq ?? 0,
+        redirected: false,
+      };
+    }
+    return {
+      status: "submitted",
+      submissionId: row.id,
+      lastAppliedDraftSeq: row.draft_seq ?? 0,
+    };
+  }
+  // No row: a recorded permanent failure for this submission id?
+  const failure = await db
+    .prepare(
+      "SELECT reason FROM take_write_failures WHERE submission_id = ? " +
+        "ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(submissionId)
+    .first<{ reason: string }>();
+  if (failure) return { status: "failed", reason: failure.reason };
+  // No row, no failure: a racing second start may have resolved to an
+  // existing in-progress submission — redirect the client to it.
+  const existing = await db
+    .prepare(
+      "SELECT id, draft_seq FROM submissions WHERE assessment_id = ? AND student_id = ? " +
+        "AND status = 'in_progress' ORDER BY attempt_number DESC LIMIT 1",
+    )
+    .bind(assessmentId, studentId)
+    .first<{ id: string; draft_seq: number | null }>();
+  if (existing) {
+    return {
+      status: "started",
+      submissionId: existing.id,
+      lastAppliedDraftSeq: existing.draft_seq ?? 0,
+      redirected: true,
+    };
+  }
+  return { status: "pending" };
+}
+
 /* ------------------------------------------------------- server wrappers */
 
 function ctx(context: unknown): { session: AuthSession; db: D1Database } {
@@ -532,31 +936,104 @@ export const getTakeDataD1 = createServerFn({ method: "POST" })
     return getTakeData(db, session.userId, data.assessmentId);
   });
 
+// Phase 3 producers: each handler validates with READS only (gate /
+// ownership / status — reads never failed under burst), then enqueues
+// the write and returns { queued: true } once the queue durably
+// accepts the message. The row is created by the consumer; the client
+// polls getTakeStatusD1 for it. A resume returns the existing draft
+// synchronously — no queue traffic for a resume.
 export const startAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string; questionOrder: string[] })
+  .validator(
+    (data: unknown) =>
+      data as { assessmentId: string; questionOrder: string[]; submissionId: string },
+  )
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireStudent(session);
-    return startAttempt(db, session.userId, data.assessmentId, data.questionOrder);
+    const resolved = await retryD1Overload(() =>
+      resolveStart(db, session.userId, data.assessmentId, new Date().toISOString()),
+    );
+    if (resolved.existingId)
+      return { queued: false, submissionId: resolved.existingId };
+    const submissionId = data.submissionId;
+    await enqueueTakeMessage({
+      v: 1,
+      type: "start",
+      id: crypto.randomUUID(),
+      submissionId,
+      studentId: session.userId,
+      assessmentId: data.assessmentId,
+      questionOrder: data.questionOrder,
+      sentAt: new Date().toISOString(),
+    });
+    return { queued: true, submissionId };
   });
 
 export const saveDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string; answers: DraftAnswerInput[] })
+  .validator(
+    (data: unknown) =>
+      data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
+  )
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireStudent(session);
-    return { ok: await saveDraft(db, session.userId, data.submissionId, data.answers) };
+    const target = await retryD1Overload(() =>
+      loadDraftTarget(db, session.userId, data.submissionId, new Date().toISOString()),
+    );
+    if (!target || !target.editable) return { ok: false, queued: false };
+    await enqueueTakeMessage({
+      v: 1,
+      type: "draft",
+      id: crypto.randomUUID(),
+      submissionId: data.submissionId,
+      studentId: session.userId,
+      seq: data.seq,
+      answers: data.answers,
+      sentAt: new Date().toISOString(),
+    });
+    return { ok: true, queued: true };
   });
 
 export const submitAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string })
+  .validator(
+    (data: unknown) =>
+      data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
+  )
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireStudent(session);
-    return { ok: await submitAttempt(db, session.userId, data.submissionId) };
+    const submission = await retryD1Overload(() =>
+      db
+        .prepare("SELECT * FROM submissions WHERE id = ?")
+        .bind(data.submissionId)
+        .first<SubmissionRow>(),
+    );
+    if (!submission || submission.student_id !== session.userId)
+      return { ok: false, queued: false };
+    if (submission.status !== "in_progress") return { ok: false, queued: false };
+    await enqueueTakeMessage({
+      v: 1,
+      type: "submit",
+      id: crypto.randomUUID(),
+      submissionId: data.submissionId,
+      studentId: session.userId,
+      seq: data.seq,
+      answers: data.answers,
+      sentAt: new Date().toISOString(),
+    });
+    return { ok: true, queued: true };
+  });
+
+export const getTakeStatusD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => data as { submissionId: string; assessmentId: string })
+  .handler(async ({ context, data }) => {
+    const { session, db } = ctx(context);
+    requireStudent(session);
+    return getTakeStatus(db, session.userId, data.submissionId, data.assessmentId);
   });
 
 export const recordIntegrityEventD1 = createServerFn({ method: "POST" })

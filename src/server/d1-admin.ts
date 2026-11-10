@@ -338,6 +338,60 @@ export async function listSiteActivity(
   };
 }
 
+export type TakeWriteFailureRow = {
+  id: string;
+  studentName: string;
+  studentEmail: string;
+  assessmentTitle: string | null;
+  messageType: string;
+  reason: string;
+  attempts: number;
+  createdAt: string;
+};
+
+/** Phase 3: failed take-queue writes, admin-only, newest 50. Rows
+ *  carry ids + reason only — never answers, scores, or AI feedback.
+ *  A row here means the message ALSO sits in the DLQ (unless it was
+ *  a permanent failure, which never retries): the DLQ is the replay
+ *  source, this list is the visible surface. */
+export async function listTakeWriteFailures(
+  db: D1Database,
+  caller: Caller,
+): Promise<TakeWriteFailureRow[]> {
+  requireAdmin(caller);
+  const { results } = await db
+    .prepare(
+      "SELECT f.id, f.message_type, f.reason, f.attempts, f.created_at, " +
+        "COALESCE(p.full_name, '') AS student_name, au.email AS student_email, " +
+        "a.title AS assessment_title " +
+        "FROM take_write_failures f " +
+        "LEFT JOIN profiles p ON p.id = f.student_id " +
+        "LEFT JOIN auth_users au ON au.id = f.student_id " +
+        "LEFT JOIN assessments a ON a.id = f.assessment_id " +
+        "ORDER BY f.created_at DESC, f.id DESC LIMIT 50",
+    )
+    .all<{
+      id: string;
+      message_type: string;
+      reason: string;
+      attempts: number;
+      created_at: string;
+      student_name: string;
+      student_email: string | null;
+      assessment_title: string | null;
+    }>();
+  return (results ?? []).map((row) => ({
+    id: row.id,
+    studentName: row.student_name ?? "",
+    studentEmail: row.student_email ?? "",
+    assessmentTitle: row.assessment_title,
+    messageType: row.message_type,
+    reason: row.reason,
+    attempts: row.attempts,
+    createdAt: row.created_at,
+  }));
+}
+
 /** Append-only audit insert for server code. Actor is always the session user. */
 export async function appendAuditLog(
   db: D1Database,
@@ -669,6 +723,11 @@ export const listSiteActivityD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) =>
     listSiteActivity(ctxDb(context), ctxCaller(context), data ?? {}),
   );
+
+export const listTakeWriteFailuresD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => data)
+  .handler(async ({ context }) => listTakeWriteFailures(ctxDb(context), ctxCaller(context)));
 
 export const listAuditLogD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
