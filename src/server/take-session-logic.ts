@@ -25,27 +25,34 @@ import {
   applyDraftAnswers,
   insertSubmission,
   markSubmitted,
+  parseOptions,
+  parseOrder,
   recordTakeFailure,
   type DraftAnswerInput,
   type SubmissionRow,
+  type TakeData,
+  type TakeGateReason,
   type TakeStatus,
 } from "@/server/d1-take";
 import { canTakeAssessment } from "@/server/d1-take-gate";
 import { retryD1Overload } from "@/server/d1-retry";
 
 /** One submission as the DO holds it (mirrors the D1 row, plus the
- *  flush bookkeeping D1 never sees). */
+ *  flush bookkeeping D1 never sees). `finalScore` is carried so the
+ *  take page's history view can show a released score; it is never
+ *  written back by the flush (grading owns the score). */
 export type DoSubmissionState = {
   id: string;
   assessmentId: string;
   studentId: string;
-  status: "in_progress" | "awaiting_review";
+  status: "in_progress" | "awaiting_review" | "released";
   attemptNumber: number;
   startedAt: string;
   submittedAt: string | null;
   expiresAt: string | null;
   questionOrder: string[];
   totalPossible: number;
+  finalScore: number | null;
   draftSeq: number;
   dirty: boolean;
   flushAttempts: number;
@@ -82,12 +89,39 @@ export interface SessionStore {
    *  only — the seed imports their pre-DO rows first, so the count
    *  is exact). */
   countSubmissions(studentId: string, assessmentId: string): Promise<number>;
+  /** All of the student's submissions for this exam, by attempt
+   *  number (the take page's list + history). */
+  listStudentSubmissions(
+    studentId: string,
+    assessmentId: string,
+  ): Promise<DoSubmissionState[]>;
+  /** Whether the DO holds the COMPLETE answer set for a submission.
+   *  New DO-created submissions are complete by construction; seeded
+   *  rows are not until hydrated — a partial set must never be served
+   *  to the take page (blanks would overwrite saved answers). */
+  areAnswersHydrated(submissionId: string): Promise<boolean>;
+  setAnswersHydrated(submissionId: string): Promise<void>;
 }
+
+/** One question body as the DO caches it (V3) — everything the take
+ *  page renders, and nothing it must not see (`question_keys` is
+ *  never selected). `options` stays the raw JSON string; the body
+ *  builder parses it. */
+export type ExamQuestion = {
+  id: string;
+  prompt: string;
+  type: string;
+  options: string;
+  marks: number;
+  position: number;
+};
 
 /** Cached exam config (DESIGN-V2.md): what start validation needs,
  *  read from D1 once per TTL per exam instead of once per student. */
 export type ExamConfig = {
   assessmentId: string;
+  title: string;
+  instructions: string;
   status: string;
   startsAt: string | null;
   dueAt: string | null;
@@ -106,14 +140,20 @@ export interface ExamConfigStore {
   getConfig(): Promise<ExamConfig | null>;
   setConfig(
     config: ExamConfig,
-    marks: Record<string, number>,
+    questions: ExamQuestion[],
     enrolledStudentIds: string[],
   ): Promise<void>;
   getMarks(): Promise<Record<string, number>>;
+  getQuestions(): Promise<ExamQuestion[]>;
   getEnrolledCheckedAt(studentId: string): Promise<number | null>;
   setEnrolled(studentId: string, checkedAt: number): Promise<void>;
   isStudentSeeded(studentId: string): Promise<boolean>;
   setStudentSeeded(studentId: string, seededAt: number): Promise<void>;
+  /** When this student's submitted attempts' scores were last
+   *  refreshed from D1 (null = never). The take page shows a released
+   *  score only through this refresh. */
+  getScoreRefreshedAt(studentId: string): Promise<number | null>;
+  setScoreRefreshedAt(studentId: string, refreshedAt: number): Promise<void>;
 }
 
 /** How long a cached config / enrolled row is trusted (DESIGN-V2.md).
@@ -133,24 +173,24 @@ export const TAKE_SESSION_FLUSH_BATCH = 20;
 
 /* ------------------------------------------- V2: DO-side config cache */
 
-/** Read the exam config + question marks + enrolled set from D1
- *  (DESIGN-V2.md). Five reads, once per TTL per exam — the first
- *  student pays them, the rest of the burst reads the cache. The
- *  enrolled set is computed in JS from three small id lists (no
- *  correlated subqueries). Throws TAKE_NOT_FOUND when the exam does
- *  not exist. */
+/** Read the exam config + question bodies + enrolled set from D1
+ *  (DESIGN-V2.md, V3: full bodies). Five reads, once per TTL per
+ *  exam — the first student pays them, the rest of the burst reads
+ *  the cache. The enrolled set is computed in JS from three small id
+ *  lists (no correlated subqueries). Throws TAKE_NOT_FOUND when the
+ *  exam does not exist. */
 export async function loadExamConfig(
   db: D1Database,
   assessmentId: string,
   nowMs: number,
 ): Promise<{
   config: ExamConfig;
-  marks: Record<string, number>;
+  questions: ExamQuestion[];
   enrolled: string[];
 }> {
   const assessment = await db
     .prepare(
-      "SELECT status, starts_at, due_at, max_attempts, duration_minutes " +
+      "SELECT status, starts_at, due_at, max_attempts, duration_minutes, title, instructions " +
         "FROM assessments WHERE id = ?",
     )
     .bind(assessmentId)
@@ -160,18 +200,20 @@ export async function loadExamConfig(
       due_at: string | null;
       max_attempts: number | null;
       duration_minutes: number | null;
+      title: string;
+      instructions: string;
     }>();
   if (!assessment) throw new Error("TAKE_NOT_FOUND");
-  const questions = await db
-    .prepare("SELECT id, marks FROM questions WHERE assessment_id = ?")
+  const questionsRes = await db
+    .prepare(
+      "SELECT id, prompt, type, options, marks, position FROM questions " +
+        "WHERE assessment_id = ? ORDER BY position",
+    )
     .bind(assessmentId)
-    .all<{ id: string; marks: number }>();
-  const marks: Record<string, number> = {};
+    .all<ExamQuestion>();
+  const questions = questionsRes.results ?? [];
   let totalPossible = 0;
-  for (const q of questions.results ?? []) {
-    marks[q.id] = q.marks;
-    totalPossible += q.marks;
-  }
+  for (const q of questions) totalPossible += q.marks;
   const assignments = await db
     .prepare("SELECT student_id FROM assessment_assignments WHERE assessment_id = ?")
     .bind(assessmentId)
@@ -198,6 +240,8 @@ export async function loadExamConfig(
   return {
     config: {
       assessmentId,
+      title: assessment.title,
+      instructions: assessment.instructions,
       status: assessment.status,
       startsAt: assessment.starts_at ?? null,
       dueAt: assessment.due_at ?? null,
@@ -206,7 +250,7 @@ export async function loadExamConfig(
       totalPossible,
       loadedAt: nowMs,
     },
-    marks,
+    questions,
     enrolled,
   };
 }
@@ -235,13 +279,14 @@ export async function seedStudentSubmissions(
         id: row.id,
         assessmentId: row.assessment_id,
         studentId: row.student_id,
-        status: row.status === "awaiting_review" ? "awaiting_review" : "in_progress",
+        status: toDoStatus(row.status),
         attemptNumber: row.attempt_number ?? 1,
         startedAt: row.started_at ?? new Date().toISOString(),
         submittedAt: row.submitted_at,
         expiresAt: row.expires_at,
         questionOrder: row.question_order ? (JSON.parse(row.question_order) as string[]) : [],
         totalPossible: row.total_possible ?? 0,
+        finalScore: row.final_score ?? null,
         draftSeq: row.draft_seq ?? 0,
         dirty: false,
         flushAttempts: 0,
@@ -251,6 +296,15 @@ export async function seedStudentSubmissions(
     }
     await configStore.setStudentSeeded(studentId, Date.now());
   });
+}
+
+/** Map a D1 submission status onto the DO's status set, preserving
+ *  "released" (the history view needs it + its final_score). Any
+ *  other value coerces to in_progress, as before. */
+function toDoStatus(status: string): DoSubmissionState["status"] {
+  if (status === "awaiting_review") return "awaiting_review";
+  if (status === "released") return "released";
+  return "in_progress";
 }
 
 /** Start validation, inside the DO (DESIGN-V2.md) — the replacement
@@ -278,7 +332,7 @@ export async function validateStart(
     nowMs - config.loadedAt > TAKE_SESSION_CACHE_TTL_MS
   ) {
     const loaded = await loadExamConfig(db, input.assessmentId, nowMs);
-    await configStore.setConfig(loaded.config, loaded.marks, loaded.enrolled);
+    await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
     config = loaded.config;
   }
   if (config.status !== "published") throw new Error("TAKE_NOT_PUBLISHED");
@@ -325,8 +379,10 @@ export async function getCachedMarks(
   }
   if (!db) throw new Error("TakeSession: D1 binding unavailable — cannot load exam config");
   const loaded = await loadExamConfig(db, assessmentId, nowMs);
-  await configStore.setConfig(loaded.config, loaded.marks, loaded.enrolled);
-  return loaded.marks;
+  await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
+  const marks: Record<string, number> = {};
+  for (const q of loaded.questions) marks[q.id] = q.marks;
+  return marks;
 }
 
 export type StartInput = {
@@ -407,6 +463,7 @@ export async function applyStart(
       expiresAt: input.expiresAt,
       questionOrder: input.questionOrder.slice(0, 500),
       totalPossible: input.totalPossible,
+      finalScore: null,
       draftSeq: 0,
       dirty: true,
       flushAttempts: 0,
@@ -532,13 +589,14 @@ export async function hydrateFromD1(
     id: row.id,
     assessmentId: row.assessment_id,
     studentId: row.student_id,
-    status: row.status === "awaiting_review" ? "awaiting_review" : "in_progress",
+    status: toDoStatus(row.status),
     attemptNumber: row.attempt_number ?? 1,
     startedAt: row.started_at ?? new Date().toISOString(),
     submittedAt: row.submitted_at,
     expiresAt: row.expires_at,
     questionOrder: row.question_order ? (JSON.parse(row.question_order) as string[]) : [],
     totalPossible: row.total_possible ?? 0,
+    finalScore: row.final_score ?? null,
     draftSeq: row.draft_seq ?? 0,
     dirty: false,
     flushAttempts: 0,
@@ -554,8 +612,191 @@ export async function hydrateFromD1(
       timeSpentSeconds: a.time_spent_seconds ?? 0,
     }));
     if (stored.length > 0) await store.upsertAnswers(sub.id, stored);
+    await store.setAnswersHydrated(sub.id);
   });
   return sub;
+}
+
+/** Load one submission's answers from D1 into the DO store and mark
+ *  the set complete (DESIGN-V3.md). Used by the take-page loader and
+ *  the draft handler for seeded rows, whose answers live only in D1.
+ *  A no-op when the set is already complete. One D1 read. */
+export async function hydrateAnswers(
+  db: D1Database,
+  store: SessionStore,
+  submissionId: string,
+): Promise<void> {
+  if (await store.areAnswersHydrated(submissionId)) return;
+  const answers = await db
+    .prepare(
+      "SELECT question_id, response, max_marks, time_spent_seconds FROM answers " +
+        "WHERE submission_id = ?",
+    )
+    .bind(submissionId)
+    .all<{ question_id: string; response: string; max_marks: number; time_spent_seconds: number }>();
+  // Gap-fill ONLY: a D1 row must never overwrite a fresher DO
+  // answer (a draft written since the seed, not yet flushed). The
+  // union of the DO's answers + D1's answers is the complete set.
+  await store.transaction(async () => {
+    const existing = new Set(
+      (await store.getAnswers(submissionId)).map((a) => a.questionId),
+    );
+    const stored = (answers.results ?? [])
+      .filter((a) => !existing.has(a.question_id))
+      .map((a) => ({
+        questionId: a.question_id,
+        response: a.response ?? "",
+        maxMarks: a.max_marks ?? 0,
+        timeSpentSeconds: a.time_spent_seconds ?? 0,
+      }));
+    if (stored.length > 0) await store.upsertAnswers(submissionId, stored);
+    await store.setAnswersHydrated(submissionId);
+  });
+}
+
+/* ------------------------------------------- V3: DO-served take data */
+
+/** The take page's payload, served from the DO (DESIGN-V3.md) —
+ *  reproduces `getTakeData` (d1-take.ts) exactly: the gate (with its
+ *  window exceptions), the questions (never question_keys), the
+ *  student's submissions (ordered by attempt), and their answers
+ *  (response text only). Reads D1 only on cache misses: the config
+ *  load, the gate fallback, the one-time seed, the TTL-gated score
+ *  refresh, and per-submission answer hydration. A warm page load
+ *  costs zero D1 reads. */
+export async function loadTakeData(
+  store: SessionStore,
+  configStore: ExamConfigStore,
+  db: D1Database,
+  input: { studentId: string; assessmentId: string; nowIso: string },
+): Promise<TakeData> {
+  const nowMs = Date.parse(input.nowIso);
+  let config = await configStore.getConfig();
+  if (
+    !config ||
+    config.assessmentId !== input.assessmentId ||
+    nowMs - config.loadedAt > TAKE_SESSION_CACHE_TTL_MS
+  ) {
+    try {
+      const loaded = await loadExamConfig(db, input.assessmentId, nowMs);
+      await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
+      config = loaded.config;
+    } catch (error) {
+      if (error instanceof Error && error.message === "TAKE_NOT_FOUND") {
+        return { allowed: false, reason: "NOT_FOUND" };
+      }
+      throw error;
+    }
+  }
+  if (config.status !== "published") return { allowed: false, reason: "NOT_PUBLISHED" };
+  // Window (from the config) and enrollment (cached set / D1 fallback).
+  let gateReason: TakeGateReason | null = null;
+  if (config.startsAt && config.startsAt > input.nowIso) gateReason = "NOT_STARTED";
+  else if (config.dueAt && config.dueAt <= input.nowIso) gateReason = "WINDOW_CLOSED";
+  if (!gateReason) {
+    const checkedAt = await configStore.getEnrolledCheckedAt(input.studentId);
+    if (checkedAt === null || nowMs - checkedAt > TAKE_SESSION_CACHE_TTL_MS) {
+      const gate = await canTakeAssessment(db, input.studentId, input.assessmentId, input.nowIso);
+      if (!gate.allowed) {
+        if (gate.reason === "NOT_STARTED" || gate.reason === "WINDOW_CLOSED") {
+          gateReason = gate.reason;
+        } else {
+          return { allowed: false, reason: gate.reason };
+        }
+      } else {
+        await configStore.setEnrolled(input.studentId, nowMs);
+      }
+    }
+  }
+  await seedStudentSubmissions(db, store, configStore, input.studentId, input.assessmentId);
+  const submissions = await store.listStudentSubmissions(input.studentId, input.assessmentId);
+  if (gateReason) {
+    // Window failure: the body loads only for a draft resume or a
+    // submitted history — exactly as the D1 path.
+    const hasDraft = submissions.some((s) => s.status === "in_progress");
+    const hasSubmitted = submissions.some((s) => s.status !== "in_progress");
+    if (!hasDraft && !hasSubmitted) return { allowed: false, reason: gateReason };
+  }
+  // Score refresh (TTL-gated): a release after the seed becomes
+  // visible within the TTL. One read, only with submitted attempts.
+  const hasSubmitted = submissions.some((s) => s.status !== "in_progress");
+  if (hasSubmitted) {
+    const refreshedAt = await configStore.getScoreRefreshedAt(input.studentId);
+    if (refreshedAt === null || nowMs - refreshedAt > TAKE_SESSION_CACHE_TTL_MS) {
+      const rows = await db
+        .prepare(
+          "SELECT id, status, final_score FROM submissions WHERE assessment_id = ? " +
+            "AND student_id = ? AND status != 'in_progress'",
+        )
+        .bind(input.assessmentId, input.studentId)
+        .all<{ id: string; status: string; final_score: number | null }>();
+      await store.transaction(async () => {
+        for (const row of rows.results ?? []) {
+          const sub = await store.getSubmission(row.id);
+          if (!sub) continue;
+          await store.putSubmission({
+            ...sub,
+            status: toDoStatus(row.status),
+            finalScore: row.final_score ?? null,
+          });
+        }
+        await configStore.setScoreRefreshedAt(input.studentId, nowMs);
+      });
+    }
+  }
+  // The page needs the draft's answers (form prefill) and the latest
+  // submitted attempt's answers (history view). Hydrate on demand —
+  // a partial set is never served.
+  const draft = submissions.find((s) => s.status === "in_progress") ?? null;
+  const submitted = submissions.filter((s) => s.status !== "in_progress");
+  const latestSubmitted = submitted.length > 0 ? submitted[submitted.length - 1] : null;
+  if (draft) await hydrateAnswers(db, store, draft.id);
+  if (latestSubmitted) await hydrateAnswers(db, store, latestSubmitted.id);
+  const fresh = await store.listStudentSubmissions(input.studentId, input.assessmentId);
+  const answersBySubmission: Record<string, { question_id: string; response: string }[]> = {};
+  for (const sub of fresh) {
+    const answers = await store.getAnswers(sub.id);
+    answersBySubmission[sub.id] = answers.map((a) => ({
+      question_id: a.questionId,
+      response: a.response,
+    }));
+  }
+  return {
+    allowed: true,
+    assessment: {
+      id: config.assessmentId,
+      title: config.title,
+      instructions: config.instructions,
+      status: config.status,
+      starts_at: config.startsAt,
+      due_at: config.dueAt,
+      max_attempts: config.maxAttempts,
+      duration_minutes: config.durationMinutes,
+    },
+    questions: (await configStore.getQuestions()).map((q) => ({
+      id: q.id,
+      prompt: q.prompt,
+      type: q.type,
+      options: parseOptions(q.options),
+      marks: q.marks,
+      position: q.position,
+    })),
+    submissions: fresh.map((sub) => ({
+      id: sub.id,
+      assessment_id: sub.assessmentId,
+      student_id: sub.studentId,
+      status: sub.status,
+      attempt_number: sub.attemptNumber,
+      started_at: sub.startedAt,
+      submitted_at: sub.submittedAt,
+      expires_at: sub.expiresAt,
+      question_order: parseOrder(JSON.stringify(sub.questionOrder)),
+      final_score: sub.finalScore,
+      total_possible: sub.totalPossible,
+      draft_seq: sub.draftSeq,
+    })),
+    answersBySubmission,
+  };
 }
 
 function toSubmissionRow(sub: DoSubmissionState): SubmissionRow {
