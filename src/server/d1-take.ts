@@ -36,7 +36,7 @@
 
 import { createServerFn } from "@tanstack/react-start";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
-import { getTakeQueue } from "@/server/d1";
+import { getTakeSessions } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { canTakeAssessment } from "@/server/d1-take-gate";
 import type { AuthSession } from "@/lib/cloudflare-auth";
@@ -276,53 +276,93 @@ export async function getTakeData(
  *  counter, seeded from the server's `draft_seq`); `submit` carries the
  *  FULL final answers and is the source of truth — drafts are progress
  *  insurance, so draft/submit ordering cannot corrupt a grade. */
-export type TakeQueueMessage =
-  | {
-      v: 1;
-      type: "start";
-      id: string;
-      submissionId: string;
-      studentId: string;
-      assessmentId: string;
-      questionOrder: string[];
-      sentAt: string;
-    }
-  | {
-      v: 1;
-      type: "draft";
-      id: string;
-      submissionId: string;
-      studentId: string;
-      seq: number;
-      answers: DraftAnswerInput[];
-      sentAt: string;
-    }
-  | {
-      v: 1;
-      type: "submit";
-      id: string;
-      submissionId: string;
-      studentId: string;
-      seq: number;
-      answers: DraftAnswerInput[];
-      sentAt: string;
-    };
+/* ------------------------------------------- Phase 4: DO RPC helper */
 
-/** Enqueue one take-write message. `send()` resolves only after the
- *  queue durably accepts the message, so a resolved call is a
- *  durability guarantee — the producer returns "queued" only then. */
-export async function enqueueTakeMessage(message: TakeQueueMessage): Promise<void> {
-  const queue = await getTakeQueue();
-  await queue.send(message);
+/** Call one TakeSession DO method (POST /start, /draft, /submit,
+ *  /status — DESIGN.md §3). The stub is the exam's object
+ *  (`idFromName(assessmentId)`), so every student of one exam hits
+ *  the same object. A TAKE_* error from the DO is re-thrown as-is
+ *  (the client already translates it); any other failure is a
+ *  plain error — the producer must never silently fall back to a
+ *  direct D1 write. */
+export async function callTakeSession<T>(
+  assessmentId: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const sessions = await getTakeSessions();
+  const stub = sessions.get(sessions.idFromName(assessmentId));
+  const response = await stub.fetch(
+    new Request(`https://take-session${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ v: 1, ...body }),
+    }),
+  );
+  const payload = (await response.json()) as { error?: string };
+  if (!response.ok) {
+    throw new Error(payload.error ?? "TAKE_SESSION_ERROR");
+  }
+  return payload as T;
+}
+
+/** One D1 read for the question marks the DO needs to validate
+ *  answers (DESIGN.md §4 — the DO holds no question data). Drafts
+ *  are autosaves spread over the exam, not synchronized, so this
+ *  read is affordable. */
+export async function loadQuestionMarks(
+  db: D1Database,
+  assessmentId: string,
+): Promise<Record<string, number>> {
+  const rows = await db
+    .prepare("SELECT id, marks FROM questions WHERE assessment_id = ?")
+    .bind(assessmentId)
+    .all<{ id: string; marks: number }>();
+  const marks: Record<string, number> = {};
+  for (const row of rows.results ?? []) marks[row.id] = row.marks;
+  return marks;
+}
+
+/** Append-only take-write failure record (admin-visible via
+ *  listTakeWriteFailuresD1). Never answers, never scores, never AI
+ *  feedback — ids + reason only. Moved here from take-queue.ts
+ *  (Phase 4): the DO flush records here too, so the failure store
+ *  outlives the queue consumer. */
+export type TakeFailureInput = {
+  studentId: string;
+  submissionId: string | null;
+  assessmentId: string | null;
+  messageType: string;
+  reason: string;
+  attempts: number;
+};
+
+export async function recordTakeFailure(db: D1Database, input: TakeFailureInput): Promise<void> {
+  await db
+    .prepare(
+      "INSERT INTO take_write_failures (id, student_id, submission_id, assessment_id, " +
+        "message_type, reason, attempts, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(
+      crypto.randomUUID(),
+      input.studentId,
+      input.submissionId,
+      input.assessmentId,
+      input.messageType,
+      input.reason,
+      input.attempts,
+      new Date().toISOString(),
+    )
+    .run();
 }
 
 /* ------------------------------------------------------------- attempts */
 
-/** Read-only start validation, shared by the producer (pre-enqueue
- *  check, so a gated-out student gets an immediate error instead of a
- *  queued failure) and the consumer (re-validation at apply time, in
- *  case the window closed between enqueue and processing). Throws the
- *  same TAKE_* errors as the old synchronous start. */
+/** Read-only start validation, shared by the producer (pre-DO
+ *  check, so a gated-out student gets an immediate error instead of
+ *  a DO-side failure) and the DO flush (re-validation at apply time,
+ *  in case the window closed between the call and the flush).
+ *  Throws the same TAKE_* errors as the old synchronous start. */
 export async function resolveStart(
   db: D1Database,
   studentId: string,
@@ -940,12 +980,13 @@ export const getTakeDataD1 = createServerFn({ method: "POST" })
     return getTakeData(db, session.userId, data.assessmentId);
   });
 
-// Phase 3 producers: each handler validates with READS only (gate /
-// ownership / status — reads never failed under burst), then enqueues
-// the write and returns { queued: true } once the queue durably
-// accepts the message. The row is created by the consumer; the client
-// polls getTakeStatusD1 for it. A resume returns the existing draft
-// synchronously — no queue traffic for a resume.
+// Phase 4 producers: each handler validates with READS only (gate /
+// ownership / status — reads never failed under burst), then calls
+// the exam's TakeSession DO and returns { queued: true } once the DO
+// accepts the op. The row lives in the DO; the client polls
+// getTakeStatusD1 for it (the poll reads the DO and resolves on the
+// first poll). A resume returns the existing draft synchronously —
+// no DO traffic for a resume.
 export const startAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
@@ -955,20 +996,21 @@ export const startAttemptD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireStudent(session);
+    const nowIso = new Date().toISOString();
     const resolved = await retryD1Overload(() =>
-      resolveStart(db, session.userId, data.assessmentId, new Date().toISOString()),
+      resolveStart(db, session.userId, data.assessmentId, nowIso),
     );
     if (resolved.existingId) return { queued: false, submissionId: resolved.existingId };
     const submissionId = data.submissionId;
-    await enqueueTakeMessage({
-      v: 1,
-      type: "start",
-      id: crypto.randomUUID(),
+    await callTakeSession<{ submissionId: string }>(data.assessmentId, "/start", {
       submissionId,
       studentId: session.userId,
       assessmentId: data.assessmentId,
       questionOrder: data.questionOrder,
-      sentAt: new Date().toISOString(),
+      attemptNumber: resolved.attemptNumber,
+      totalPossible: resolved.totalPossible,
+      expiresAt: resolved.expiresAt,
+      nowIso,
     });
     return { queued: true, submissionId };
   });
@@ -985,16 +1027,21 @@ export const saveDraftD1 = createServerFn({ method: "POST" })
       loadDraftTarget(db, session.userId, data.submissionId, new Date().toISOString()),
     );
     if (!target || !target.editable) return { ok: false, queued: false };
-    await enqueueTakeMessage({
-      v: 1,
-      type: "draft",
-      id: crypto.randomUUID(),
-      submissionId: data.submissionId,
-      studentId: session.userId,
-      seq: data.seq,
-      answers: data.answers,
-      sentAt: new Date().toISOString(),
-    });
+    const marks = await retryD1Overload(() =>
+      loadQuestionMarks(db, target.submission.assessment_id),
+    );
+    const result = await callTakeSession<{ applied: string }>(
+      target.submission.assessment_id,
+      "/draft",
+      {
+        submissionId: data.submissionId,
+        studentId: session.userId,
+        answers: data.answers,
+        seq: data.seq,
+        marks,
+      },
+    );
+    if (result.applied === "not_editable") return { ok: false, queued: false };
     return { ok: true, queued: true };
   });
 
@@ -1015,16 +1062,22 @@ export const submitAttemptD1 = createServerFn({ method: "POST" })
     if (!submission || submission.student_id !== session.userId)
       return { ok: false, queued: false };
     if (submission.status !== "in_progress") return { ok: false, queued: false };
-    await enqueueTakeMessage({
-      v: 1,
-      type: "submit",
-      id: crypto.randomUUID(),
-      submissionId: data.submissionId,
-      studentId: session.userId,
-      seq: data.seq,
-      answers: data.answers,
-      sentAt: new Date().toISOString(),
-    });
+    const marks = await retryD1Overload(() =>
+      loadQuestionMarks(db, submission.assessment_id),
+    );
+    const result = await callTakeSession<{ submitted: boolean }>(
+      submission.assessment_id,
+      "/submit",
+      {
+        submissionId: data.submissionId,
+        studentId: session.userId,
+        answers: data.answers,
+        seq: data.seq,
+        marks,
+        nowIso: new Date().toISOString(),
+      },
+    );
+    if (!result.submitted) return { ok: false, queued: false };
     return { ok: true, queued: true };
   });
 
@@ -1034,6 +1087,15 @@ export const getTakeStatusD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireStudent(session);
+    const status = await callTakeSession<TakeStatus>(data.assessmentId, "/status", {
+      submissionId: data.submissionId,
+      studentId: session.userId,
+      assessmentId: data.assessmentId,
+    });
+    // The DO answers from live state; "pending" means it does not
+    // know this submission, so fall back to the D1 status (pre-DO
+    // rows, redirect-to-existing, failure lookup — unchanged).
+    if (status.status !== "pending") return status;
     return getTakeStatus(db, session.userId, data.submissionId, data.assessmentId);
   });
 
