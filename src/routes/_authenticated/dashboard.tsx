@@ -657,11 +657,8 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
                     {t("finalScore")}: {g.final_score}/{g.max_marks}
                   </Pill>
                 </div>
-                {g.teacher_feedback ? (
-                  <p className="mt-2 text-sm">{g.teacher_feedback}</p>
-                ) : g.ai_feedback ? (
-                  <p className="mt-2 text-sm text-muted-foreground">{g.ai_feedback}</p>
-                ) : null}
+                {/* AI feedback is teacher-only: students see score + teacher feedback. */}
+                {g.teacher_feedback ? <p className="mt-2 text-sm">{g.teacher_feedback}</p> : null}
               </Panel>
             ))}
           </div>

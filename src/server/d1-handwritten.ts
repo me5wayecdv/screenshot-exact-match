@@ -39,7 +39,10 @@
  *   old behavior: paper name only, visible to the teacher alone.
  *   The student surface query (listStudentHandwrittenGrades) selects
  *   only the caller's own rows by student_id and never touches
- *   question_keys.
+ *   question_keys — and never selects ai_feedback either: AI
+ *   feedback is teacher-only by product decision (2026-11-04), so
+ *   the student view shows score + teacher feedback, never the AI
+ *   feedback text.
  *
  * NOT migrated here (owned by other workstreams, left on their old
  * path): OCR (src/server/handwritten.ts), AI grading suggestions
@@ -224,7 +227,8 @@ export type StudentHwGrade = {
   teacher_name: string;
   final_score: number;
   max_marks: number;
-  ai_feedback: string | null;
+  // No ai_feedback here on purpose: AI feedback is teacher-only, so
+  // it is never selected for — and never reaches — a student.
   teacher_feedback: string;
   created_at: string;
 };
@@ -233,7 +237,8 @@ export type StudentHwGrade = {
  * Handwritten grades linked to one student — the student surface for
  * final-on-save grades. Scoped strictly by student_id = caller; a
  * student can never see another student's linked grades, and unlinked
- * (student_id NULL) grades are never returned here. Selects no keys.
+ * (student_id NULL) grades are never returned here. Selects no keys,
+ * and never selects ai_feedback: AI feedback is teacher-only.
  */
 export async function listStudentHandwrittenGrades(
   db: D1Database,
@@ -243,7 +248,7 @@ export async function listStudentHandwrittenGrades(
     .prepare(
       "SELECT hg.id, hg.assessment_id, a.title AS assessment_title, " +
         "COALESCE(p.full_name, '') AS teacher_name, hg.final_score, hg.max_marks, " +
-        "hg.ai_feedback, hg.teacher_feedback, hg.created_at " +
+        "hg.teacher_feedback, hg.created_at " +
         "FROM handwritten_grades hg LEFT JOIN assessments a ON a.id = hg.assessment_id " +
         "LEFT JOIN profiles p ON p.id = hg.teacher_id " +
         "WHERE hg.student_id = ? ORDER BY hg.created_at DESC LIMIT 50",
