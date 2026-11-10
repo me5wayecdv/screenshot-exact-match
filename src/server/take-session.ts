@@ -23,6 +23,7 @@ import type { CloudflareEnv } from "@/server/d1";
 import type {
   DurableObjectLike,
   DurableObjectStateLike,
+  DurableObjectStorageLike,
   SqlStorageLike,
 } from "@/server/durable-object-types";
 import {
@@ -104,7 +105,13 @@ type DoAnswerRow = {
 };
 
 class SqliteSessionStore implements SessionStore {
-  constructor(private readonly sql: SqlStorageLike) {}
+  private readonly sql: SqlStorageLike;
+  private readonly storage: DurableObjectStorageLike;
+
+  constructor(storage: DurableObjectStorageLike) {
+    this.storage = storage;
+    this.sql = storage.sql;
+  }
 
   private rows<T>(sqlText: string, ...params: unknown[]): T[] {
     return this.sql.exec<T>(sqlText, ...params).toArray();
@@ -222,15 +229,11 @@ class SqliteSessionStore implements SessionStore {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sql.exec("BEGIN IMMEDIATE");
-    try {
-      const result = await fn();
-      this.sql.exec("COMMIT");
-      return result;
-    } catch (error) {
-      this.sql.exec("ROLLBACK");
-      throw error;
-    }
+    // DO SQLite storage forbids raw BEGIN/COMMIT/SAVEPOINT SQL —
+    // the storage transaction API is the only way to get a
+    // transaction. (Raw BEGIN IMMEDIATE here 500'd every /start on
+    // the first live deploy, 2026-11-10.)
+    return this.storage.transaction(fn);
   }
 }
 
@@ -301,7 +304,7 @@ export class TakeSession extends DurableObjectBase {
       );
     }
     try {
-      this.store = new SqliteSessionStore(state.storage.sql);
+      this.store = new SqliteSessionStore(state.storage);
       // SQLite storage is synchronous: the schema is ready before the
       // first request is served.
       for (const statement of SCHEMA) state.storage.sql.exec(statement);
