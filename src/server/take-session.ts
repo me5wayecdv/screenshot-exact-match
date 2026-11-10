@@ -21,6 +21,7 @@
 import type { D1Database } from "@/server/d1-auth-store";
 import type { CloudflareEnv } from "@/server/d1";
 import type {
+  DurableObjectLike,
   DurableObjectStateLike,
   SqlStorageLike,
 } from "@/server/durable-object-types";
@@ -244,7 +245,35 @@ function isTakeError(error: unknown): boolean {
   return error instanceof Error && /^TAKE_/.test(error.message);
 }
 
-export class TakeSession extends DurableObject {
+/**
+ * The DurableObject base class is a Worker runtime global — but
+ * Cloudflare validates a deploy by executing the script in a context
+ * where that global is not yet defined, so a bare `extends
+ * DurableObject` fails the upload with "DurableObject is not
+ * defined" (code 10021). Resolve the base lazily from globalThis
+ * instead: at runtime the global is present and the class extends
+ * the real base; anywhere else (deploy validation, node) the
+ * fallback keeps module evaluation from throwing.
+ */
+type DurableObjectConstructor = new (
+  state: DurableObjectStateLike,
+  env: unknown,
+) => DurableObjectLike;
+
+const DurableObjectBase: DurableObjectConstructor =
+  (
+    globalThis as {
+      DurableObject?: DurableObjectConstructor;
+    }
+  ).DurableObject ??
+  (class {
+    constructor(
+      _state: DurableObjectStateLike,
+      _env: unknown,
+    ) {}
+  } as DurableObjectConstructor);
+
+export class TakeSession extends DurableObjectBase {
   private readonly state: DurableObjectStateLike;
   private readonly env: CloudflareEnv;
   private readonly store: SqliteSessionStore;
