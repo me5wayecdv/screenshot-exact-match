@@ -104,7 +104,16 @@
         "max_batch_timeout": 5,
         "max_retries": 5,
         "retry_delay": 10,
-        "max_concurrency": 2,
+        // Consumer throttling — retuned 2026-11-10 after the first live
+        // ladder: at max_concurrency 2 the start drain took ~15–22s at
+        // 50 concurrent, and at 100 the status polls themselves
+        // overloaded D1 (93% startPoll errors, all poll reads) before
+        // the drain could finish. 5 concurrent batches x 5 messages =
+        // 25 writes in flight: still far below the ~100 concurrent
+        // direct writes that broke the pre-queue runs, but 2.5x the
+        // drain rate, so polls finish sooner and pile up less.
+        // Retune HERE only (wrangler.jsonc), then redeploy.
+        "max_concurrency": 5,
         "dead_letter_queue": "qemmini-take-writes-dlq"
       }
     ]
