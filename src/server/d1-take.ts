@@ -126,7 +126,7 @@ type QuestionRow = {
   position: number;
 };
 
-function parseOptions(raw: string): string[] {
+export function parseOptions(raw: string): string[] {
   try {
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : [];
@@ -135,7 +135,7 @@ function parseOptions(raw: string): string[] {
   }
 }
 
-function parseOrder(raw: string | null): string[] | null {
+export function parseOrder(raw: string | null): string[] | null {
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -958,9 +958,18 @@ export const getTakeDataD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data as { assessmentId: string })
   .handler(async ({ context, data }) => {
-    const { session, db } = ctx(context);
+    // Phase 4 V3 (DESIGN-V3.md): the take page's payload is served
+    // from the TakeSession DO (config + questions + submissions +
+    // answers, all cached) — the Worker no longer pays 3 D1 reads
+    // per student for it. The D1 getTakeData stays for tests and as
+    // the reference implementation of the same contract.
+    const { session } = ctx(context);
     requireStudent(session);
-    return getTakeData(db, session.userId, data.assessmentId);
+    return callTakeSession<TakeData>(data.assessmentId, "/data", {
+      studentId: session.userId,
+      assessmentId: data.assessmentId,
+      nowIso: new Date().toISOString(),
+    });
   });
 
 // Phase 4 producers (V2): the DO validates + applies. The Worker is
