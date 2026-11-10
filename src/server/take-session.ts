@@ -34,7 +34,9 @@ import {
   flushOne,
   getCachedMarks,
   getSessionStatus,
+  hydrateAnswers,
   hydrateFromD1,
+  loadTakeData,
   validateStart,
   TAKE_SESSION_FLUSH_BATCH,
   type DoAnswerState,
@@ -42,6 +44,7 @@ import {
   type DraftInput,
   type ExamConfig,
   type ExamConfigStore,
+  type ExamQuestion,
   type SessionStore,
   type StartInput,
   type SubmitInput,
@@ -62,6 +65,7 @@ const SCHEMA = [
     expires_at TEXT,
     question_order TEXT NOT NULL,
     total_possible INTEGER NOT NULL,
+    final_score INTEGER,
     draft_seq INTEGER NOT NULL DEFAULT 0,
     dirty INTEGER NOT NULL DEFAULT 1,
     flush_attempts INTEGER NOT NULL DEFAULT 0,
@@ -84,6 +88,8 @@ const SCHEMA = [
   // per-student seed marker (pre-DO submissions imported once).
   `CREATE TABLE IF NOT EXISTS do_config (
     assessment_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL,
     starts_at TEXT,
     due_at TEXT,
@@ -92,9 +98,27 @@ const SCHEMA = [
     total_possible INTEGER NOT NULL,
     loaded_at INTEGER NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS do_question_marks (
+  // V3 (DESIGN-V3.md): the full question bodies the take page
+  // renders (never question_keys). Replaces do_question_marks (the
+  // old table lingers, empty, on existing DOs — harmless).
+  `CREATE TABLE IF NOT EXISTS do_questions_full (
     question_id TEXT PRIMARY KEY,
-    marks INTEGER NOT NULL
+    prompt TEXT NOT NULL,
+    type TEXT NOT NULL,
+    options TEXT NOT NULL,
+    marks INTEGER NOT NULL,
+    position INTEGER NOT NULL
+  )`,
+  // V3: submissions whose answer set in the DO is COMPLETE (a
+  // partial set must never be served to the take page).
+  `CREATE TABLE IF NOT EXISTS do_hydrated_answers (
+    submission_id TEXT PRIMARY KEY
+  )`,
+  // V3: when a student's submitted attempts' scores were last
+  // refreshed from D1 (TTL-gated, 60s).
+  `CREATE TABLE IF NOT EXISTS do_score_refresh (
+    student_id TEXT PRIMARY KEY,
+    refreshed_at INTEGER NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS do_enrolled (
     student_id TEXT PRIMARY KEY,
@@ -120,6 +144,7 @@ type DoSubmissionRow = {
   expires_at: string | null;
   question_order: string;
   total_possible: number;
+  final_score: number | null;
   draft_seq: number;
   dirty: number;
   flush_attempts: number;
@@ -152,13 +177,19 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
       id: row.id,
       assessmentId: row.assessment_id,
       studentId: row.student_id,
-      status: row.status === "awaiting_review" ? "awaiting_review" : "in_progress",
+      status:
+        row.status === "awaiting_review"
+          ? "awaiting_review"
+          : row.status === "released"
+            ? "released"
+            : "in_progress",
       attemptNumber: row.attempt_number ?? 1,
       startedAt: row.started_at,
       submittedAt: row.submitted_at ?? null,
       expiresAt: row.expires_at ?? null,
       questionOrder: JSON.parse(row.question_order || "[]") as string[],
       totalPossible: row.total_possible ?? 0,
+      finalScore: row.final_score ?? null,
       draftSeq: row.draft_seq ?? 0,
       dirty: row.dirty === 1,
       flushAttempts: row.flush_attempts ?? 0,
@@ -201,12 +232,40 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
     return rows[0]?.n ?? 0;
   }
 
+  async listStudentSubmissions(
+    studentId: string,
+    assessmentId: string,
+  ): Promise<DoSubmissionState[]> {
+    const rows = this.rows<DoSubmissionRow>(
+      "SELECT * FROM do_submissions WHERE student_id = ? AND assessment_id = ? " +
+        "ORDER BY attempt_number ASC",
+      studentId,
+      assessmentId,
+    );
+    return rows.map((row) => this.toState(row));
+  }
+
+  async areAnswersHydrated(submissionId: string): Promise<boolean> {
+    const rows = this.rows<{ submission_id: string }>(
+      "SELECT submission_id FROM do_hydrated_answers WHERE submission_id = ?",
+      submissionId,
+    );
+    return rows.length > 0;
+  }
+
+  async setAnswersHydrated(submissionId: string): Promise<void> {
+    this.sql.exec(
+      "INSERT OR IGNORE INTO do_hydrated_answers (submission_id) VALUES (?)",
+      submissionId,
+    );
+  }
+
   async putSubmission(sub: DoSubmissionState): Promise<void> {
     this.sql.exec(
       "INSERT OR REPLACE INTO do_submissions " +
         "(id, assessment_id, student_id, status, attempt_number, started_at, submitted_at, " +
-        "expires_at, question_order, total_possible, draft_seq, dirty, flush_attempts, " +
-        "flush_error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "expires_at, question_order, total_possible, final_score, draft_seq, dirty, flush_attempts, " +
+        "flush_error, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       sub.id,
       sub.assessmentId,
       sub.studentId,
@@ -217,6 +276,7 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
       sub.expiresAt,
       JSON.stringify(sub.questionOrder),
       sub.totalPossible,
+      sub.finalScore,
       sub.draftSeq,
       sub.dirty ? 1 : 0,
       sub.flushAttempts,
@@ -299,6 +359,8 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
   async getConfig(): Promise<ExamConfig | null> {
     const rows = this.rows<{
       assessment_id: string;
+      title: string;
+      instructions: string;
       status: string;
       starts_at: string | null;
       due_at: string | null;
@@ -311,6 +373,8 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
     if (!row) return null;
     return {
       assessmentId: row.assessment_id,
+      title: row.title ?? "",
+      instructions: row.instructions ?? "",
       status: row.status,
       startsAt: row.starts_at,
       dueAt: row.due_at,
@@ -323,7 +387,7 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
 
   async setConfig(
     config: ExamConfig,
-    marks: Record<string, number>,
+    questions: ExamQuestion[],
     enrolledStudentIds: string[],
   ): Promise<void> {
     // One storage transaction so a crash cannot leave a fresh
@@ -331,9 +395,12 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
     await this.transaction(async () => {
       this.sql.exec("DELETE FROM do_config");
       this.sql.exec(
-        "INSERT INTO do_config (assessment_id, status, starts_at, due_at, max_attempts, " +
-          "duration_minutes, total_possible, loaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO do_config (assessment_id, title, instructions, status, starts_at, due_at, " +
+          "max_attempts, duration_minutes, total_possible, loaded_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         config.assessmentId,
+        config.title,
+        config.instructions,
         config.status,
         config.startsAt,
         config.dueAt,
@@ -342,12 +409,17 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
         config.totalPossible,
         config.loadedAt,
       );
-      this.sql.exec("DELETE FROM do_question_marks");
-      for (const [questionId, mark] of Object.entries(marks)) {
+      this.sql.exec("DELETE FROM do_questions_full");
+      for (const q of questions) {
         this.sql.exec(
-          "INSERT INTO do_question_marks (question_id, marks) VALUES (?, ?)",
-          questionId,
-          mark,
+          "INSERT INTO do_questions_full (question_id, prompt, type, options, marks, position) " +
+            "VALUES (?, ?, ?, ?, ?, ?)",
+          q.id,
+          q.prompt,
+          q.type,
+          q.options,
+          q.marks,
+          q.position,
         );
       }
       this.sql.exec("DELETE FROM do_enrolled");
@@ -363,12 +435,45 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
 
   async getMarks(): Promise<Record<string, number>> {
     const marks: Record<string, number> = {};
-    for (const row of this.rows<{ question_id: string; marks: number }>(
-      "SELECT question_id, marks FROM do_question_marks",
-    )) {
-      marks[row.question_id] = row.marks;
-    }
+    for (const q of await this.getQuestions()) marks[q.id] = q.marks;
     return marks;
+  }
+
+  async getQuestions(): Promise<ExamQuestion[]> {
+    return this.rows<{
+      question_id: string;
+      prompt: string;
+      type: string;
+      options: string;
+      marks: number;
+      position: number;
+    }>(
+      "SELECT question_id, prompt, type, options, marks, position FROM do_questions_full " +
+        "ORDER BY position ASC",
+    ).map((row) => ({
+      id: row.question_id,
+      prompt: row.prompt,
+      type: row.type,
+      options: row.options,
+      marks: row.marks,
+      position: row.position,
+    }));
+  }
+
+  async getScoreRefreshedAt(studentId: string): Promise<number | null> {
+    const rows = this.rows<{ refreshed_at: number }>(
+      "SELECT refreshed_at FROM do_score_refresh WHERE student_id = ?",
+      studentId,
+    );
+    return rows[0]?.refreshed_at ?? null;
+  }
+
+  async setScoreRefreshedAt(studentId: string, refreshedAt: number): Promise<void> {
+    this.sql.exec(
+      "INSERT OR REPLACE INTO do_score_refresh (student_id, refreshed_at) VALUES (?, ?)",
+      studentId,
+      refreshedAt,
+    );
   }
 
   async getEnrolledCheckedAt(studentId: string): Promise<number | null> {
@@ -558,6 +663,11 @@ export class TakeSession extends DurableObjectBase {
           // per-draft D1 read. Unknown submissions throw TAKE_NOT_FOUND
           // in applyDraft before the marks are used, so {} is safe.
           const sub = await this.store.getSubmission(input.submissionId);
+          // V3: a resumed pre-DO draft's answers live only in D1 —
+          // hydrate them (gap-fill only, never overwrites a fresher
+          // DO answer) so the DO's set is complete before the first
+          // autosave. No-op once hydrated.
+          if (sub && this.db) await hydrateAnswers(this.db, this.store, input.submissionId);
           const marks = sub
             ? await getCachedMarks(this.store, this.db, sub.assessmentId, Date.now())
             : {};
@@ -583,6 +693,22 @@ export class TakeSession extends DurableObjectBase {
           }
           await this.ensureFlushAlarm();
           return jsonResponse(result);
+        }
+        case "/data": {
+          // V3 (DESIGN-V3.md): the take page's payload, served from
+          // the DO — the Worker no longer pays 3 D1 reads per student
+          // for it.
+          const input = body as unknown as {
+            studentId: string;
+            assessmentId: string;
+            nowIso: string;
+          };
+          const db = this.db;
+          if (!db) {
+            throw new Error("TakeSession: D1 binding unavailable for take data");
+          }
+          const data = await loadTakeData(this.store, this.store, db, input);
+          return jsonResponse(data);
         }
         case "/status": {
           const input = body as unknown as {
