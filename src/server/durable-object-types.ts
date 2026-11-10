@@ -43,10 +43,13 @@ export type DurableObjectLike = {
 };
 
 /** The DurableObject base class is a Worker runtime global (not an
- *  import). It is declared here so `take-session.ts` can extend it
- *  without @cloudflare/workers-types. At runtime the Worker provides
- *  the global; in vitest (node) it does not exist, so modules that
- *  extend it are never imported by tests. */
+ *  import). It is declared here so its constructor shape is typed;
+ *  the value is resolved lazily from globalThis in take-session.ts
+ *  (a bare `extends DurableObject` fails Cloudflare's deploy-time
+ *  validation, where the global is not yet defined). At runtime the
+ *  Worker provides the global; in vitest (node) it does not exist,
+ *  so modules that define the DO class are never imported by tests —
+ *  only the pure logic module (take-session-logic.ts) is. */
 declare global {
   const DurableObject: new (
     state: DurableObjectStateLike,
