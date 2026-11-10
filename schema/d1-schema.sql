@@ -386,3 +386,44 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log(actor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log(created_at DESC, id DESC);
+
+-- Parity constraints (2026-11-10, ported from the rebuild's
+-- 0004_parity_constraints.sql; same statements also live in
+-- schema/migrations/20261110_parity_constraints.sql for existing
+-- databases — run the PRECHECK file there before applying).
+-- Fresh databases get them from here; existing databases get them
+-- from the migration. All statements are IF NOT EXISTS.
+CREATE UNIQUE INDEX IF NOT EXISTS answers_submission_question_unique
+  ON answers(submission_id, question_id);
+CREATE UNIQUE INDEX IF NOT EXISTS submissions_one_in_progress_idx
+  ON submissions(assessment_id, student_id) WHERE status = 'in_progress';
+CREATE INDEX IF NOT EXISTS auth_users_status_idx
+  ON auth_users(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS teacher_groups_teacher_idx
+  ON teacher_groups(teacher_id);
+CREATE INDEX IF NOT EXISTS grade_review_requests_student_created_idx
+  ON grade_review_requests(student_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS grade_review_requests_teacher_created_idx
+  ON grade_review_requests(teacher_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS submissions_assessment_status_submitted_idx
+  ON submissions(assessment_id, status, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS submissions_student_status_submitted_idx
+  ON submissions(student_id, status, submitted_at DESC);
+CREATE INDEX IF NOT EXISTS ai_usage_events_teacher_created_idx
+  ON ai_usage_events(teacher_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS whatsapp_sends_submission_status_idx
+  ON whatsapp_sends(submission_id, status);
+CREATE INDEX IF NOT EXISTS lessons_tutor_created_idx
+  ON lessons(tutor_id, created_at DESC);
+CREATE TRIGGER IF NOT EXISTS questions_marks_positive_insert
+BEFORE INSERT ON questions
+WHEN NEW.marks <= 0
+BEGIN
+  SELECT RAISE(ABORT, 'question_marks_must_be_positive');
+END;
+CREATE TRIGGER IF NOT EXISTS questions_marks_positive_update
+BEFORE UPDATE OF marks ON questions
+WHEN NEW.marks <= 0
+BEGIN
+  SELECT RAISE(ABORT, 'question_marks_must_be_positive');
+END;
