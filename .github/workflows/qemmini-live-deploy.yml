@@ -20,8 +20,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      # The project installs with Bun (bun.lock is the lockfile; there is no
+      # package-lock.json, so npm ci / setup-node npm cache cannot work).
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
       - run: npx tsc --noEmit
       - run: npx vitest run
       - name: Rebind wrangler config to live
