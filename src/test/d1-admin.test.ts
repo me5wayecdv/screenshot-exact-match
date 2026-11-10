@@ -173,9 +173,7 @@ function fakeActivityDb(rows: ActivityRaw[]): D1Database & { seenParams: unknown
             // Cursor page: (created_at, created_at, id, limit + 1).
             const cAt = params[0] as string;
             const cId = params[2] as number;
-            pool = sorted.filter(
-              (r) => r.created_at < cAt || (r.created_at === cAt && r.id < cId),
-            );
+            pool = sorted.filter((r) => r.created_at < cAt || (r.created_at === cAt && r.id < cId));
             limit = params[3] as number;
           } else {
             limit = params[0] as number;
@@ -628,10 +626,34 @@ function fakeDecideDb(users: MiniUser[]) {
 
 describe("D1 admin decideAccount is a single atomic conditional UPDATE", () => {
   const users = (): MiniUser[] => [
-    { id: "u-pending", email: "p@example.com", fullName: "Pending", role: "student", status: "pending" },
-    { id: "u-approved", email: "a@example.com", fullName: "Approved", role: "student", status: "approved" },
-    { id: "u-admin", email: "admin2@example.com", fullName: "Admin Two", role: "admin", status: "pending" },
-    { id: "u-race", email: "race@example.com", fullName: "Race", role: "school_teacher", status: "pending" },
+    {
+      id: "u-pending",
+      email: "p@example.com",
+      fullName: "Pending",
+      role: "student",
+      status: "pending",
+    },
+    {
+      id: "u-approved",
+      email: "a@example.com",
+      fullName: "Approved",
+      role: "student",
+      status: "approved",
+    },
+    {
+      id: "u-admin",
+      email: "admin2@example.com",
+      fullName: "Admin Two",
+      role: "admin",
+      status: "pending",
+    },
+    {
+      id: "u-race",
+      email: "race@example.com",
+      fullName: "Race",
+      role: "school_teacher",
+      status: "pending",
+    },
   ];
 
   it("approves a pending account once: changed, one audit row, no revocation", async () => {

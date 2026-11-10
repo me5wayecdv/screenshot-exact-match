@@ -58,7 +58,9 @@ export async function call(name, data, cookie) {
     const m = text.match(/"message":\{"t":1,"s":"((?:[^"\\]|\\.)*)"\}/);
     const detail = m ? JSON.parse(`"${m[1]}"`) : text.slice(0, 300);
     const err = new Error(`HTTP ${res.status} ${name}: ${detail}`);
-    err.status = res.status; err.ms = ms; err.body = text.slice(0, 300);
+    err.status = res.status;
+    err.ms = ms;
+    err.body = text.slice(0, 300);
     throw err;
   }
   let env;
@@ -71,13 +73,15 @@ export async function call(name, data, cookie) {
     const m = text.match(/"message":\{"t":1,"s":"((?:[^"\\]|\\.)*)"\}/);
     const detail = m ? JSON.parse(`"${m[1]}"`) : `undecodable response: ${text.slice(0, 200)}`;
     const err = new Error(`${name}: ${detail}`);
-    err.ms = ms; err.serverError = detail;
+    err.ms = ms;
+    err.serverError = detail;
     throw err;
   }
   if (env.error != null) {
     const msg = env.error?.message || JSON.stringify(env.error)?.slice(0, 300) || "server error";
     const err = new Error(`${name}: ${msg}`);
-    err.ms = ms; err.serverError = msg;
+    err.ms = ms;
+    err.serverError = msg;
     throw err;
   }
   return { result: env.result, ms, setCookie };
@@ -96,8 +100,11 @@ export async function pool(items, n, fn) {
   async function worker() {
     while (i < items.length) {
       const idx = i++;
-      try { out[idx] = { ok: true, value: await fn(items[idx], idx) }; }
-      catch (e) { out[idx] = { ok: false, error: e }; }
+      try {
+        out[idx] = { ok: true, value: await fn(items[idx], idx) };
+      } catch (e) {
+        out[idx] = { ok: false, error: e };
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));

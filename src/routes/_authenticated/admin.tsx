@@ -137,10 +137,7 @@ function Admin() {
     setPasswordlessAll((prev) =>
       passwordlessPage === 0
         ? passwordlessData.rows
-        : [
-            ...prev,
-            ...passwordlessData.rows.filter((r) => !prev.some((p) => p.id === r.id)),
-          ],
+        : [...prev, ...passwordlessData.rows.filter((r) => !prev.some((p) => p.id === r.id))],
     );
   }, [passwordlessData, passwordlessPage]);
   const passwordless = passwordlessAll;
@@ -213,7 +210,8 @@ function Admin() {
   // the replay source, this panel is the visible surface.
   const { data: failures } = useQuery({
     queryKey: ["admin-take-failures"],
-    queryFn: async () => (await listTakeWriteFailuresD1({ data: undefined })) as TakeWriteFailureRow[],
+    queryFn: async () =>
+      (await listTakeWriteFailuresD1({ data: undefined })) as TakeWriteFailureRow[],
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });

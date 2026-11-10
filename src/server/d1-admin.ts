@@ -191,7 +191,13 @@ export async function listAuditLog(db: D1Database, caller: Caller): Promise<Audi
  * answer ids still reached the browser. Selecting a whitelist makes
  * the promise true of the payload, not just the view.
  */
-const ACTIVITY_DETAIL_KEYS = ["target_label", "exam_label", "group_label", "decision", "to"] as const;
+const ACTIVITY_DETAIL_KEYS = [
+  "target_label",
+  "exam_label",
+  "group_label",
+  "decision",
+  "to",
+] as const;
 
 export type ActivityDetails = Partial<Record<(typeof ACTIVITY_DETAIL_KEYS)[number], string>>;
 
@@ -293,7 +299,10 @@ export async function listSiteActivity(
   input: { cursor?: string | null; limit?: number } = {},
 ): Promise<SiteActivityPage> {
   requireAdmin(caller);
-  const size = Math.max(1, Math.min(ACTIVITY_PAGE_SIZE, Math.floor(input.limit ?? ACTIVITY_PAGE_SIZE)));
+  const size = Math.max(
+    1,
+    Math.min(ACTIVITY_PAGE_SIZE, Math.floor(input.limit ?? ACTIVITY_PAGE_SIZE)),
+  );
   const before = decodeActivityCursor(input.cursor ?? null);
   const { results } = await db
     .prepare(
@@ -445,7 +454,9 @@ export async function listPasswordlessAccounts(
     .all<{ id: string; email: string; created_at: string }>();
   const rows = results ?? [];
   return {
-    rows: rows.slice(0, ADMIN_PAGE_SIZE).map((r) => ({ id: r.id, email: r.email, createdAt: r.created_at })),
+    rows: rows
+      .slice(0, ADMIN_PAGE_SIZE)
+      .map((r) => ({ id: r.id, email: r.email, createdAt: r.created_at })),
     hasNext: rows.length > ADMIN_PAGE_SIZE,
   };
 }
@@ -554,7 +565,9 @@ export async function listAccounts(
       role: normalizeRole(r.role),
       createdAt: r.created_at,
       status:
-        r.status === "approved" || r.status === "rejected" ? r.status : ("pending" as AccountStatus),
+        r.status === "approved" || r.status === "rejected"
+          ? r.status
+          : ("pending" as AccountStatus),
     })),
     hasNext: rows.length > ADMIN_PAGE_SIZE,
   };

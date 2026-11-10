@@ -293,9 +293,7 @@ async function main(argv) {
     ),
   );
   console.log(`Backup written to ${plan.outDir}`);
-  console.log(
-    "NEXT: run the restore drill in docs/backup.md against a throwaway database.",
-  );
+  console.log("NEXT: run the restore drill in docs/backup.md against a throwaway database.");
   return 0;
 }
 

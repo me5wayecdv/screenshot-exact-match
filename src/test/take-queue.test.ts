@@ -65,7 +65,12 @@ type State = {
   questions: Record<string, { id: string; prompt: string; type: string; marks: number }[]>;
   submissions: SubmissionState[];
   answers: { id: string; submission_id: string; question_id: string; response: string }[];
-  failures: { submission_id: string | null; message_type: string; reason: string; attempts: number }[];
+  failures: {
+    submission_id: string | null;
+    message_type: string;
+    reason: string;
+    attempts: number;
+  }[];
   audit: { action: string; entity_id: string }[];
   sent: TakeQueueMessage[];
   seen: string[];
@@ -223,9 +228,7 @@ function fakeDb(state: State): D1Database {
       return row ? { due_at: row.due_at } : null;
     }
     if (kind === "failure-by-submission") {
-      const row = [...state.failures]
-        .reverse()
-        .find((f) => f.submission_id === params[0]);
+      const row = [...state.failures].reverse().find((f) => f.submission_id === params[0]);
       return row ? { reason: row.reason } : null;
     }
     return null;
@@ -254,9 +257,7 @@ function fakeDb(state: State): D1Database {
       const submissionId = params[0] as string;
       const assessmentId = params[1] as string;
       const ids = params.slice(2) as string[];
-      const questions = (state.questions[assessmentId] ?? []).filter((q) =>
-        ids.includes(q.id),
-      );
+      const questions = (state.questions[assessmentId] ?? []).filter((q) => ids.includes(q.id));
       return {
         results: questions.map((q) => ({
           question_id: q.id,
@@ -264,9 +265,8 @@ function fakeDb(state: State): D1Database {
           answer_id: state.answers.some(
             (a) => a.submission_id === submissionId && a.question_id === q.id,
           )
-            ? state.answers.find(
-                (a) => a.submission_id === submissionId && a.question_id === q.id,
-              )!.id
+            ? state.answers.find((a) => a.submission_id === submissionId && a.question_id === q.id)!
+                .id
             : null,
         })),
       };
@@ -292,9 +292,7 @@ function fakeDb(state: State): D1Database {
             s.status === "in_progress",
         );
       if (duplicate) {
-        throw new Error(
-          "UNIQUE constraint failed: submissions.id (or one-in-progress index)",
-        );
+        throw new Error("UNIQUE constraint failed: submissions.id (or one-in-progress index)");
       }
       state.submissions.push({
         id,
@@ -350,7 +348,12 @@ function fakeDb(state: State): D1Database {
       );
       if (existing) existing.response = response;
       else
-        state.answers.push({ id: answerId, submission_id: submissionId, question_id: questionId, response });
+        state.answers.push({
+          id: answerId,
+          submission_id: submissionId,
+          question_id: questionId,
+          response,
+        });
       return { meta: { changes: 1 } };
     }
     if (sql.startsWith("UPDATE answers SET")) {
@@ -482,7 +485,11 @@ function submitMessage(overrides: Partial<Extract<TakeQueueMessage, { type: "sub
 function handle(
   body: TakeQueueMessage,
   attempts = 0,
-): { message: TakeQueueMessageHandle<TakeQueueMessage>; acked: () => boolean; retried: () => boolean } {
+): {
+  message: TakeQueueMessageHandle<TakeQueueMessage>;
+  acked: () => boolean;
+  retried: () => boolean;
+} {
   let ack = false;
   let retry = false;
   const message: TakeQueueMessageHandle<TakeQueueMessage> = {
@@ -539,9 +546,9 @@ describe("take-queue: producer enqueue", () => {
     await enqueueTakeMessage(draftMessage());
     expect(state.sent).toHaveLength(1);
     expect(state.sent[0]).toMatchObject({ type: "draft", seq: 1 });
-    expect(
-      (state.sent[0] as Extract<TakeQueueMessage, { type: "draft" }>).answers,
-    ).toEqual([{ question_id: "q1", response: "4", time_spent_seconds: 5 }]);
+    expect((state.sent[0] as Extract<TakeQueueMessage, { type: "draft" }>).answers).toEqual([
+      { question_id: "q1", response: "4", time_spent_seconds: 5 },
+    ]);
     expect(state.answers).toHaveLength(0);
   });
 
@@ -660,12 +667,20 @@ describe("take-queue: consumer idempotency", () => {
     await processTakeMessage(db, startMessage(), NOW);
     await processTakeMessage(
       db,
-      draftMessage({ id: "msg-draft-2", seq: 2, answers: [{ question_id: "q1", response: "new", time_spent_seconds: 6 }] }),
+      draftMessage({
+        id: "msg-draft-2",
+        seq: 2,
+        answers: [{ question_id: "q1", response: "new", time_spent_seconds: 6 }],
+      }),
       NOW,
     );
     await processTakeMessage(
       db,
-      draftMessage({ id: "msg-draft-1", seq: 1, answers: [{ question_id: "q1", response: "old", time_spent_seconds: 5 }] }),
+      draftMessage({
+        id: "msg-draft-1",
+        seq: 1,
+        answers: [{ question_id: "q1", response: "old", time_spent_seconds: 5 }],
+      }),
       NOW,
     );
     expect(state.answers).toHaveLength(1);
@@ -713,7 +728,11 @@ describe("take-queue: consumer idempotency", () => {
     await processTakeMessage(db, startMessage(), NOW);
     await processTakeMessage(db, submitMessage(), NOW);
     const { message, acked } = handle(
-      draftMessage({ id: "msg-draft-late", seq: 3, answers: [{ question_id: "q1", response: "late", time_spent_seconds: 1 }] }),
+      draftMessage({
+        id: "msg-draft-late",
+        seq: 3,
+        answers: [{ question_id: "q1", response: "late", time_spent_seconds: 1 }],
+      }),
     );
     await handleTakeQueueBatch({ messages: [message] }, { DB: db }, NOW);
     expect(acked()).toBe(true);
@@ -791,8 +810,8 @@ describe("take-queue: retry + failure handling", () => {
 
   it("the consumer throws when the D1 binding is missing", async () => {
     const { message } = handle(startMessage());
-    await expect(
-      handleTakeQueueBatch({ messages: [message] }, {}, NOW),
-    ).rejects.toThrow("TAKE_QUEUE_NO_DB");
+    await expect(handleTakeQueueBatch({ messages: [message] }, {}, NOW)).rejects.toThrow(
+      "TAKE_QUEUE_NO_DB",
+    );
   });
 });

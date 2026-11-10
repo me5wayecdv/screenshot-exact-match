@@ -4,7 +4,10 @@
 import { call } from "./rpc-live.mjs";
 
 const probes = [
-  ["signInD1 (bogus creds)", () => call("signInD1", { email: "nobody-zzz@example.com", password: "WrongPass123!" })],
+  [
+    "signInD1 (bogus creds)",
+    () => call("signInD1", { email: "nobody-zzz@example.com", password: "WrongPass123!" }),
+  ],
   ["getMeD1 (no cookie)", () => call("getMeD1", {})],
 ];
 for (const [name, fn] of probes) {

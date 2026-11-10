@@ -83,10 +83,7 @@ export type TakeFailureInput = {
 
 /** Append-only failure record (admin-visible via listTakeWriteFailuresD1).
  *  Never answers, never scores, never AI feedback — ids + reason only. */
-export async function recordTakeFailure(
-  db: D1Database,
-  input: TakeFailureInput,
-): Promise<void> {
+export async function recordTakeFailure(db: D1Database, input: TakeFailureInput): Promise<void> {
   await db
     .prepare(
       "INSERT INTO take_write_failures (id, student_id, submission_id, assessment_id, " +
@@ -108,10 +105,7 @@ export async function recordTakeFailure(
 /** Best-effort variant for the final-attempt path: if the insert itself
  *  fails (D1 down), swallow it — the throw that follows still sends
  *  the message to the DLQ, which is the durability guarantee. */
-async function recordTakeFailureBestEffort(
-  db: D1Database,
-  input: TakeFailureInput,
-): Promise<void> {
+async function recordTakeFailureBestEffort(db: D1Database, input: TakeFailureInput): Promise<void> {
   try {
     await recordTakeFailure(db, input);
   } catch {
@@ -243,10 +237,7 @@ export async function handleTakeQueueBatch(
       msg.ack();
     } catch (error) {
       if (error instanceof TakeQueuePermanentError) {
-        await recordTakeFailureBestEffort(
-          db,
-          failureInput(msg.body, error.reason, msg.attempts),
-        );
+        await recordTakeFailureBestEffort(db, failureInput(msg.body, error.reason, msg.attempts));
         msg.ack();
         continue;
       }

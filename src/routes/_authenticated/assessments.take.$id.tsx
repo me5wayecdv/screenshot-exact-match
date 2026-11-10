@@ -374,10 +374,7 @@ function Take() {
               return;
             }
             lastSaved.current = payload;
-            draftSeqRef.current = Math.max(
-              draftSeqRef.current,
-              status.lastAppliedDraftSeq ?? seq,
-            );
+            draftSeqRef.current = Math.max(draftSeqRef.current, status.lastAppliedDraftSeq ?? seq);
             setSaveState("saved");
             try {
               await recorder.flushEvents(draft.id);

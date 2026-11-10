@@ -352,7 +352,13 @@ export async function resolveStart(
     .bind(assessmentId, studentId)
     .first<{ id: string }>();
   if (existing) {
-    return { assessment, existingId: existing.id, attemptNumber: 0, totalPossible: 0, expiresAt: null };
+    return {
+      assessment,
+      existingId: existing.id,
+      attemptNumber: 0,
+      totalPossible: 0,
+      expiresAt: null,
+    };
   }
   const usedRow = await db
     .prepare("SELECT COUNT(*) AS n FROM submissions WHERE assessment_id = ? AND student_id = ?")
@@ -507,8 +513,7 @@ export async function loadDraftTarget(
   // Edits freeze at expiry and at the window end (old save_draft rule).
   if (submission.expires_at && nowIso > submission.expires_at)
     return { submission, editable: false };
-  if (assessment?.due_at && nowIso > assessment.due_at)
-    return { submission, editable: false };
+  if (assessment?.due_at && nowIso > assessment.due_at) return { submission, editable: false };
   return { submission, editable: true };
 }
 
@@ -622,8 +627,7 @@ async function applyQueuedDraftAnswers(
         (stored.results ?? []).map((row) => [row.question_id, row.response]),
       );
       const missing = [...byQuestion].filter(
-        ([questionId, answer]) =>
-          storedByQuestion.get(questionId) !== (answer.response ?? ""),
+        ([questionId, answer]) => storedByQuestion.get(questionId) !== (answer.response ?? ""),
       );
       if (missing.length === 0) return { applied: "duplicate", lastAppliedDraftSeq: seq };
       await writeQueuedDraftAnswers(db, submission, missing, seq);
@@ -954,8 +958,7 @@ export const startAttemptD1 = createServerFn({ method: "POST" })
     const resolved = await retryD1Overload(() =>
       resolveStart(db, session.userId, data.assessmentId, new Date().toISOString()),
     );
-    if (resolved.existingId)
-      return { queued: false, submissionId: resolved.existingId };
+    if (resolved.existingId) return { queued: false, submissionId: resolved.existingId };
     const submissionId = data.submissionId;
     await enqueueTakeMessage({
       v: 1,
@@ -973,8 +976,7 @@ export const startAttemptD1 = createServerFn({ method: "POST" })
 export const saveDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
-    (data: unknown) =>
-      data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
+    (data: unknown) => data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
   )
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
@@ -999,8 +1001,7 @@ export const saveDraftD1 = createServerFn({ method: "POST" })
 export const submitAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
-    (data: unknown) =>
-      data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
+    (data: unknown) => data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
   )
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);

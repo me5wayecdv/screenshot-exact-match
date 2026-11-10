@@ -20,9 +20,19 @@ async function call(id, data, cookie) {
   const text = await res.text();
   return { status: res.status, setCookie: res.headers.get("set-cookie"), body: text.slice(0, 400) };
 }
-const r1 = await call(FN.signInD1, { email: "qemmini-staging-admin-20261104@example.com", password: "StagingTest123!" });
-console.log("signIn:", r1.status, "| set-cookie:", (r1.setCookie||"").slice(0,100), "| body:", r1.body);
-const cookie = (r1.setCookie||"").split(";")[0];
+const r1 = await call(FN.signInD1, {
+  email: "qemmini-staging-admin-20261104@example.com",
+  password: "StagingTest123!",
+});
+console.log(
+  "signIn:",
+  r1.status,
+  "| set-cookie:",
+  (r1.setCookie || "").slice(0, 100),
+  "| body:",
+  r1.body,
+);
+const cookie = (r1.setCookie || "").split(";")[0];
 if (cookie) {
   const r2 = await call(FN.getMeD1, {}, cookie);
   console.log("getMe:", r2.status, "| body:", r2.body);

@@ -532,8 +532,7 @@ export const listAnalyticsStudentPageD1 = createServerFn({ method: "POST" })
 export const createPracticeDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
-    (data: unknown) =>
-      data as { assessmentId: string; questionIds: string[]; title: string },
+    (data: unknown) => data as { assessmentId: string; questionIds: string[]; title: string },
   )
   .handler(async ({ data, context }) =>
     createPracticeDraft(ctxDb(context), ctxCaller(context), data),

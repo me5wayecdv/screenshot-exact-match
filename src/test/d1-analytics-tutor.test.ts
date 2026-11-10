@@ -77,9 +77,18 @@ function analyticsDb() {
     string,
     { assessment_id: string; type: string; prompt: string; marks: number; key: string }
   >([
-    ["q-1", { assessment_id: "assess-1", type: "written", prompt: "Explain", marks: 10, key: "key" }],
-    ["q-2", { assessment_id: "assess-1", type: "written", prompt: "Define", marks: 5, key: "key-2" }],
-    ["q-foreign", { assessment_id: "assess-2", type: "written", prompt: "Other", marks: 10, key: "key-3" }],
+    [
+      "q-1",
+      { assessment_id: "assess-1", type: "written", prompt: "Explain", marks: 10, key: "key" },
+    ],
+    [
+      "q-2",
+      { assessment_id: "assess-1", type: "written", prompt: "Define", marks: 5, key: "key-2" },
+    ],
+    [
+      "q-foreign",
+      { assessment_id: "assess-2", type: "written", prompt: "Other", marks: 10, key: "key-3" },
+    ],
   ]);
   const inserts = {
     assessments: [] as string[],
@@ -137,13 +146,19 @@ function analyticsDb() {
       // [callerId, assessmentId, ...questionIds]; a question from
       // another teacher's assessment is filtered out here, so the
       // found.length check in createPracticeDraft rejects the call.
-      if (sql.includes("FROM questions q JOIN assessments own") && sql.includes("LEFT JOIN question_keys")) {
+      if (
+        sql.includes("FROM questions q JOIN assessments own") &&
+        sql.includes("LEFT JOIN question_keys")
+      ) {
         const assessmentId = params[1] as string;
         const ids = params.slice(2) as string[];
         return {
           all: ids
             .map((id) => questions.get(id))
-            .filter((q): q is NonNullable<typeof q> => q !== undefined && q.assessment_id === assessmentId)
+            .filter(
+              (q): q is NonNullable<typeof q> =>
+                q !== undefined && q.assessment_id === assessmentId,
+            )
             .map((q) => ({
               id: [...questions.entries()].find(([, v]) => v === q)![0],
               type: q.type,
@@ -266,11 +281,15 @@ describe("D1 analytics", () => {
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(
-      createPracticeDraft(db, { id: "student-1", role: "student" }, {
-        assessmentId: "assess-1",
-        questionIds: ["q-1"],
-        title: "Practice: assess-1",
-      }),
+      createPracticeDraft(
+        db,
+        { id: "student-1", role: "student" },
+        {
+          assessmentId: "assess-1",
+          questionIds: ["q-1"],
+          title: "Practice: assess-1",
+        },
+      ),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(inserts.assessments).toHaveLength(0);
   });

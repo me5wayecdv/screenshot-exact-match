@@ -37,7 +37,6 @@ export const queue: (
 ) => Promise<void> = (batch, env) => handleTakeQueueBatch(batch, env);
 
 export default {
-  fetch: (...args: Parameters<typeof serverEntry.fetch>) =>
-    serverEntry.fetch(...args),
+  fetch: (...args: Parameters<typeof serverEntry.fetch>) => serverEntry.fetch(...args),
   queue,
 };

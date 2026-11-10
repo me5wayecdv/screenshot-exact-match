@@ -6,11 +6,7 @@
  *   collision; any other DB failure surfaces at once.
  */
 import { describe, expect, it, vi } from "vitest";
-import {
-  createLesson,
-  listTutorLessons,
-  type Caller,
-} from "@/server/d1-lessons";
+import { createLesson, listTutorLessons, type Caller } from "@/server/d1-lessons";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 
 type Subject = { id: string; name: string; teacher_id: string };
