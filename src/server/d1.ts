@@ -50,13 +50,21 @@ export type SendEmailBindingLike = {
   send(message: unknown): Promise<unknown>;
 };
 
-/** Cloudflare Queues producer binding shape (wrangler.jsonc, Phase 3).
- *  `send()` resolves only after the queue durably accepts the message,
- *  so a resolved send is a durability guarantee, not fire-and-forget.
- *  The optional second argument is the Queues send options
- *  (`delaySeconds`, `contentType`); producers here use the defaults. */
-export type TakeQueueBindingLike = {
-  send(message: unknown, options?: { delaySeconds?: number }): Promise<void>;
+/** Durable Object namespace binding shape (wrangler.jsonc, Phase 4):
+ *  `idFromName` gives the deterministic id for one exam's
+ *  TakeSession object; `get` returns its stub, whose `fetch` is the
+ *  DO's RPC surface (POST /start, /draft, /submit, /status). */
+export type TakeSessionStubLike = {
+  fetch(request: Request): Promise<Response>;
+};
+
+export type TakeSessionIdLike = {
+  toString(): string;
+};
+
+export type TakeSessionsNamespaceLike = {
+  idFromName(name: string): TakeSessionIdLike;
+  get(id: TakeSessionIdLike): TakeSessionStubLike;
 };
 
 export type CloudflareEnv = {
@@ -64,12 +72,12 @@ export type CloudflareEnv = {
   PAPERS_BUCKET?: R2BucketLike;
   SOURCES_BUCKET?: R2BucketLike;
   SEB?: SendEmailBindingLike;
-  TAKE_QUEUE?: TakeQueueBindingLike;
+  TAKE_SESSIONS?: TakeSessionsNamespaceLike;
   [key: string]: unknown;
 };
 
 let injectedDb: D1Database | null = null;
-let injectedQueue: TakeQueueBindingLike | null = null;
+let injectedTakeSessions: TakeSessionsNamespaceLike | null = null;
 let injectedR2: { papers: R2BucketLike | null; sources: R2BucketLike | null } = {
   papers: null,
   sources: null,
@@ -88,10 +96,10 @@ export function setR2Bindings(buckets: {
   injectedR2 = { papers: buckets.papers ?? null, sources: buckets.sources ?? null };
 }
 
-/** Test injection for the take-writes Queue binding only. Never call
- *  from production code. */
-export function setTakeQueueBinding(queue: TakeQueueBindingLike | null): void {
-  injectedQueue = queue;
+/** Test injection for the take-sessions DO namespace binding only.
+ *  Never call from production code. */
+export function setTakeSessionsBinding(sessions: TakeSessionsNamespaceLike | null): void {
+  injectedTakeSessions = sessions;
 }
 
 async function loadWorkerEnv(): Promise<CloudflareEnv | null> {
@@ -144,14 +152,15 @@ export async function getSourcesBucket(): Promise<R2BucketLike> {
   throw notWired("R2_SOURCES");
 }
 
-/** Async accessor for the take-writes Queue producer binding (Phase 3):
- *  injected binding first (tests), then Worker env. Throws the typed
- *  TAKE_QUEUE_NOT_WIRED error when the binding is missing — a producer
- *  must never silently fall back to a direct D1 write, or the burst
- *  protection it exists for would silently vanish. */
-export async function getTakeQueue(): Promise<TakeQueueBindingLike> {
-  if (injectedQueue) return injectedQueue;
+/** Async accessor for the take-sessions Durable Object namespace
+ *  (Phase 4): injected binding first (tests), then Worker env.
+ *  Throws the typed TAKE_SESSIONS_NOT_WIRED error when the binding
+ *  is missing — a producer must never silently fall back to a direct
+ *  D1 write, or the burst protection it exists for would silently
+ *  vanish. */
+export async function getTakeSessions(): Promise<TakeSessionsNamespaceLike> {
+  if (injectedTakeSessions) return injectedTakeSessions;
   const env = await loadWorkerEnv();
-  if (env?.TAKE_QUEUE) return env.TAKE_QUEUE;
-  throw notWired("TAKE_QUEUE");
+  if (env?.TAKE_SESSIONS) return env.TAKE_SESSIONS;
+  throw notWired("TAKE_SESSIONS");
 }
