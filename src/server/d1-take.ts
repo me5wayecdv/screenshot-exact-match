@@ -306,23 +306,6 @@ export async function callTakeSession<T>(
   return payload as T;
 }
 
-/** One D1 read for the question marks the DO needs to validate
- *  answers (DESIGN.md §4 — the DO holds no question data). Drafts
- *  are autosaves spread over the exam, not synchronized, so this
- *  read is affordable. */
-export async function loadQuestionMarks(
-  db: D1Database,
-  assessmentId: string,
-): Promise<Record<string, number>> {
-  const rows = await db
-    .prepare("SELECT id, marks FROM questions WHERE assessment_id = ?")
-    .bind(assessmentId)
-    .all<{ id: string; marks: number }>();
-  const marks: Record<string, number> = {};
-  for (const row of rows.results ?? []) marks[row.id] = row.marks;
-  return marks;
-}
-
 /** Append-only take-write failure record (admin-visible via
  *  listTakeWriteFailuresD1). Never answers, never scores, never AI
  *  feedback — ids + reason only. Moved here from take-queue.ts
@@ -980,13 +963,15 @@ export const getTakeDataD1 = createServerFn({ method: "POST" })
     return getTakeData(db, session.userId, data.assessmentId);
   });
 
-// Phase 4 producers: each handler validates with READS only (gate /
-// ownership / status — reads never failed under burst), then calls
-// the exam's TakeSession DO and returns { queued: true } once the DO
-// accepts the op. The row lives in the DO; the client polls
-// getTakeStatusD1 for it (the poll reads the DO and resolves on the
-// first poll). A resume returns the existing draft synchronously —
-// no DO traffic for a resume.
+// Phase 4 producers (V2): the DO validates + applies. The Worker is
+// a thin pass-through — no D1 reads on the start path (the DO-side
+// config cache holds the gate), and no per-draft/per-submit marks
+// read (the DO caches the marks). Drafts/submits still pre-check the
+// submission row in D1: it gives the Worker the assessmentId for DO
+// routing and the ownership check, and those calls are spread over
+// the exam, not synchronized. The client polls getTakeStatusD1 for
+// the row (the poll reads the DO and resolves on the first poll).
+// A resume returns the existing draft synchronously.
 export const startAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
@@ -994,25 +979,19 @@ export const startAttemptD1 = createServerFn({ method: "POST" })
       data as { assessmentId: string; questionOrder: string[]; submissionId: string },
   )
   .handler(async ({ context, data }) => {
-    const { session, db } = ctx(context);
+    const { session } = ctx(context);
     requireStudent(session);
-    const nowIso = new Date().toISOString();
-    const resolved = await retryD1Overload(() =>
-      resolveStart(db, session.userId, data.assessmentId, nowIso),
+    return callTakeSession<{ queued: boolean; submissionId: string }>(
+      data.assessmentId,
+      "/start",
+      {
+        submissionId: data.submissionId,
+        studentId: session.userId,
+        assessmentId: data.assessmentId,
+        questionOrder: data.questionOrder,
+        nowIso: new Date().toISOString(),
+      },
     );
-    if (resolved.existingId) return { queued: false, submissionId: resolved.existingId };
-    const submissionId = data.submissionId;
-    await callTakeSession<{ submissionId: string }>(data.assessmentId, "/start", {
-      submissionId,
-      studentId: session.userId,
-      assessmentId: data.assessmentId,
-      questionOrder: data.questionOrder,
-      attemptNumber: resolved.attemptNumber,
-      totalPossible: resolved.totalPossible,
-      expiresAt: resolved.expiresAt,
-      nowIso,
-    });
-    return { queued: true, submissionId };
   });
 
 export const saveDraftD1 = createServerFn({ method: "POST" })
@@ -1027,9 +1006,6 @@ export const saveDraftD1 = createServerFn({ method: "POST" })
       loadDraftTarget(db, session.userId, data.submissionId, new Date().toISOString()),
     );
     if (!target || !target.editable) return { ok: false, queued: false };
-    const marks = await retryD1Overload(() =>
-      loadQuestionMarks(db, target.submission.assessment_id),
-    );
     const result = await callTakeSession<{ applied: string }>(
       target.submission.assessment_id,
       "/draft",
@@ -1038,7 +1014,6 @@ export const saveDraftD1 = createServerFn({ method: "POST" })
         studentId: session.userId,
         answers: data.answers,
         seq: data.seq,
-        marks,
       },
     );
     if (result.applied === "not_editable") return { ok: false, queued: false };
@@ -1062,9 +1037,6 @@ export const submitAttemptD1 = createServerFn({ method: "POST" })
     if (!submission || submission.student_id !== session.userId)
       return { ok: false, queued: false };
     if (submission.status !== "in_progress") return { ok: false, queued: false };
-    const marks = await retryD1Overload(() =>
-      loadQuestionMarks(db, submission.assessment_id),
-    );
     const result = await callTakeSession<{ submitted: boolean }>(
       submission.assessment_id,
       "/submit",
@@ -1073,7 +1045,6 @@ export const submitAttemptD1 = createServerFn({ method: "POST" })
         studentId: session.userId,
         answers: data.answers,
         seq: data.seq,
-        marks,
         nowIso: new Date().toISOString(),
       },
     );
