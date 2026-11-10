@@ -12,7 +12,9 @@
  *   header), so application code generates the 6-character lesson
  *   code from crypto randomness and retries on UNIQUE violation,
  *   mirroring the teacher-code retry pattern in d1-auth-store.
- * - Subjects are looked up by id only (names, not student data).
+ * - Subjects are looked up by id only (names, not student data), and are
+ *   owner-scoped: a tutor only ever sees or attaches their own subjects
+ *   (subjects.teacher_id = caller), mirroring the assessment flow.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -84,7 +86,8 @@ export async function listTutorLessons(
   const rows = lessonRows ?? [];
   const lessons = rows.slice(0, pageSize);
   const { results: subjects } = await db
-    .prepare("SELECT id, name FROM subjects ORDER BY name LIMIT 200")
+    .prepare("SELECT id, name FROM subjects WHERE teacher_id = ? ORDER BY name LIMIT 200")
+    .bind(caller.id)
     .all<SubjectRow>();
   let enrollments: LessonList["enrollments"] = [];
   if (lessons.length > 0) {
@@ -123,8 +126,8 @@ export async function createLesson(
   if (!input.title.trim()) throw new LessonError("INVALID_INPUT", "Lesson title is required.");
   if (input.subjectId) {
     const subj = await db
-      .prepare("SELECT id FROM subjects WHERE id = ?")
-      .bind(input.subjectId)
+      .prepare("SELECT id FROM subjects WHERE id = ? AND teacher_id = ?")
+      .bind(input.subjectId, caller.id)
       .first<{ id: string }>();
     if (!subj) throw new LessonError("NOT_FOUND", "Subject not found.");
   }
@@ -149,6 +152,12 @@ export async function createLesson(
         .run();
       return { id, joinCode };
     } catch (e) {
+      // Only a join-code collision is worth retrying with a fresh code;
+      // any other failure (bad input, DB down) must surface at once
+      // instead of being retried four more times and then rethrown.
+      const collision =
+        e instanceof Error && /UNIQUE constraint failed: lessons\.join_code/i.test(e.message);
+      if (!collision) throw e;
       lastError = e;
     }
   }
