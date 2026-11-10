@@ -260,6 +260,13 @@ describe("D1 handwritten grading", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  it("teacher history still carries ai_feedback (teacher-only)", async () => {
+    const db = fakeDb(baseState());
+    const rows = await listHandwrittenHistory(db, TEACHER);
+    expect(rows.map((r) => r.id)).toEqual(["grade-1"]);
+    expect(rows[0]?.ai_feedback).toBe("good");
+  });
+
   it("a teacher cannot read another teacher's questions (keys included)", async () => {
     const db = fakeDb(baseState());
     await expect(listHandwrittenQuestions(db, OTHER_TEACHER, "assess-1")).rejects.toMatchObject({

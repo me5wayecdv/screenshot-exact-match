@@ -94,7 +94,8 @@ function fakeDb(state: HwLinkState): D1Database {
               teacher_name: state.profiles.get(g.teacher_id) ?? "",
               final_score: g.final_score,
               max_marks: g.max_marks,
-              ai_feedback: g.ai_feedback,
+              // Mirrors the real SELECT: ai_feedback is never selected
+              // for students (teacher-only), so it is absent here too.
               teacher_feedback: g.teacher_feedback,
               created_at: g.created_at,
             }));
@@ -247,6 +248,29 @@ describe("handwritten student link", () => {
     expect(visible.map((g) => g.id)).toEqual([id]);
     expect(visible[0]?.final_score).toBe(8);
     expect(visible[0]?.max_marks).toBe(10);
+    // The saved grade HAS ai_feedback ("good"), but the student
+    // surface must never return it.
+    expect("ai_feedback" in (visible[0] ?? {})).toBe(false);
+  });
+
+  it("student handwritten grades never carry ai_feedback (teacher-only)", async () => {
+    const state = baseState();
+    const db = fakeDb(state);
+    const { id } = await saveHandwrittenGrade(
+      db,
+      TEACHER,
+      gradeInput({ studentId: "student-1", studentName: "Sara" }),
+    );
+    // The stored row keeps the AI feedback for the teacher's history…
+    expect(state.grades.get(id)?.ai_feedback).toBe("good");
+    // …but neither student surface returns it.
+    const visible = await listStudentHandwrittenGrades(db, "student-1");
+    expect(visible.map((g) => g.id)).toEqual([id]);
+    expect("ai_feedback" in (visible[0] ?? {})).toBe(false);
+    expect(visible[0]?.final_score).toBe(8);
+    const home = await getStudentHome(db, "student-1", 0, 0);
+    expect(home.handwrittenGrades.map((g) => g.id)).toEqual([id]);
+    expect("ai_feedback" in (home.handwrittenGrades[0] ?? {})).toBe(false);
   });
 
   it("a grade with no student stays unlinked and invisible to students", async () => {
@@ -358,5 +382,8 @@ describe("handwritten student link", () => {
     const home = await getStudentHome(db, "student-1", 0, 0);
     expect(home.handwrittenGrades.map((g) => g.id)).toEqual(["grade-linked"]);
     expect(home.handwrittenGrades[0]?.final_score).toBe(9);
+    // The linked grade's stored ai_feedback ("great") must not leak
+    // through the student home response.
+    expect("ai_feedback" in (home.handwrittenGrades[0] ?? {})).toBe(false);
   });
 });
