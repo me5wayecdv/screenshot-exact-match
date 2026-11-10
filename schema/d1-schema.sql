@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   status TEXT NOT NULL
     CHECK (status IN ('submitted','in_progress','awaiting_review','approved','released')),
   attempt_number INTEGER NOT NULL DEFAULT 1 CHECK (attempt_number >= 1),
+  draft_seq INTEGER NOT NULL DEFAULT 0,
   started_at TEXT,
   submitted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   expires_at TEXT,
@@ -193,6 +194,23 @@ CREATE TABLE IF NOT EXISTS submissions (
   UNIQUE (assessment_id, student_id, attempt_number)
 );
 CREATE INDEX IF NOT EXISTS submissions_student_idx ON submissions(student_id, assessment_id);
+
+-- Phase 3: visible record of take-queue messages that failed after
+-- all retries (ids + reason only — never answers, scores, or AI
+-- feedback). The message itself is kept in the DLQ for replay.
+CREATE TABLE IF NOT EXISTS take_write_failures (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL,
+  assessment_id TEXT NOT NULL,
+  submission_id TEXT,
+  message_type TEXT NOT NULL
+    CHECK (message_type IN ('start','draft','submit')),
+  reason TEXT NOT NULL DEFAULT '',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS take_write_failures_created_idx
+  ON take_write_failures(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS answers (
   id TEXT PRIMARY KEY,
