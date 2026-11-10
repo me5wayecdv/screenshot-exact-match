@@ -24,6 +24,10 @@ export type SqlStorageLike = {
 /** Durable Object storage (subset used by TakeSession). */
 export type DurableObjectStorageLike = {
   sql: SqlStorageLike;
+  /** Run a closure in a SQLite transaction. Raw BEGIN/COMMIT SQL is
+   *  forbidden in DO SQLite storage — this is the only way to get a
+   *  transaction (the async form; the sync form is transactionSync). */
+  transaction<T>(fn: () => Promise<T>): Promise<T>;
   setAlarm(scheduledTime: number | Date): Promise<void>;
   getAlarm(): Promise<number | null>;
   deleteAlarm(): Promise<void>;
