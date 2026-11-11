@@ -42,6 +42,12 @@ import { parseJsonc } from "./backup-d1.mjs";
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const LIVE_DATABASE_ID = "3d9fae1b-acb7-426c-a7ec-307217fab151";
+// D1 execute calls use the database UUID, not its name: the backup drill's
+// execute calls (which worked) passed a UUID, while the purge's calls
+// passed the name "qemmini-live-db" and failed with Cloudflare auth
+// error 10000 on the live DB. Same token, same endpoint shape — the
+// identifier is the only remaining difference.
+const DATABASE_ID = LIVE_DATABASE_ID;
 const ADMIN_EMAIL = "qemmini-live-admin-20261104@example.com";
 const EXPECTED_REAL_USERS = 3;
 const BUCKETS = ["qemmini-handwritten-papers", "qemmini-generation-sources"];
@@ -312,7 +318,7 @@ async function main(argv) {
   }
 
   // ---- Guards: abort if the situation changed since the plan was written.
-  const before = d1Query(database, COUNTS_SQL);
+  const before = d1Query(DATABASE_ID, COUNTS_SQL);
   console.log("Before:", JSON.stringify(before));
   if (before.real_users !== EXPECTED_REAL_USERS) {
     console.error(
@@ -334,7 +340,7 @@ async function main(argv) {
   // Fetch the full test-user id list (d1Query returns a single row only,
   // so the id list goes through a raw JSON query).
   const ids = d1QueryAll(
-    database,
+    DATABASE_ID,
     `SELECT id FROM auth_users WHERE email LIKE '%@example.com' AND email <> '${ADMIN_EMAIL}'`,
   ).map((r) => r.id);
   const idSet = new Set(ids);
@@ -376,14 +382,14 @@ async function main(argv) {
     ].join("\n"),
   );
   try {
-    wrangler(["d1", "execute", database, "--remote", "--file", sqlPath, "--yes"]);
+    wrangler(["d1", "execute", DATABASE_ID, "--remote", "--file", sqlPath, "--yes"]);
   } catch {
     console.error("ERROR: D1 purge failed partway. Check the counts below and the backup.");
     return 6;
   }
 
   // ---- Verify the post-purge state.
-  const after = d1Query(database, COUNTS_SQL);
+  const after = d1Query(DATABASE_ID, COUNTS_SQL);
   console.log("After:", JSON.stringify(after));
   const problems = [];
   if (after.test_users !== 0) problems.push(`test_users=${after.test_users}, expected 0`);
