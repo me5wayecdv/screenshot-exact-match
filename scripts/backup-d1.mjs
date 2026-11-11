@@ -28,10 +28,11 @@
  *   old setup, so an R2 backup taken for either env contains the other
  *   env's objects too. The plan prints this warning every run.
  *
- * Nothing here has been run against a real Cloudflare account. The restore
- * drill (restore to a throwaway database, then run the pilot smoke tests)
- * is still owed — see docs/backup.md — and this script must not be treated
- * as tested until that drill passes.
+ * First real backup ran 2026-11-11 (Actions run #1, artifact verified
+ * complete: 15.8 MB SQL + 9 R2 objects). The first restore drill failed
+ * on the dump's table order (see reorderDumpForRestore below) and was
+ * fixed the same day; the drill must pass before any backup is treated
+ * as tested. Do not treat this script as tested until a drill passes.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
@@ -68,6 +69,42 @@ export function parseJsonc(text) {
     })
     .join("\n");
   return JSON.parse(withoutComments.replace(/,(\s*[}\]])/g, "$1"));
+}
+
+/**
+ * Move the auth_users CREATE TABLE + INSERT block to the top of a
+ * `wrangler d1 export` dump (right after the opening PRAGMA line).
+ *
+ * The export dumps tables in sqlite_master order, which puts profiles
+ * (and every other table with an FK to auth_users) BEFORE auth_users
+ * itself. A restore import with foreign_keys ON then fails on the first
+ * child INSERT with "no such table: main.auth_users" — exactly what the
+ * first restore drill hit on 2026-11-11. auth_users is the only parent
+ * table dumped late (verified against the live schema: every other FK
+ * parent is created before its children), so moving this one block
+ * fixes the order. Verified locally against the 2026-11-11 live dump:
+ * after the move, all 55,133 statements import cleanly with FKs on
+ * (2035 users / 2035 profiles / 3285 submissions).
+ *
+ * Throws instead of writing a dump that cannot be restored.
+ */
+export function reorderDumpForRestore(sqlPath) {
+  const text = readFileSync(sqlPath, "utf8");
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => line.startsWith("CREATE TABLE auth_users"));
+  if (start === -1) {
+    throw new Error("reorderDumpForRestore: no CREATE TABLE auth_users in dump");
+  }
+  let end = start + 1;
+  while (end < lines.length && !lines[end].startsWith("CREATE TABLE ")) end += 1;
+  const block = lines.slice(start, end);
+  const rest = [...lines.slice(0, start), ...lines.slice(end)];
+  // The dump opens with a PRAGMA line; the block goes right after it.
+  writeFileSync(sqlPath, [rest[0], ...block, ...rest.slice(1)].join("\n"));
+  return {
+    movedLines: block.length,
+    authUsersRows: block.filter((line) => line.startsWith("INSERT INTO")).length,
+  };
 }
 
 export function buildPlan({ env, outDir, stamp, configDir = appRoot }) {
@@ -205,6 +242,19 @@ async function main(argv) {
     );
   } catch {
     console.error("ERROR: D1 export failed. The backup is incomplete; do not rely on it.");
+    return 4;
+  }
+
+  // Restore-order fix (2026-11-11): the raw export cannot be imported
+  // with foreign_keys ON — see reorderDumpForRestore. Reorder in place
+  // before anything else reads the dump.
+  try {
+    const moved = reorderDumpForRestore(plan.files.sql);
+    console.log(
+      `Reordered dump for restore: auth_users block (${moved.movedLines} lines, ${moved.authUsersRows} rows) moved to the top.`,
+    );
+  } catch (error) {
+    console.error(`ERROR: ${error.message}. The dump cannot be restored; do not rely on it.`);
     return 4;
   }
 
