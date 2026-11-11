@@ -386,6 +386,12 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
     };
   }
 
+  /** V3.2: re-stamp loadedAt without reloading (see the interface
+   *  comment) — one UPDATE, no transaction needed. */
+  async touchConfig(loadedAt: number): Promise<void> {
+    this.sql.exec("UPDATE do_config SET loaded_at = ?", loadedAt);
+  }
+
   async setConfig(
     config: ExamConfig,
     questions: ExamQuestion[],
