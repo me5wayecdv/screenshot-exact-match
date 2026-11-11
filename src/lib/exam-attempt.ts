@@ -55,6 +55,17 @@ export function canStartAttempt(attemptsUsed: number, maxAttempts: number): bool
   return attemptsUsed < Math.max(1, maxAttempts);
 }
 
+/**
+ * Random start jitter (V3.4): spreads a synchronized exam start over a
+ * few seconds so 500 students do not hit startAttempt in the same
+ * instant. Whole milliseconds in [0, maxMs]. The server computes the
+ * attempt expiry from the actual start, so the delay costs the student
+ * nothing. `random` is injectable so tests can pin the value.
+ */
+export function randomStartDelayMs(maxMs = 10_000, random: () => number = Math.random): number {
+  return Math.floor(random() * (Math.max(0, maxMs) + 1));
+}
+
 /** Latest non-draft attempt per student, by attempt_number. Drafts never
  * count in report stats: a student mid-attempt hasn't submitted, and an
  * older released attempt must not double-count once a newer one exists. */

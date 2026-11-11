@@ -4,6 +4,7 @@ import {
   effectiveDeadlineMs,
   formatCountdown,
   latestSubmittedPerStudent,
+  randomStartDelayMs,
   remainingSeconds,
   windowState,
 } from "../lib/exam-attempt";
@@ -79,5 +80,27 @@ describe("canStartAttempt", () => {
     expect(canStartAttempt(1, 1)).toBe(false);
     expect(canStartAttempt(2, 3)).toBe(true);
     expect(canStartAttempt(3, 3)).toBe(false);
+  });
+});
+
+describe("randomStartDelayMs (V3.4)", () => {
+  it("is deterministic with an injected random value", () => {
+    expect(randomStartDelayMs(10_000, () => 0)).toBe(0);
+    expect(randomStartDelayMs(10_000, () => 0.5)).toBe(5000);
+    expect(randomStartDelayMs(10_000, () => 0.9999)).toBe(9999);
+  });
+  it("respects a custom max", () => {
+    expect(randomStartDelayMs(1000, () => 0.5)).toBe(500);
+  });
+  it("stays within [0, maxMs] over many draws", () => {
+    for (let i = 0; i < 200; i += 1) {
+      const d = randomStartDelayMs();
+      expect(Number.isInteger(d)).toBe(true);
+      expect(d).toBeGreaterThanOrEqual(0);
+      expect(d).toBeLessThanOrEqual(10_000);
+    }
+  });
+  it("clamps a negative max to 0", () => {
+    expect(randomStartDelayMs(-5, () => 0.9)).toBe(0);
   });
 });

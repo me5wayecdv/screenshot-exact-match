@@ -27,6 +27,7 @@ import {
   canStartAttempt,
   effectiveDeadlineMs,
   formatCountdown,
+  randomStartDelayMs,
   remainingSeconds,
   windowState,
 } from "@/lib/exam-attempt";
@@ -35,6 +36,7 @@ import { PageHeader, Panel, Pill, Empty, statusTone } from "@/components/ui-kit"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 
 type Q = TakeQuestion;
@@ -86,6 +88,69 @@ function useTakeData(id: string, studentId: string | undefined) {
       };
     },
   });
+}
+
+function TakePreparing({ title, phase }: { title?: string | null; phase: "data" | "open" }) {
+  const { t } = useI18n();
+  // Indeterminate progress: the bar cycles 25→85 while the server
+  // prepares the exam — no fake percentage, just visible motion.
+  const [progress, setProgress] = useState(25);
+  useEffect(() => {
+    const id = setInterval(() => setProgress((p) => (p >= 85 ? 25 : p + 7)), 600);
+    return () => clearInterval(id);
+  }, []);
+  const steps: { label: string; state: "done" | "active" | "pending" }[] =
+    phase === "data"
+      ? [
+          { label: t("takePreparingStepData"), state: "active" },
+          { label: t("takePreparingStepGate"), state: "pending" },
+          { label: t("takePreparingStepOpen"), state: "pending" },
+        ]
+      : [
+          { label: t("takePreparingStepData"), state: "done" },
+          { label: t("takePreparingStepGate"), state: "done" },
+          { label: t("takePreparingStepOpen"), state: "active" },
+        ];
+  return (
+    <Panel className="mx-auto max-w-xl space-y-6">
+      <div>
+        <h1 className="text-xl font-bold">{title ?? t("takePreparingTitle")}</h1>
+        {title && <p className="mt-1 text-sm text-muted-foreground">{t("takePreparingTitle")}</p>}
+      </div>
+      <Progress value={progress} className="h-1" />
+      <div>
+        {steps.map((s) => (
+          <div
+            key={s.label}
+            className="flex items-center gap-3 border-t py-3 text-sm first:border-t-0 first:pt-0 last:pb-0"
+          >
+            {s.state === "done" ? (
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700">
+                ✓
+              </span>
+            ) : s.state === "active" ? (
+              <span className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-muted border-t-primary" />
+            ) : (
+              <span className="h-6 w-6 shrink-0 rounded-full border-2 border-muted" />
+            )}
+            <span className={s.state === "pending" ? "text-muted-foreground" : "font-medium"}>
+              {s.label}
+            </span>
+            <span className="ms-auto text-xs text-muted-foreground">
+              {s.state === "done"
+                ? t("takePreparingStepDone")
+                : s.state === "active"
+                  ? t("takePreparingStepActive")
+                  : ""}
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+        {t("takePreparingNote")}
+      </p>
+    </Panel>
+  );
 }
 
 function Take() {
@@ -213,6 +278,11 @@ function Take() {
     const submissionId = crypto.randomUUID();
     setStarting(true);
     try {
+      // V3.4: random 0–10s start jitter — a synchronized class hits
+      // start in the same second; spreading the calls keeps the DO
+      // queue (and each student's wait) shorter. Expiry is server-side
+      // from the actual start, so the delay costs nothing.
+      await new Promise((resolve) => setTimeout(resolve, randomStartDelayMs()));
       const { queued, submissionId: returnedId } = await startAttemptD1({
         data: { assessmentId: id, questionOrder: order, submissionId },
       });
@@ -486,7 +556,7 @@ function Take() {
     await startAttemptAndWait(order);
   }
 
-  if (meLoading || isLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
+  if (meLoading || isLoading) return <TakePreparing phase="data" />;
   // While a fresh fetch is in flight, never render a terminal "not
   // assigned" state from possibly-stale cached data: a previous
   // visit's allowed:false payload (e.g. a direct URL opened before
@@ -498,7 +568,7 @@ function Take() {
     isFetching &&
     (!data || !data.allowed || !data.assessment || data.assessment.status !== "published")
   ) {
-    return <p className="text-muted-foreground">{t("loading")}</p>;
+    return <TakePreparing phase="data" title={data?.assessment?.title ?? null} />;
   }
   // Student-only page. Teachers are never assigned as students, but gate
   // explicitly so a teacher opening this URL gets a clear message instead
@@ -526,9 +596,9 @@ function Take() {
   if (!draft && starting)
     return (
       <>
-        <p className="text-muted-foreground">{t("loading")}</p>
+        <TakePreparing phase="open" title={assessment.title} />
         {queueStuck && (
-          <Panel className="mt-6 space-y-2 text-sm">
+          <Panel className="mx-auto mt-6 max-w-xl space-y-2 text-sm">
             <p>{t("takeQueueStuck")}</p>
             <Button
               variant="secondary"
