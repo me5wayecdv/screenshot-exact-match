@@ -508,6 +508,7 @@ describe("applyDraft seq guard", () => {
       ],
       seq: 1,
       marks: MARKS,
+          nowIso: NOW,
     });
     expect(result).toEqual({ applied: "applied", lastAppliedDraftSeq: 1 });
     const answers = await store.getAnswers("sub-1");
@@ -523,6 +524,7 @@ describe("applyDraft seq guard", () => {
       answers: [{ question_id: Q1, response: "a", time_spent_seconds: 0 }],
       seq: 2,
       marks: MARKS,
+          nowIso: NOW,
     });
     const older = await applyDraft(store, {
       submissionId: "sub-1",
@@ -530,6 +532,7 @@ describe("applyDraft seq guard", () => {
       answers: [{ question_id: Q1, response: "stale", time_spent_seconds: 0 }],
       seq: 1,
       marks: MARKS,
+          nowIso: NOW,
     });
     expect(older).toEqual({ applied: "duplicate", lastAppliedDraftSeq: 2 });
     const same = await applyDraft(store, {
@@ -538,6 +541,7 @@ describe("applyDraft seq guard", () => {
       answers: [{ question_id: Q1, response: "a", time_spent_seconds: 0 }],
       seq: 2,
       marks: MARKS,
+          nowIso: NOW,
     });
     expect(same).toEqual({ applied: "duplicate", lastAppliedDraftSeq: 2 });
     expect((await store.getAnswers("sub-1")).at(0)?.response).toBe("a");
@@ -552,6 +556,7 @@ describe("applyDraft seq guard", () => {
         answers: [],
         seq: 1,
         marks: MARKS,
+      nowIso: NOW,
       }),
     ).rejects.toThrow("TAKE_NOT_FOUND");
   });
@@ -566,6 +571,7 @@ describe("applySubmit + late draft", () => {
       answers: [{ question_id: Q1, response: "draft", time_spent_seconds: 1 }],
       seq: 1,
       marks: MARKS,
+          nowIso: NOW,
     });
     const result = await applySubmit(store, {
       submissionId: "sub-1",
@@ -614,6 +620,7 @@ describe("applySubmit + late draft", () => {
       answers: [{ question_id: Q1, response: "too late", time_spent_seconds: 0 }],
       seq: 2,
       marks: MARKS,
+          nowIso: NOW,
     });
     expect(late.applied).toBe("not_editable");
     expect((await store.getAnswers("sub-1")).at(0)?.response).toBe("f");
@@ -696,6 +703,7 @@ describe("flushOne / flushDirty", () => {
       answers: [{ question_id: Q1, response: "a", time_spent_seconds: 3 }],
       seq: 1,
       marks: MARKS,
+          nowIso: NOW,
     });
     const sub = (await store.getSubmission("sub-1")) as DoSubmissionState;
     expect(await flushOne(db, store, sub)).toEqual({ ok: true });
@@ -1089,6 +1097,7 @@ describe("loadTakeData (V3 cache)", () => {
       answers: [{ question_id: Q1, response: "B", time_spent_seconds: 5 }],
       seq: 1,
       marks: MARKS,
+          nowIso: NOW,
     });
     const second = await doData(store, cfg, db);
     expect(second.allowed).toBe(true);
@@ -1097,5 +1106,73 @@ describe("loadTakeData (V3 cache)", () => {
         { question_id: Q1, response: "B" },
       ]);
     }
+  });
+});
+
+/* --------------------------------------- V3.1: expiry freeze in the DO */
+
+describe("expiry freeze (V3.1)", () => {
+  it("rejects drafts and submits past the attempt expiry", async () => {
+    const store = await startedStore();
+    // Age the draft past its expiry (startedStore's expiresAt is
+    // null, so set one in the past).
+    const sub = (await store.getSubmission("sub-1")) as DoSubmissionState;
+    await store.putSubmission({ ...sub, expiresAt: "2026-11-10T16:00:00.000Z" });
+    const draft = await applyDraft(store, {
+      submissionId: "sub-1",
+      studentId: STUDENT,
+      answers: [{ question_id: Q1, response: "a", time_spent_seconds: 1 }],
+      seq: 1,
+      marks: MARKS,
+      nowIso: NOW,
+    });
+    expect(draft).toEqual({ applied: "not_editable", lastAppliedDraftSeq: 0 });
+    const submitted = await applySubmit(store, {
+      submissionId: "sub-1",
+      studentId: STUDENT,
+      answers: [{ question_id: Q1, response: "a", time_spent_seconds: 1 }],
+      seq: 1,
+      marks: MARKS,
+      nowIso: NOW,
+    });
+    expect(submitted).toEqual({ submitted: false });
+  });
+
+  it("rejects drafts and submits past the window end (dueAt)", async () => {
+    const store = await startedStore();
+    const draft = await applyDraft(store, {
+      submissionId: "sub-1",
+      studentId: STUDENT,
+      answers: [{ question_id: Q1, response: "a", time_spent_seconds: 1 }],
+      seq: 1,
+      marks: MARKS,
+      nowIso: NOW,
+      dueAt: "2026-11-10T16:00:00.000Z",
+    });
+    expect(draft).toEqual({ applied: "not_editable", lastAppliedDraftSeq: 0 });
+    const submitted = await applySubmit(store, {
+      submissionId: "sub-1",
+      studentId: STUDENT,
+      answers: [{ question_id: Q1, response: "a", time_spent_seconds: 1 }],
+      seq: 1,
+      marks: MARKS,
+      nowIso: NOW,
+      dueAt: "2026-11-10T16:00:00.000Z",
+    });
+    expect(submitted).toEqual({ submitted: false });
+  });
+
+  it("accepts drafts and submits inside the window", async () => {
+    const store = await startedStore();
+    const draft = await applyDraft(store, {
+      submissionId: "sub-1",
+      studentId: STUDENT,
+      answers: [{ question_id: Q1, response: "a", time_spent_seconds: 1 }],
+      seq: 1,
+      marks: MARKS,
+      nowIso: NOW,
+      dueAt: "2026-11-10T18:00:00.000Z",
+    });
+    expect(draft).toEqual({ applied: "applied", lastAppliedDraftSeq: 1 });
   });
 });
