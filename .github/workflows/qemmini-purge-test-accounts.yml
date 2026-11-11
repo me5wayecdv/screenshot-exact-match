@@ -1,0 +1,51 @@
+name: Qemmini Purge Test Accounts
+# Manual-only purge of ALL test accounts from the LIVE Qemmini database.
+# Deletes every @example.com account except the live admin, plus all rows
+# and R2 objects that belong to those users. Keeps the admin and every
+# non-@example.com (real) account. See scripts/purge-test-accounts.mjs.
+#
+# RUN A FRESH BACKUP (Qemmini Backup workflow, drill=true) FIRST, every
+# time — the backup artifact is the only way back. The purge script itself
+# aborts if the real-user count changed since the plan was written.
+#
+# The purge runs in GitHub Actions because the local environment has no
+# Cloudflare auth; the repo already holds CLOUDFLARE_API_TOKEN
+# ("Qemmini Live Deploy") and CLOUDFLARE_ACCOUNT_ID, the same secrets
+# the deploy and backup workflows use.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: <redacted>
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      # scripts/purge-test-accounts.mjs refuses --env live unless the root
+      # config is bound to qemmini-live-db. Same rebind as the deploy and
+      # backup workflows: a no-op safeguard today (the committed file is
+      # already live-bound). This edits the ephemeral checkout only.
+      - name: Rebind wrangler config to live
+        run: |
+          node -e "
+          const fs = require('fs');
+          let s = fs.readFileSync('wrangler.jsonc', 'utf8');
+          s = s.replace(/\"database_name\": \"qemmini-db\"/, '\"database_name\": \"qemmini-live-db\"');
+          s = s.replace(/\"database_id\": \"382015c0-8484-4143-b2e3-7391b0fffb7d\"/, '\"database_id\": \"3d9fae1b-acb7-426c-a7ec-307217fab151\"');
+          if (!s.includes('qemmini-live-db') || !s.includes('3d9fae1b-acb7-426c-a7ec-307217fab151')) throw new Error('live rebind failed');
+          fs.writeFileSync('wrangler.jsonc', s);
+          console.log('wrangler.jsonc rebound to qemmini-live-db');
+          "
+      - name: Purge test accounts (live)
+        run: node scripts/purge-test-accounts.mjs --env live --confirm
