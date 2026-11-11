@@ -326,8 +326,9 @@ function Take() {
       const saveWithRetry = async () => {
         for (let attempt = 0; ; attempt += 1) {
           try {
+            // V3.1: assessmentId routes the draft to the exam's DO.
             return await saveDraftD1({
-              data: { submissionId: draft.id, answers: rows, seq },
+              data: { submissionId: draft.id, assessmentId: id, answers: rows, seq },
             });
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -421,7 +422,10 @@ function Take() {
     const seq = draftSeqRef.current + 1;
     let result: { ok: boolean; queued?: boolean };
     try {
-      result = await submitAttemptD1({ data: { submissionId: draft.id, answers: rows, seq } });
+      // V3.1: assessmentId routes the submit to the exam's DO.
+      result = await submitAttemptD1({
+        data: { submissionId: draft.id, assessmentId: id, answers: rows, seq },
+      });
     } catch (err) {
       setBusy(false);
       setSubmitState("idle");
