@@ -20,6 +20,7 @@ import {
   applySubmit,
   flushDirty,
   flushOne,
+  getCachedConfig,
   getCachedMarks,
   getSessionStatus,
   hydrateAnswers,
@@ -130,6 +131,9 @@ class MapConfigStore implements ExamConfigStore {
 
   async getConfig() {
     return this.config;
+  }
+  async touchConfig(loadedAt: number) {
+    if (this.config) this.config.loadedAt = loadedAt;
   }
   async setConfig(
     config: ExamConfig,
@@ -1174,5 +1178,50 @@ describe("expiry freeze (V3.1)", () => {
       dueAt: "2026-11-10T18:00:00.000Z",
     });
     expect(draft).toEqual({ applied: "applied", lastAppliedDraftSeq: 1 });
+  });
+});
+
+/* --------------------------------------- V3.2: stale-config fallback */
+
+describe("stale-config fallback (V3.2)", () => {
+  const throwingDb = {
+    prepare: () => {
+      throw new Error("D1 DB is overloaded. Too many resources consumed within a 10 second window.");
+    },
+  } as unknown as D1Database;
+
+  async function staleCfg() {
+    const state = fakeState();
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+    await doStart(store, cfg, db);
+    // Age the config past the TTL — the next load would hit D1.
+    cfg.config!.loadedAt = Date.parse(NOW) - TAKE_SESSION_CACHE_TTL_MS - 1000;
+    return cfg;
+  }
+
+  it("getCachedMarks serves stale marks when the reload throws", async () => {
+    const cfg = await staleCfg();
+    const marks = await getCachedMarks(cfg, throwingDb, EXAM, Date.parse(NOW));
+    expect(marks).toEqual(MARKS);
+    // The touch re-stamps loadedAt, so the next call does not retry
+    // the reload either (zero D1 reads, still stale marks).
+    const again = await getCachedMarks(cfg, throwingDb, EXAM, Date.parse(NOW));
+    expect(again).toEqual(MARKS);
+  });
+
+  it("getCachedConfig serves the stale config when the reload throws", async () => {
+    const cfg = await staleCfg();
+    const config = await getCachedConfig(cfg, throwingDb, EXAM, Date.parse(NOW));
+    expect(config?.assessmentId).toBe(EXAM);
+    expect(config?.totalPossible).toBe(15);
+  });
+
+  it("still throws when there is no cached config at all", async () => {
+    const cfg = new MapConfigStore();
+    await expect(getCachedMarks(cfg, throwingDb, EXAM, Date.parse(NOW))).rejects.toThrow(
+      "D1 DB is overloaded",
+    );
   });
 });
