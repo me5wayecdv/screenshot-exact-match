@@ -359,6 +359,35 @@ export async function validateStart(
   return { attemptNumber: used + 1, totalPossible: config.totalPossible, expiresAt };
 }
 
+/** The cached exam config, loading it from D1 when stale or
+ *  missing (five reads, once per TTL per exam). Returns null when
+ *  the exam does not exist (or D1 is unavailable) — the caller
+ *  treats a missing config as "no marks / no window". */
+export async function getCachedConfig(
+  configStore: ExamConfigStore,
+  db: D1Database | null,
+  assessmentId: string,
+  nowMs: number,
+): Promise<ExamConfig | null> {
+  const config = await configStore.getConfig();
+  if (
+    config &&
+    config.assessmentId === assessmentId &&
+    nowMs - config.loadedAt <= TAKE_SESSION_CACHE_TTL_MS
+  ) {
+    return config;
+  }
+  if (!db) return null;
+  try {
+    const loaded = await loadExamConfig(db, assessmentId, nowMs);
+    await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
+    return loaded.config;
+  } catch (error) {
+    if (error instanceof Error && error.message === "TAKE_NOT_FOUND") return null;
+    throw error;
+  }
+}
+
 /** Question marks for draft/submit, from the cache (DESIGN-V2.md).
  *  Loads the config from D1 only when the cache is missing or stale;
  *  `db` may be null when the cache is warm (the DO always has the
@@ -401,9 +430,14 @@ export type DraftInput = {
   studentId: string;
   answers: DraftAnswerInput[];
   seq: number;
-  /** question_id → marks, from the serverFn's one D1 read (§4). The
-   *  DO holds no question data; unknown questions are dropped. */
+  /** question_id → marks, from the DO-side cache (V2). The DO holds
+   *  no question data; unknown questions are dropped. */
   marks: Record<string, number>;
+  /** The DO's clock at the call, for the expiry freeze (V3.1). */
+  nowIso: string;
+  /** The assessment's window end, from the DO-side config (V3.1);
+   *  null = no window end. */
+  dueAt?: string | null;
 };
 
 export type SubmitInput = {
@@ -413,6 +447,9 @@ export type SubmitInput = {
   seq: number;
   marks: Record<string, number>;
   nowIso: string;
+  /** The assessment's window end, from the DO-side config (V3.1);
+   *  null = no window end. */
+  dueAt?: string | null;
 };
 
 function notFound(): Error {
@@ -490,6 +527,14 @@ export async function applyDraft(store: SessionStore, input: DraftInput): Promis
   if (!sub || sub.studentId !== input.studentId) throw notFound();
   if (sub.status !== "in_progress")
     return { applied: "not_editable", lastAppliedDraftSeq: sub.draftSeq };
+  // Edits freeze at expiry and at the window end (the old D1
+  // loadDraftTarget rule — V3.1 moves it into the DO so the Worker's
+  // per-draft D1 pre-check can go away).
+  if (
+    (sub.expiresAt && input.nowIso > sub.expiresAt) ||
+    (input.dueAt && input.nowIso > input.dueAt)
+  )
+    return { applied: "not_editable", lastAppliedDraftSeq: sub.draftSeq };
   if (input.seq < sub.draftSeq)
     return { applied: "duplicate", lastAppliedDraftSeq: sub.draftSeq };
   if (input.seq === sub.draftSeq) {
@@ -525,6 +570,12 @@ export async function applySubmit(store: SessionStore, input: SubmitInput): Prom
   const sub = await store.getSubmission(input.submissionId);
   if (!sub || sub.studentId !== input.studentId) throw notFound();
   if (sub.status !== "in_progress") return { submitted: false };
+  // Same freeze as drafts (V3.1): an expired attempt cannot submit.
+  if (
+    (sub.expiresAt && input.nowIso > sub.expiresAt) ||
+    (input.dueAt && input.nowIso > input.dueAt)
+  )
+    return { submitted: false };
   const answers = validAnswers(input.answers, input.marks);
   await store.transaction(async () => {
     await store.upsertAnswers(sub.id, answers);
