@@ -169,6 +169,18 @@ export interface ExamConfigStore {
  *  to the stale config (V3.2), never throw into the student's call. */
 export const TAKE_SESSION_CACHE_TTL_MS = 60_000;
 
+/** How long a released score may wait before the take page re-reads
+ *  it from D1 (V3.3). The refresh is the take-data path's only
+ *  recurring per-student D1 read (1 SELECT per student with submitted
+ *  attempts), and in a synchronized burst all 150+ students' refreshes
+ *  fall due in the same seconds — that is what tripped D1's
+ *  10-second-window limit at 250 (getTakeData 185/248 errors,
+ *  2026-11-11). At 5 min the refresh does not fire inside a burst
+ *  (ladder steps run <5 min apart), and a teacher's release still
+ *  appears within 5 min. The full fix — the release path notifying
+ *  the DO so no refresh read is needed at all — is future work. */
+export const TAKE_SESSION_SCORE_REFRESH_TTL_MS = 300_000;
+
 /** Flush is recorded as a failure after this many failed cycles —
  *  the same visibility the queue's DLQ gave (DESIGN.md §5). */
 export const TAKE_SESSION_FLUSH_MAX_ATTEMPTS = 3;
@@ -796,10 +808,13 @@ export async function loadTakeData(
   }
   // Score refresh (TTL-gated): a release after the seed becomes
   // visible within the TTL. One read, only with submitted attempts.
+  // V3.3: the TTL is 5 min (TAKE_SESSION_SCORE_REFRESH_TTL_MS), not
+  // the 60s config TTL — the 60s refresh is what overloaded D1 at
+  // 250, and the take page is for taking, not watching scores.
   const hasSubmitted = submissions.some((s) => s.status !== "in_progress");
   if (hasSubmitted) {
     const refreshedAt = await configStore.getScoreRefreshedAt(input.studentId);
-    if (refreshedAt === null || nowMs - refreshedAt > TAKE_SESSION_CACHE_TTL_MS) {
+    if (refreshedAt === null || nowMs - refreshedAt > TAKE_SESSION_SCORE_REFRESH_TTL_MS) {
       const rows = await db
         .prepare(
           "SELECT id, status, final_score FROM submissions WHERE assessment_id = ? " +
