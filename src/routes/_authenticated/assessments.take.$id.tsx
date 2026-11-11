@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { Check } from "lucide-react";
 import { toast } from "sonner";
 import {
   getTakeDataD1,
@@ -125,8 +126,8 @@ function TakePreparing({ title, phase }: { title?: string | null; phase: "data" 
             className="flex items-center gap-3 border-t py-3 text-sm first:border-t-0 first:pt-0 last:pb-0"
           >
             {s.state === "done" ? (
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700">
-                ✓
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-700">
+                <Check className="size-3.5" aria-hidden />
               </span>
             ) : s.state === "active" ? (
               <span className="h-6 w-6 shrink-0 animate-spin rounded-full border-2 border-muted border-t-primary" />

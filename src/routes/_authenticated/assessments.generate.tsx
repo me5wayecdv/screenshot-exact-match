@@ -2,7 +2,6 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { Sparkles } from "lucide-react";
 import { useI18n, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Pill, Empty } from "@/components/ui-kit";
@@ -782,7 +781,6 @@ function Generate() {
               </p>
             )}
             <Button disabled={!formValid || busy}>
-              <Sparkles className="h-4 w-4" aria-hidden />{" "}
               {busy ? t("genGenerating") : t("genGenerate")}
             </Button>
           </Panel>

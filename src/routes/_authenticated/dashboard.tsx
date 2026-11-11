@@ -159,7 +159,7 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
               {t("heroNext")} <span className="signal">{nextStep.title}</span>
             </>
           ) : (
-            `${t("welcome")}، ${name}`
+            t("teacherHomeTitle")
           )
         }
         body={nextStep ? nextStep.body : t("heroTeacherBody")}
@@ -279,7 +279,7 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
               {t("heroNext")} <span className="signal">{nextStep.title}</span>
             </>
           ) : (
-            `${t("welcome")}، ${name}`
+            t("tutorHomeTitle")
           )
         }
         body={nextStep ? nextStep.body : t("heroTutorBody")}
@@ -342,7 +342,7 @@ function AdminHome({ name }: { name: string }) {
   return (
     <>
       <PageHeader
-        title={`${t("welcome")}، ${name}`}
+        title={t("adminHomeTitle")}
         actions={
           <Button asChild>
             <Link to="/admin">{t("admin")}</Link>
@@ -460,11 +460,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       {/* Student home asks one question: what is the next thing to do? */}
       <Hero
         kicker={t("heroKicker")}
-        title={
-          waiting > 0 && !activeAssessment
-            ? t("waitingApprovalTitle")
-            : `${t("welcome")}، ${data?.myName || name}`
-        }
+        title={waiting > 0 && !activeAssessment ? t("waitingApprovalTitle") : t("studentHomeTitle")}
         body={
           activeAssessment
             ? t("heroStudentActive", { title: activeAssessment.title })
