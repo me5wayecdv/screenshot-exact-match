@@ -12,6 +12,25 @@
  *   email exists. Successful sign-ins are recorded too, so a
  *   successful login does not erase the failure history of an
  *   attacker guessing the same account (only time passing does).
+ * - Lockout ladder: on top of the 15-minute window, a second tier
+ *   counts failures in a 60-minute window (20/account, 100/IP).
+ *   Tripping it blocks the account/IP until the 60-minute window
+ *   drains below the threshold — up to ~60 minutes for a clustered
+ *   burst, ~15-45 minutes in a sustained attack (about 10 guesses
+ *   per 30 minutes). Blocked attempts are never recorded, so the
+ *   lockout always expires by time and cannot be extended by
+ *   continued guessing. There is NO early unlock: a password reset
+ *   does not clear recorded failures (the store has no delete
+ *   operation), so a locked-out user who resets still waits for the
+ *   window to drain. Early unlock needs a store method
+ *   (d1-security-store.ts) or a schema change — not done here.
+ * - Generic rate limiting: sign-up and password-reset requests are
+ *   limited through the same login_attempts table via namespaced
+ *   email keys (`rate:<kind>:<key>`). The per-account login budget
+ *   is never affected (a real email never equals a `rate:` key);
+ *   generic rows carry the real IP, so they count toward the login
+ *   per-IP budget — bounded at ~10 rows/hour/IP by the generic
+ *   limits themselves, and only ever tightening it.
  * - Session rotation: a successful sign-in revokes the session that
  *   presented the request (if any), so a stolen cookie cannot stay
  *   valid alongside the new one. Rotation happens AFTER the new
@@ -54,6 +73,18 @@ export const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 export const RATE_LIMIT_ACCOUNT_MAX_FAILURES = 10;
 export const RATE_LIMIT_IP_MAX_FAILURES = 50;
 export const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+/** Lockout tier: a second, longer window on top of the 15-minute one. */
+export const LOCKOUT_WINDOW_MS = 60 * 60 * 1000;
+export const LOCKOUT_ACCOUNT_MAX_FAILURES = 20;
+export const LOCKOUT_IP_MAX_FAILURES = 100;
+
+/** Generic endpoint limits (1-hour windows, same attempts table). */
+export const SIGNUP_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+export const SIGNUP_MAX_PER_IP_PER_HOUR = 5;
+export const RESET_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+export const RESET_MAX_PER_EMAIL_PER_HOUR = 5;
+export const RESET_MAX_PER_IP_PER_HOUR = 5;
 
 export type SecurityStore = AuthStore & {
   countRecentFailures(input: {
@@ -100,18 +131,45 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Throws RATE_LIMITED when either the account or IP window is exhausted. */
+/**
+ * Throws RATE_LIMITED when either the account or IP window is exhausted.
+ * Two tiers share the same error (a lockout must not reveal more than a
+ * rate limit does):
+ * - Tier 1 (burst): 10 failures/account or 50/IP in the last 15 minutes.
+ * - Tier 2 (lockout): 20 failures/account or 100/IP in the last
+ *   60 minutes. The block lasts until the 60-minute window drains below
+ *   the threshold — up to ~60 minutes after a clustered burst. Blocked
+ *   attempts are never recorded (the check throws before any password
+ *   verification), so continued guessing cannot extend the lockout;
+ *   only time passing clears it.
+ */
 export async function checkLoginAllowed(
   store: SecurityStore,
   input: { email: string; ip: string },
 ): Promise<void> {
-  const sinceIso = new Date(Date.now() - RATE_LIMIT_WINDOW_MS).toISOString();
-  const { byEmail, byIp } = await store.countRecentFailures({
-    email: normalizeEmail(input.email),
-    ip: input.ip || "unknown",
-    sinceIso,
+  const email = normalizeEmail(input.email);
+  const ip = input.ip || "unknown";
+  const now = Date.now();
+  const windowCounts = await store.countRecentFailures({
+    email,
+    ip,
+    sinceIso: new Date(now - RATE_LIMIT_WINDOW_MS).toISOString(),
   });
-  if (byEmail >= RATE_LIMIT_ACCOUNT_MAX_FAILURES || byIp >= RATE_LIMIT_IP_MAX_FAILURES) {
+  if (
+    windowCounts.byEmail >= RATE_LIMIT_ACCOUNT_MAX_FAILURES ||
+    windowCounts.byIp >= RATE_LIMIT_IP_MAX_FAILURES
+  ) {
+    throw new AuthError("RATE_LIMITED", "Too many login attempts. Try again later.");
+  }
+  const lockoutCounts = await store.countRecentFailures({
+    email,
+    ip,
+    sinceIso: new Date(now - LOCKOUT_WINDOW_MS).toISOString(),
+  });
+  if (
+    lockoutCounts.byEmail >= LOCKOUT_ACCOUNT_MAX_FAILURES ||
+    lockoutCounts.byIp >= LOCKOUT_IP_MAX_FAILURES
+  ) {
     throw new AuthError("RATE_LIMITED", "Too many login attempts. Try again later.");
   }
 }
@@ -130,13 +188,110 @@ export async function recordAttempt(
 }
 
 /**
- * Sign in with rate limiting + rotation. The rate check runs before
- * password verification and uses the same generic error for blocked
- * and bad-credential cases only in that it never reveals account
- * existence: RATE_LIMITED is returned for blocked attempts, and
- * INVALID_CREDENTIALS for bad passwords — the caller must not
- * distinguish "unknown email" from "wrong password" (signIn already
- * does not). On success, a presented previous session is revoked.
+ * Generic per-endpoint rate limiting, reusing the login_attempts table
+ * with NO schema change. Events are recorded under a namespaced email
+ * key (`rate:<kind>:<key>`), so the per-account login budget is never
+ * affected: a login check counts rows for the real email, which can
+ * never equal a `rate:` key. The row carries the real IP and
+ * succeeded=0, so it DOES count toward the login per-IP budget —
+ * bounded at ~10 rows/hour/IP by the generic limits themselves, and
+ * only ever tightening login blocking for an IP already abusing other
+ * endpoints. The check counts only the namespaced bucket (byEmail);
+ * the byIp count from the same query is ignored.
+ *
+ * Callers must record the event BEFORE doing the work (and before any
+ * existence check), so the limit trips identically for known and
+ * unknown emails — otherwise the limit itself becomes an
+ * account-enumeration signal.
+ */
+function rateLimitKey(key: string): string {
+  return `rate:${key}`;
+}
+
+export async function checkRateLimit(
+  store: SecurityStore,
+  input: { key: string; ip: string; windowMs: number; max: number },
+): Promise<void> {
+  const { byEmail } = await store.countRecentFailures({
+    email: rateLimitKey(input.key),
+    ip: input.ip || "unknown",
+    sinceIso: new Date(Date.now() - input.windowMs).toISOString(),
+  });
+  if (byEmail >= input.max) {
+    throw new AuthError("RATE_LIMITED", "Too many requests. Try again later.");
+  }
+}
+
+export async function recordRateLimitEvent(
+  store: SecurityStore,
+  input: { key: string; ip: string },
+): Promise<void> {
+  await store.recordLoginAttempt({
+    email: rateLimitKey(input.key),
+    ip: input.ip || "unknown",
+    succeeded: false,
+    atIso: nowIso(),
+  });
+}
+
+/** Sign-up: 5 attempts/hour per IP. */
+export async function checkSignupAllowed(store: SecurityStore, ip: string): Promise<void> {
+  await checkRateLimit(store, {
+    key: `signup:ip:${ip || "unknown"}`,
+    ip,
+    windowMs: SIGNUP_RATE_LIMIT_WINDOW_MS,
+    max: SIGNUP_MAX_PER_IP_PER_HOUR,
+  });
+}
+
+export async function recordSignupAttempt(store: SecurityStore, ip: string): Promise<void> {
+  await recordRateLimitEvent(store, { key: `signup:ip:${ip || "unknown"}`, ip });
+}
+
+/**
+ * Password-reset requests: 5/hour per target email AND 5/hour per IP.
+ * Both buckets are checked (two cheap indexed counts; reset requests
+ * are rare). The event is recorded under both keys before any
+ * existence check, so unknown emails consume budget identically —
+ * the limit never reveals whether the email exists.
+ */
+export async function checkPasswordResetAllowed(
+  store: SecurityStore,
+  email: string,
+  ip: string,
+): Promise<void> {
+  await checkRateLimit(store, {
+    key: `reset:email:${normalizeEmail(email)}`,
+    ip,
+    windowMs: RESET_RATE_LIMIT_WINDOW_MS,
+    max: RESET_MAX_PER_EMAIL_PER_HOUR,
+  });
+  await checkRateLimit(store, {
+    key: `reset:ip:${ip || "unknown"}`,
+    ip,
+    windowMs: RESET_RATE_LIMIT_WINDOW_MS,
+    max: RESET_MAX_PER_IP_PER_HOUR,
+  });
+}
+
+export async function recordPasswordResetAttempt(
+  store: SecurityStore,
+  email: string,
+  ip: string,
+): Promise<void> {
+  await recordRateLimitEvent(store, { key: `reset:email:${normalizeEmail(email)}`, ip });
+  await recordRateLimitEvent(store, { key: `reset:ip:${ip || "unknown"}`, ip });
+}
+
+/**
+ * Sign in with rate limiting (burst window + 60-minute lockout ladder)
+ * + rotation. The rate check runs before password verification and
+ * uses the same generic error for blocked and bad-credential cases
+ * only in that it never reveals account existence: RATE_LIMITED is
+ * returned for blocked attempts, and INVALID_CREDENTIALS for bad
+ * passwords — the caller must not distinguish "unknown email" from
+ * "wrong password" (signIn already does not). On success, a presented
+ * previous session is revoked.
  */
 export async function signInWithRotation(
   store: SecurityStore,

@@ -1,7 +1,8 @@
 /**
  * Tests for Phase 2 security hardening (src/lib/cloudflare-security.ts).
  * Storage is an in-memory SecurityStore, so these prove the rules
- * (rate limiting, rotation, reset tokens, admin gating) without a D1
+ * (rate limiting, the 60-minute lockout ladder, generic endpoint
+ * limits, rotation, reset tokens, admin gating) without a D1
  * binding. The D1 SQL for the underlying tables is in
  * schema/d1-security.sql; the D1 store functions are thin translations
  * of the same operations tested here.
@@ -21,9 +22,13 @@ import {
 } from "@/lib/cloudflare-auth";
 import {
   checkLoginAllowed,
+  checkPasswordResetAllowed,
+  checkSignupAllowed,
   consumePasswordResetToken,
   createAdmin,
   issuePasswordResetToken,
+  recordPasswordResetAttempt,
+  recordSignupAttempt,
   signInWithRotation,
   type SecurityStore,
 } from "@/lib/cloudflare-security";
@@ -226,6 +231,144 @@ describe("rate limiting", () => {
     await expect(
       checkLoginAllowed(store, { email: "fresh@example.com", ip: "9.9.9.9" }),
     ).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+});
+
+describe("account lockout", () => {
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString();
+
+  it("locks the account at 20 failures in 60 minutes even when the 15-minute window is clear", async () => {
+    const store = createMemorySecurityStore();
+    // 10 failures 40 minutes ago + 10 failures 20 minutes ago: the
+    // 15-minute window is empty, the 60-minute window holds 20.
+    for (let i = 0; i < 10; i++) {
+      await store.recordLoginAttempt({
+        email: "teacher@example.com",
+        ip: "1.2.3.4",
+        succeeded: false,
+        atIso: minutesAgo(40),
+      });
+    }
+    for (let i = 0; i < 10; i++) {
+      await store.recordLoginAttempt({
+        email: "teacher@example.com",
+        ip: "1.2.3.4",
+        succeeded: false,
+        atIso: minutesAgo(20),
+      });
+    }
+    await expect(
+      checkLoginAllowed(store, { email: "teacher@example.com", ip: "1.2.3.4" }),
+    ).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    // A different account from the same IP is still under its own budget.
+    await expect(
+      checkLoginAllowed(store, { email: "other@example.com", ip: "1.2.3.4" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not lock at 19 failures in 60 minutes", async () => {
+    const store = createMemorySecurityStore();
+    for (let i = 0; i < 19; i++) {
+      await store.recordLoginAttempt({
+        email: "teacher@example.com",
+        ip: "1.2.3.4",
+        succeeded: false,
+        atIso: minutesAgo(30),
+      });
+    }
+    await expect(
+      checkLoginAllowed(store, { email: "teacher@example.com", ip: "1.2.3.4" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("locks an IP at 100 failures in 60 minutes across accounts", async () => {
+    const store = createMemorySecurityStore();
+    for (let i = 0; i < 100; i++) {
+      await store.recordLoginAttempt({
+        email: `victim${i}@example.com`,
+        ip: "9.9.9.9",
+        succeeded: false,
+        atIso: minutesAgo(i % 2 === 0 ? 40 : 20),
+      });
+    }
+    await expect(
+      checkLoginAllowed(store, { email: "fresh@example.com", ip: "9.9.9.9" }),
+    ).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+
+  it("the lockout expires by time: 20 failures older than 60 minutes do not block", async () => {
+    const store = createMemorySecurityStore();
+    for (let i = 0; i < 20; i++) {
+      await store.recordLoginAttempt({
+        email: "teacher@example.com",
+        ip: "1.2.3.4",
+        succeeded: false,
+        atIso: minutesAgo(61),
+      });
+    }
+    await expect(
+      checkLoginAllowed(store, { email: "teacher@example.com", ip: "1.2.3.4" }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("a recorded success does not clear the lockout (only time does)", async () => {
+    const store = createMemorySecurityStore();
+    for (let i = 0; i < 20; i++) {
+      await store.recordLoginAttempt({
+        email: "teacher@example.com",
+        ip: "1.2.3.4",
+        succeeded: false,
+        atIso: minutesAgo(20),
+      });
+    }
+    await store.recordLoginAttempt({
+      email: "teacher@example.com",
+      ip: "1.2.3.4",
+      succeeded: true,
+      atIso: new Date().toISOString(),
+    });
+    await expect(
+      checkLoginAllowed(store, { email: "teacher@example.com", ip: "1.2.3.4" }),
+    ).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+});
+
+describe("generic rate limiting", () => {
+  it("sign-up: 5 attempts/hour per IP, then blocked; another IP unaffected", async () => {
+    const store = createMemorySecurityStore();
+    for (let i = 0; i < 5; i++) await recordSignupAttempt(store, "1.2.3.4");
+    await expect(checkSignupAllowed(store, "1.2.3.4")).rejects.toMatchObject({
+      code: "RATE_LIMITED",
+    });
+    await expect(checkSignupAllowed(store, "5.6.7.8")).resolves.toBeUndefined();
+  });
+
+  it("password reset: 5/hour per email and per IP", async () => {
+    const store = createMemorySecurityStore();
+    for (let i = 0; i < 5; i++) {
+      await recordPasswordResetAttempt(store, "victim@example.com", "1.2.3.4");
+    }
+    await expect(
+      checkPasswordResetAllowed(store, "victim@example.com", "1.2.3.4"),
+    ).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    // A different email from the same IP is blocked by the IP bucket.
+    await expect(
+      checkPasswordResetAllowed(store, "other@example.com", "1.2.3.4"),
+    ).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    // A different email from a different IP is fine.
+    await expect(
+      checkPasswordResetAllowed(store, "other@example.com", "5.6.7.8"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("generic rows never touch the per-account login budget", async () => {
+    const store = createMemorySecurityStore();
+    for (let i = 0; i < 5; i++) {
+      await recordPasswordResetAttempt(store, "teacher@example.com", "1.2.3.4");
+    }
+    await expect(
+      checkLoginAllowed(store, { email: "teacher@example.com", ip: "1.2.3.4" }),
+    ).resolves.toBeUndefined();
   });
 });
 

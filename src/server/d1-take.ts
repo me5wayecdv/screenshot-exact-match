@@ -35,6 +35,7 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
+import { API_VERSION } from "@/lib/api-version";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import { getTakeSessions } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
@@ -296,7 +297,7 @@ export async function callTakeSession<T>(
     new Request(`https://take-session${path}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ v: 1, ...body }),
+      body: JSON.stringify({ v: API_VERSION, ...body }),
     }),
   );
   const payload = (await response.json()) as { error?: string };
@@ -990,17 +991,13 @@ export const startAttemptD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { session } = ctx(context);
     requireStudent(session);
-    return callTakeSession<{ queued: boolean; submissionId: string }>(
-      data.assessmentId,
-      "/start",
-      {
-        submissionId: data.submissionId,
-        studentId: session.userId,
-        assessmentId: data.assessmentId,
-        questionOrder: data.questionOrder,
-        nowIso: new Date().toISOString(),
-      },
-    );
+    return callTakeSession<{ queued: boolean; submissionId: string }>(data.assessmentId, "/start", {
+      submissionId: data.submissionId,
+      studentId: session.userId,
+      assessmentId: data.assessmentId,
+      questionOrder: data.questionOrder,
+      nowIso: new Date().toISOString(),
+    });
   });
 
 export const saveDraftD1 = createServerFn({ method: "POST" })

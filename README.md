@@ -5,8 +5,20 @@ Arabic-first, RTL assessment and learning platform for teachers and students.
 ## Stack
 
 - React 19 + TanStack Start (file-based routing) + TanStack Router / Query
-- Supabase (Auth + Postgres) via `@supabase/supabase-js`
+- Cloudflare Workers (single Worker entry, `src/worker-entry.ts`) + D1
+  (SQLite) + R2 (private buckets) + Durable Objects (one `TakeSession`
+  per exam, SQLite state, batched flush to D1)
+- Custom auth: PBKDF2 password hashing, hashed sessions, HttpOnly cookies
+  (no Supabase at runtime — the Supabase project is kept untouched only
+  as a rollback path)
 - Tailwind CSS + shadcn UI
+
+## Deploy
+
+Live at https://qemmini.adhamelhansye.workers.dev. Deploy is manual-only
+via GitHub Actions (`.github/workflows/qemmini-live-deploy.yml` on
+`main`): typecheck + tests + rebind to live + build + `wrangler deploy`.
+Merging to `main` alone does not deploy.
 
 ## Development
 

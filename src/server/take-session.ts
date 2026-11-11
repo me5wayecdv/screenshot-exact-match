@@ -26,6 +26,7 @@ import type {
   DurableObjectStorageLike,
   SqlStorageLike,
 } from "@/server/durable-object-types";
+import { log } from "@/lib/logger";
 import {
   applyDraft,
   applyStart,
@@ -200,10 +201,7 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
   }
 
   async getSubmission(id: string): Promise<DoSubmissionState | null> {
-    const rows = this.rows<DoSubmissionRow>(
-      "SELECT * FROM do_submissions WHERE id = ?",
-      id,
-    );
+    const rows = this.rows<DoSubmissionRow>("SELECT * FROM do_submissions WHERE id = ?", id);
     const row = rows[0];
     if (!row) return null;
     return this.toState(row);
@@ -549,10 +547,7 @@ const DurableObjectBase: DurableObjectConstructor =
     }
   ).DurableObject ??
   (class {
-    constructor(
-      _state: DurableObjectStateLike,
-      _env: unknown,
-    ) {}
+    constructor(_state: DurableObjectStateLike, _env: unknown) {}
   } as DurableObjectConstructor);
 
 export class TakeSession extends DurableObjectBase {
@@ -570,13 +565,12 @@ export class TakeSession extends DurableObjectBase {
     // the runtime DurableObject global resolved, and whether this
     // class has SQLite storage (undefined = the v1 migration did not
     // enable it for this class).
-    const globalKind = typeof (
-      globalThis as { DurableObject?: unknown }
-    ).DurableObject;
+    const globalKind = typeof (globalThis as { DurableObject?: unknown }).DurableObject;
     const sqlKind = typeof state?.storage?.sql;
-    console.error(
-      `[TakeSession] construct: DurableObject global=${globalKind}, storage.sql=${sqlKind}`,
-    );
+    log("info", "[TakeSession] construct", {
+      durableObjectGlobal: globalKind,
+      storageSql: sqlKind,
+    });
     if (!state?.storage?.sql) {
       throw new Error(
         "TakeSession: SQLite storage unavailable — state.storage.sql is undefined (the DO migration did not enable SQLite storage for this class)",
@@ -619,10 +613,9 @@ export class TakeSession extends DurableObjectBase {
       }
       if (migrated) state.storage.sql.exec("DELETE FROM do_config");
     } catch (error) {
-      console.error(
-        "[TakeSession] construct failed:",
-        error instanceof Error ? error.stack ?? error.message : String(error),
-      );
+      log("error", "[TakeSession] construct failed", {
+        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      });
       throw error;
     }
   }
@@ -791,14 +784,10 @@ export class TakeSession extends DurableObjectBase {
       // Diagnostic (Phase 4, 2026-11-10): log the real error — the
       // dashboard shows only the 500 request line, no stack. Return
       // the message (not a bare "INTERNAL") so the caller surfaces it.
-      console.error(
-        "[TakeSession] fetch failed:",
-        error instanceof Error ? error.stack ?? error.message : String(error),
-      );
-      return jsonResponse(
-        { error: error instanceof Error ? error.message : "INTERNAL" },
-        500,
-      );
+      log("error", "[TakeSession] fetch failed", {
+        error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+      });
+      return jsonResponse({ error: error instanceof Error ? error.message : "INTERNAL" }, 500);
     }
   }
 

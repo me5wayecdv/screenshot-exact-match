@@ -37,9 +37,13 @@ import {
   type AuthSession,
 } from "@/lib/cloudflare-auth";
 import {
+  checkPasswordResetAllowed,
+  checkSignupAllowed,
   consumePasswordResetToken,
   createAdmin,
   issuePasswordResetToken,
+  recordPasswordResetAttempt,
+  recordSignupAttempt,
   signInWithRotation,
   type SecurityStore,
 } from "@/lib/cloudflare-security";
@@ -149,6 +153,11 @@ export const signUpD1 = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await getD1Async();
+    // Sign-up abuse cap (5/hour per IP): check and record before any
+    // account work, so failed/duplicate sign-ups consume budget too.
+    const store = securityStore(db);
+    await checkSignupAllowed(store, requestIp());
+    await recordSignupAttempt(store, requestIp());
     const result = await signUp(createD1AuthStore(db), {
       email: data.email,
       password: data.password,
@@ -209,7 +218,12 @@ export const requestPasswordResetD1 = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     await assertEmailConfigured();
     const db = await getD1Async();
-    const issued = await issuePasswordResetToken(securityStore(db), data.email);
+    const store = securityStore(db);
+    // Rate limit BEFORE issuing: the record happens for unknown emails
+    // too, so the limit never reveals whether the email exists.
+    await checkPasswordResetAllowed(store, data.email, requestIp());
+    await recordPasswordResetAttempt(store, data.email, requestIp());
+    const issued = await issuePasswordResetToken(store, data.email);
     if (issued.token) {
       await sendAuthEmail({
         to: data.email.trim().toLowerCase(),
