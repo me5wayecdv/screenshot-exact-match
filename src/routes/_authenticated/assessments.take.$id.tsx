@@ -311,9 +311,20 @@ function Take() {
     } catch (err) {
       toast.error(translateError(err, lang));
     } finally {
+      // Refetch BEFORE clearing `starting`: clearing it first would
+      // briefly render the history view (latest submitted attempt)
+      // from stale cached data while the refetch is still in flight
+      // — the student just waited for the exam to open and would see
+      // their old attempt instead of the new draft. (Caught live by
+      // the V3.4 probe: the start had succeeded server-side, but the
+      // page flashed the attempt-5 review until the refetch landed.)
+      try {
+        await qc.invalidateQueries({ queryKey: ["take", id, me?.id] });
+      } catch {
+        // Non-fatal: the next render still shows the latest cached data.
+      }
       setStarting(false);
     }
-    await qc.invalidateQueries({ queryKey: ["take", id, me?.id] });
   }
 
   useEffect(() => {
