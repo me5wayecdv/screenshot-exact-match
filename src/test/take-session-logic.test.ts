@@ -28,6 +28,7 @@ import {
   loadTakeData,
   validateStart,
   TAKE_SESSION_CACHE_TTL_MS,
+  TAKE_SESSION_SCORE_REFRESH_TTL_MS,
   TAKE_SESSION_FLUSH_MAX_ATTEMPTS,
   type DoAnswerState,
   type DoSubmissionState,
@@ -1069,8 +1070,9 @@ describe("loadTakeData (V3 cache)", () => {
     const row = state.submissions["sub-rel"];
     row["status"] = "released";
     row["final_score"] = 12;
-    // Age the score refresh past the TTL so the next load re-reads.
-    cfg.scoreRefresh.set(STUDENT, Date.parse(NOW) - TAKE_SESSION_CACHE_TTL_MS - 1);
+    // Age the score refresh past the TTL (V3.3: 5 min) so the next
+    // load re-reads.
+    cfg.scoreRefresh.set(STUDENT, Date.parse(NOW) - TAKE_SESSION_SCORE_REFRESH_TTL_MS - 1);
     const second = await doData(store, cfg, db);
     expect(second.allowed).toBe(true);
     if (second.allowed) {
@@ -1223,5 +1225,37 @@ describe("stale-config fallback (V3.2)", () => {
     await expect(getCachedMarks(cfg, throwingDb, EXAM, Date.parse(NOW))).rejects.toThrow(
       "D1 DB is overloaded",
     );
+  });
+});
+
+/* --------------------------------------- V3.3: score-refresh TTL */
+
+describe("score-refresh TTL (V3.3)", () => {
+  it("does NOT re-read inside 5 min even when past the old 60s TTL", async () => {
+    const state = fakeState();
+    state.submissions["sub-rel"] = fakeSubmissionRow("sub-rel", STUDENT, "awaiting_review");
+    state.answers["sub-rel:q-1"] = { id: "a-1", response: "hello", max_marks: 5 };
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+
+    const first = await doData(store, cfg, db);
+    expect(first.allowed).toBe(true);
+
+    // The teacher releases it in D1 (after the seed).
+    const row = state.submissions["sub-rel"];
+    row["status"] = "released";
+    row["final_score"] = 12;
+    // Age the refresh past the OLD 60s TTL but inside the new 5 min
+    // TTL: the next load must NOT re-read — the score stays stale
+    // and the load costs zero D1 reads.
+    cfg.scoreRefresh.set(STUDENT, Date.parse(NOW) - TAKE_SESSION_CACHE_TTL_MS - 1);
+    const readsBefore = state.reads;
+    const second = await doData(store, cfg, db);
+    expect(second.allowed).toBe(true);
+    if (second.allowed) {
+      expect(second.submissions[0]).toMatchObject({ status: "awaiting_review", final_score: null });
+    }
+    expect(state.reads - readsBefore).toBe(0);
   });
 });
