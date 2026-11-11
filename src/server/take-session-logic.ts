@@ -91,10 +91,7 @@ export interface SessionStore {
   countSubmissions(studentId: string, assessmentId: string): Promise<number>;
   /** All of the student's submissions for this exam, by attempt
    *  number (the take page's list + history). */
-  listStudentSubmissions(
-    studentId: string,
-    assessmentId: string,
-  ): Promise<DoSubmissionState[]>;
+  listStudentSubmissions(studentId: string, assessmentId: string): Promise<DoSubmissionState[]>;
   /** Whether the DO holds the COMPLETE answer set for a submission.
    *  New DO-created submissions are complete by construction; seeded
    *  rows are not until hydrated — a partial set must never be served
@@ -494,10 +491,7 @@ function notFound(): Error {
   return new Error("TAKE_NOT_FOUND");
 }
 
-function validAnswers(
-  answers: DraftAnswerInput[],
-  marks: Record<string, number>,
-): DoAnswerState[] {
+function validAnswers(answers: DraftAnswerInput[], marks: Record<string, number>): DoAnswerState[] {
   const byQuestion = new Map<string, DoAnswerState>();
   for (const answer of answers.slice(0, 500)) {
     const maxMarks = marks[answer.question_id];
@@ -573,8 +567,7 @@ export async function applyDraft(store: SessionStore, input: DraftInput): Promis
     (input.dueAt && input.nowIso > input.dueAt)
   )
     return { applied: "not_editable", lastAppliedDraftSeq: sub.draftSeq };
-  if (input.seq < sub.draftSeq)
-    return { applied: "duplicate", lastAppliedDraftSeq: sub.draftSeq };
+  if (input.seq < sub.draftSeq) return { applied: "duplicate", lastAppliedDraftSeq: sub.draftSeq };
   if (input.seq === sub.draftSeq) {
     // Same seq: re-apply (upsert is idempotent) so a retry after a
     // dropped response converges instead of reporting a false loss.
@@ -671,9 +664,16 @@ export async function hydrateFromD1(
     .first<SubmissionRow>();
   if (!row) return null;
   const answers = await db
-    .prepare("SELECT question_id, response, max_marks, time_spent_seconds FROM answers WHERE submission_id = ?")
+    .prepare(
+      "SELECT question_id, response, max_marks, time_spent_seconds FROM answers WHERE submission_id = ?",
+    )
     .bind(submissionId)
-    .all<{ question_id: string; response: string; max_marks: number; time_spent_seconds: number }>();
+    .all<{
+      question_id: string;
+      response: string;
+      max_marks: number;
+      time_spent_seconds: number;
+    }>();
   const sub: DoSubmissionState = {
     id: row.id,
     assessmentId: row.assessment_id,
@@ -722,14 +722,17 @@ export async function hydrateAnswers(
         "WHERE submission_id = ?",
     )
     .bind(submissionId)
-    .all<{ question_id: string; response: string; max_marks: number; time_spent_seconds: number }>();
+    .all<{
+      question_id: string;
+      response: string;
+      max_marks: number;
+      time_spent_seconds: number;
+    }>();
   // Gap-fill ONLY: a D1 row must never overwrite a fresher DO
   // answer (a draft written since the seed, not yet flushed). The
   // union of the DO's answers + D1's answers is the complete set.
   await store.transaction(async () => {
-    const existing = new Set(
-      (await store.getAnswers(submissionId)).map((a) => a.questionId),
-    );
+    const existing = new Set((await store.getAnswers(submissionId)).map((a) => a.questionId));
     const stored = (answers.results ?? [])
       .filter((a) => !existing.has(a.question_id))
       .map((a) => ({

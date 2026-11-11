@@ -48,6 +48,7 @@ import {
   type SecurityStore,
 } from "@/lib/cloudflare-security";
 import { createD1SecurityStore } from "@/server/d1-security-store";
+import { validateSignInInput, validateSignUpInput } from "@/lib/validation";
 import { getMeData, parseSessionCookie, requireCloudflareAuth } from "@/server/d1-session";
 import { assertEmailConfigured, sendAuthEmail, EmailError } from "@/server/d1-email";
 import type { D1Database } from "@/server/d1-auth-store";
@@ -124,7 +125,7 @@ async function assignTeacherJoinCode(db: D1Database, userId: string): Promise<vo
 }
 
 export const signInD1 = createServerFn({ method: "POST" })
-  .validator((data: unknown) => data as { email: string; password: string })
+  .validator(validateSignInInput)
   .handler(async ({ data }) => {
     const db = await getD1Async();
     const result = await signInWithRotation(securityStore(db), {
@@ -138,23 +139,14 @@ export const signInD1 = createServerFn({ method: "POST" })
   });
 
 export const signUpD1 = createServerFn({ method: "POST" })
-  .validator(
-    (data: unknown) =>
-      data as {
-        email: string;
-        password: string;
-        fullName: string;
-        role: string;
-        parentPhone?: string | null;
-        teacherPhone?: string | null;
-        subjects?: string | null;
-        school?: string | null;
-      },
-  )
+  .validator(validateSignUpInput)
   .handler(async ({ data }) => {
     const db = await getD1Async();
     // Sign-up abuse cap (5/hour per IP): check and record before any
     // account work, so failed/duplicate sign-ups consume budget too.
+    // (Malformed payloads are rejected earlier by the zod validator and
+    // never reach this cap — they cannot create accounts or guess
+    // passwords, so they do not need budget.)
     const store = securityStore(db);
     await checkSignupAllowed(store, requestIp());
     await recordSignupAttempt(store, requestIp());

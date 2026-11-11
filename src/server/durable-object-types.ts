@@ -55,8 +55,5 @@ export type DurableObjectLike = {
  *  so modules that define the DO class are never imported by tests —
  *  only the pure logic module (take-session-logic.ts) is. */
 declare global {
-  const DurableObject: new (
-    state: DurableObjectStateLike,
-    env: unknown,
-  ) => DurableObjectLike;
+  const DurableObject: new (state: DurableObjectStateLike, env: unknown) => DurableObjectLike;
 }
