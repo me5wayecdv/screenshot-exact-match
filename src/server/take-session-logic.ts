@@ -138,6 +138,11 @@ export type ExamConfig = {
  *  up by the fallback. */
 export interface ExamConfigStore {
   getConfig(): Promise<ExamConfig | null>;
+  /** Re-stamp the cached config's loadedAt without reloading (V3.2):
+   *  after a failed D1 reload the stale config keeps serving and no
+   *  call retries the reload for another TTL — otherwise every call
+   *  in a burst would pay the 5-read reload and feed the overload. */
+  touchConfig(loadedAt: number): Promise<void>;
   setConfig(
     config: ExamConfig,
     questions: ExamQuestion[],
@@ -157,9 +162,11 @@ export interface ExamConfigStore {
 }
 
 /** How long a cached config / enrolled row is trusted (DESIGN-V2.md).
- *  A synchronized burst lasts seconds, so the TTL is never hit
- *  mid-burst; it only bounds staleness (unpublish / window change /
- *  membership removal all take effect within this). */
+ *  It bounds staleness (unpublish / window change / membership
+ *  removal all take effect within this). It CAN be hit mid-burst —
+ *  the V3.1 150-step proved the boundary can fall between drafts
+ *  and submits — so a reload that fails under load must fall back
+ *  to the stale config (V3.2), never throw into the student's call. */
 export const TAKE_SESSION_CACHE_TTL_MS = 60_000;
 
 /** Flush is recorded as a failure after this many failed cycles —
@@ -383,6 +390,15 @@ export async function getCachedConfig(
     await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
     return loaded.config;
   } catch (error) {
+    // V3.2: a reload that fails under load serves the stale config
+    // instead of throwing — the exam's questions/window almost never
+    // change mid-burst, and the touch stops every later call in the
+    // burst from retrying the reload. (An unpublish is then honored
+    // up to one TTL late, only while D1 is overloaded.)
+    if (config && config.assessmentId === assessmentId) {
+      await configStore.touchConfig(nowMs);
+      return config;
+    }
     if (error instanceof Error && error.message === "TAKE_NOT_FOUND") return null;
     throw error;
   }
@@ -407,11 +423,21 @@ export async function getCachedMarks(
     return configStore.getMarks();
   }
   if (!db) throw new Error("TakeSession: D1 binding unavailable — cannot load exam config");
-  const loaded = await loadExamConfig(db, assessmentId, nowMs);
-  await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
-  const marks: Record<string, number> = {};
-  for (const q of loaded.questions) marks[q.id] = q.marks;
-  return marks;
+  try {
+    const loaded = await loadExamConfig(db, assessmentId, nowMs);
+    await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
+    const marks: Record<string, number> = {};
+    for (const q of loaded.questions) marks[q.id] = q.marks;
+    return marks;
+  } catch (error) {
+    // V3.2: same stale fallback as getCachedConfig — a failed reload
+    // must not fail the student's draft/submit.
+    if (config && config.assessmentId === assessmentId) {
+      await configStore.touchConfig(nowMs);
+      return configStore.getMarks();
+    }
+    throw error;
+  }
 }
 
 export type StartInput = {
