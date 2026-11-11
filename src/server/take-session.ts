@@ -32,6 +32,7 @@ import {
   applySubmit,
   flushDirty,
   flushOne,
+  getCachedConfig,
   getCachedMarks,
   getSessionStatus,
   hydrateAnswers,
@@ -702,7 +703,17 @@ export class TakeSession extends DurableObjectBase {
           const marks = sub
             ? await getCachedMarks(this.store, this.db, sub.assessmentId, Date.now())
             : {};
-          const result = await applyDraft(this.store, { ...input, marks });
+          // V3.1: the expiry/window freeze lives in the DO now (the
+          // Worker's per-draft D1 pre-check is gone).
+          const config = sub
+            ? await getCachedConfig(this.store, this.db, sub.assessmentId, Date.now())
+            : null;
+          const result = await applyDraft(this.store, {
+            ...input,
+            marks,
+            nowIso: new Date().toISOString(),
+            dueAt: config?.dueAt ?? null,
+          });
           await this.ensureFlushAlarm();
           return jsonResponse(result);
         }
@@ -713,7 +724,15 @@ export class TakeSession extends DurableObjectBase {
           const marks = sub
             ? await getCachedMarks(this.store, this.db, sub.assessmentId, Date.now())
             : {};
-          const result = await applySubmit(this.store, { ...input, marks });
+          // V3.1: the expiry/window freeze lives in the DO now.
+          const config = sub
+            ? await getCachedConfig(this.store, this.db, sub.assessmentId, Date.now())
+            : null;
+          const result = await applySubmit(this.store, {
+            ...input,
+            marks,
+            dueAt: config?.dueAt ?? null,
+          });
           if (result.submitted) {
             // Immediate flush attempt (submits are spread over the
             // exam, not synchronized). On failure the row stays dirty
@@ -747,7 +766,10 @@ export class TakeSession extends DurableObjectBase {
             studentId: string;
             assessmentId: string;
           };
-          await this.ensureKnown(input.submissionId);
+          // V3.1: no D1 hydration here — polls must stay read-free.
+          // The DO store is the authority; an unknown submission
+          // returns "pending" and the Worker falls back to the D1
+          // status (pre-DO rows, redirect, failure lookup).
           const status = await getSessionStatus(this.store, input);
           // null = not in this DO and not in D1: the serverFn falls
           // back to the D1 getTakeStatus (redirect / failure lookup).
