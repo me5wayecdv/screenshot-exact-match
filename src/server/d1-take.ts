@@ -972,13 +972,13 @@ export const getTakeDataD1 = createServerFn({ method: "POST" })
     });
   });
 
-// Phase 4 producers (V2): the DO validates + applies. The Worker is
+// Phase 4 producers (V3.1): the DO validates + applies. The Worker is
 // a thin pass-through — no D1 reads on the start path (the DO-side
-// config cache holds the gate), and no per-draft/per-submit marks
-// read (the DO caches the marks). Drafts/submits still pre-check the
-// submission row in D1: it gives the Worker the assessmentId for DO
-// routing and the ownership check, and those calls are spread over
-// the exam, not synchronized. The client polls getTakeStatusD1 for
+// config cache holds the gate), no per-draft/per-submit marks read
+// (the DO caches the marks), and no per-draft/per-submit pre-check
+// (the DO enforces ownership, status, and the expiry/window freeze).
+// Drafts/submits carry the assessmentId for routing — the client
+// knows it from the take page. The client polls getTakeStatusD1 for
 // the row (the poll reads the DO and resolves on the first poll).
 // A resume returns the existing draft synchronously.
 export const startAttemptD1 = createServerFn({ method: "POST" })
@@ -1006,25 +1006,30 @@ export const startAttemptD1 = createServerFn({ method: "POST" })
 export const saveDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
-    (data: unknown) => data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
+    (data: unknown) =>
+      data as {
+        submissionId: string;
+        assessmentId: string;
+        answers: DraftAnswerInput[];
+        seq: number;
+      },
   )
   .handler(async ({ context, data }) => {
-    const { session, db } = ctx(context);
+    // Phase 4 V3.1: no D1 pre-check. The per-draft D1 read
+    // (loadDraftTarget) threw under load and is redundant — the DO
+    // enforces ownership, status, and the expiry/window freeze
+    // itself (applyDraft), and hydrates unknown submissions from D1.
+    // The client sends the assessmentId for routing (it knows it
+    // from the take page); the DO verifies ownership from its own
+    // store, so a wrong id only mis-routes, never leaks.
+    const { session } = ctx(context);
     requireStudent(session);
-    const target = await retryD1Overload(() =>
-      loadDraftTarget(db, session.userId, data.submissionId, new Date().toISOString()),
-    );
-    if (!target || !target.editable) return { ok: false, queued: false };
-    const result = await callTakeSession<{ applied: string }>(
-      target.submission.assessment_id,
-      "/draft",
-      {
-        submissionId: data.submissionId,
-        studentId: session.userId,
-        answers: data.answers,
-        seq: data.seq,
-      },
-    );
+    const result = await callTakeSession<{ applied: string }>(data.assessmentId, "/draft", {
+      submissionId: data.submissionId,
+      studentId: session.userId,
+      answers: data.answers,
+      seq: data.seq,
+    });
     if (result.applied === "not_editable") return { ok: false, queued: false };
     return { ok: true, queued: true };
   });
@@ -1032,31 +1037,27 @@ export const saveDraftD1 = createServerFn({ method: "POST" })
 export const submitAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator(
-    (data: unknown) => data as { submissionId: string; answers: DraftAnswerInput[]; seq: number },
+    (data: unknown) =>
+      data as {
+        submissionId: string;
+        assessmentId: string;
+        answers: DraftAnswerInput[];
+        seq: number;
+      },
   )
   .handler(async ({ context, data }) => {
-    const { session, db } = ctx(context);
+    // Phase 4 V3.1: no D1 pre-check (same reason as saveDraftD1 —
+    // the ownership SELECT threw under load, and the DO enforces
+    // ownership, status, and the expiry/window freeze itself).
+    const { session } = ctx(context);
     requireStudent(session);
-    const submission = await retryD1Overload(() =>
-      db
-        .prepare("SELECT * FROM submissions WHERE id = ?")
-        .bind(data.submissionId)
-        .first<SubmissionRow>(),
-    );
-    if (!submission || submission.student_id !== session.userId)
-      return { ok: false, queued: false };
-    if (submission.status !== "in_progress") return { ok: false, queued: false };
-    const result = await callTakeSession<{ submitted: boolean }>(
-      submission.assessment_id,
-      "/submit",
-      {
-        submissionId: data.submissionId,
-        studentId: session.userId,
-        answers: data.answers,
-        seq: data.seq,
-        nowIso: new Date().toISOString(),
-      },
-    );
+    const result = await callTakeSession<{ submitted: boolean }>(data.assessmentId, "/submit", {
+      submissionId: data.submissionId,
+      studentId: session.userId,
+      answers: data.answers,
+      seq: data.seq,
+      nowIso: new Date().toISOString(),
+    });
     if (!result.submitted) return { ok: false, queued: false };
     return { ok: true, queued: true };
   });
