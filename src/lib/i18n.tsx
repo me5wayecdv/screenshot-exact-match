@@ -1969,6 +1969,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     ar: "رقم الموبايل مش صحيح — لازم يكون رقم مصري.",
     en: "That mobile number is not valid — it must be an Egyptian mobile.",
   },
+  INVALID_INPUT: {
+    ar: "البيانات مش مكتملة أو مش صحيحة — راجع الحقول وحاول تاني.",
+    en: "The submitted data is incomplete or invalid — check the fields and try again.",
+  },
   FORBIDDEN: { ar: "مش مسموح لك تعمل ده.", en: "You're not allowed to do that." },
   name_required: {
     ar: "اكتب اسمك الأول قبل ما تنضم — المعلم محتاج يعرف مين بيطلب.",
