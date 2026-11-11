@@ -116,26 +116,33 @@ export const DELETES = [
   ["auth_users", `DELETE FROM auth_users WHERE id IN ${TEST_USERS}`],
 ];
 
-const COUNTS_SQL = `
-SELECT
-  (SELECT COUNT(*) FROM auth_users) AS users_total,
-  (SELECT COUNT(*) FROM auth_users WHERE email LIKE '%@example.com' AND email <> '${ADMIN_EMAIL}') AS test_users,
-  (SELECT COUNT(*) FROM auth_users WHERE email NOT LIKE '%@example.com') AS real_users,
-  (SELECT COUNT(*) FROM auth_users WHERE email = '${ADMIN_EMAIL}') AS admin_present,
-  (SELECT COUNT(*) FROM submissions) AS submissions,
-  (SELECT COUNT(*) FROM assessments) AS assessments,
-  (SELECT COUNT(*) FROM answers) AS answers,
-  (SELECT COUNT(*) FROM profiles) AS profiles;
-`.trim();
+const COUNTS_SQL =
+  `SELECT (SELECT COUNT(*) FROM auth_users) AS users_total, ` +
+  `(SELECT COUNT(*) FROM auth_users WHERE email LIKE '%@example.com' AND email <> '${ADMIN_EMAIL}') AS test_users, ` +
+  `(SELECT COUNT(*) FROM auth_users WHERE email NOT LIKE '%@example.com') AS real_users, ` +
+  `(SELECT COUNT(*) FROM auth_users WHERE email = '${ADMIN_EMAIL}') AS admin_present, ` +
+  `(SELECT COUNT(*) FROM submissions) AS submissions, ` +
+  `(SELECT COUNT(*) FROM assessments) AS assessments, ` +
+  `(SELECT COUNT(*) FROM answers) AS answers, ` +
+  `(SELECT COUNT(*) FROM profiles) AS profiles`;
 
 function wrangler(args, { json = false } = {}) {
-  const out = execFileSync(process.execPath, [WRANGLER, ...args], {
-    cwd: appRoot,
-    encoding: "utf8",
-    stdio: json ? ["ignore", "pipe", "pipe"] : "inherit",
-    env: { ...process.env, CI: "1", NO_COLOR: "1" },
-  });
-  return json ? JSON.parse(out) : out;
+  // execFileSync's default error hides the child's output — surface it,
+  // otherwise a failed D1 call is undiagnosable (as the first purge run
+  // proved: exit 1 with no cause). Never print the full command line:
+  // it can contain the database id.
+  try {
+    const out = execFileSync(process.execPath, [WRANGLER, ...args], {
+      cwd: appRoot,
+      encoding: "utf8",
+      stdio: json ? ["ignore", "pipe", "pipe"] : "inherit",
+      env: { ...process.env, CI: "1", NO_COLOR: "1" },
+    });
+    return json ? JSON.parse(out) : out;
+  } catch (error) {
+    const detail = [error.stdout, error.stderr].filter(Boolean).join("\n").trim();
+    throw new Error(`wrangler ${args[0]} ${args[1]} failed: ${detail || error.message}`);
+  }
 }
 
 function d1Query(database, sql) {
