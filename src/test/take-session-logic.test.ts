@@ -96,7 +96,10 @@ class MapStore implements SessionStore {
   async getInProgressSubmission(studentId: string, assessmentId: string) {
     const found = [...this.subs.values()]
       .filter(
-        (s) => s.studentId === studentId && s.assessmentId === assessmentId && s.status === "in_progress",
+        (s) =>
+          s.studentId === studentId &&
+          s.assessmentId === assessmentId &&
+          s.status === "in_progress",
       )
       .sort((a, b) => b.attemptNumber - a.attemptNumber)[0];
     return found ? { ...found } : null;
@@ -136,11 +139,7 @@ class MapConfigStore implements ExamConfigStore {
   async touchConfig(loadedAt: number) {
     if (this.config) this.config.loadedAt = loadedAt;
   }
-  async setConfig(
-    config: ExamConfig,
-    questions: ExamQuestion[],
-    enrolledStudentIds: string[],
-  ) {
+  async setConfig(config: ExamConfig, questions: ExamQuestion[], enrolledStudentIds: string[]) {
     this.config = { ...config };
     this.questions = questions.map((q) => ({ ...q }));
     this.enrolled = new Map(enrolledStudentIds.map((id) => [id, config.loadedAt]));
@@ -495,9 +494,9 @@ describe("applyStart", () => {
 
   it("rejects a submissionId owned by another student", async () => {
     const store = await startedStore();
-    await expect(
-      applyStart(store, { ...startInput(), studentId: OTHER }),
-    ).rejects.toThrow("TAKE_NOT_FOUND");
+    await expect(applyStart(store, { ...startInput(), studentId: OTHER })).rejects.toThrow(
+      "TAKE_NOT_FOUND",
+    );
   });
 });
 
@@ -513,7 +512,7 @@ describe("applyDraft seq guard", () => {
       ],
       seq: 1,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     expect(result).toEqual({ applied: "applied", lastAppliedDraftSeq: 1 });
     const answers = await store.getAnswers("sub-1");
@@ -529,7 +528,7 @@ describe("applyDraft seq guard", () => {
       answers: [{ question_id: Q1, response: "a", time_spent_seconds: 0 }],
       seq: 2,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     const older = await applyDraft(store, {
       submissionId: "sub-1",
@@ -537,7 +536,7 @@ describe("applyDraft seq guard", () => {
       answers: [{ question_id: Q1, response: "stale", time_spent_seconds: 0 }],
       seq: 1,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     expect(older).toEqual({ applied: "duplicate", lastAppliedDraftSeq: 2 });
     const same = await applyDraft(store, {
@@ -546,7 +545,7 @@ describe("applyDraft seq guard", () => {
       answers: [{ question_id: Q1, response: "a", time_spent_seconds: 0 }],
       seq: 2,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     expect(same).toEqual({ applied: "duplicate", lastAppliedDraftSeq: 2 });
     expect((await store.getAnswers("sub-1")).at(0)?.response).toBe("a");
@@ -561,7 +560,7 @@ describe("applyDraft seq guard", () => {
         answers: [],
         seq: 1,
         marks: MARKS,
-      nowIso: NOW,
+        nowIso: NOW,
       }),
     ).rejects.toThrow("TAKE_NOT_FOUND");
   });
@@ -576,7 +575,7 @@ describe("applySubmit + late draft", () => {
       answers: [{ question_id: Q1, response: "draft", time_spent_seconds: 1 }],
       seq: 1,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     const result = await applySubmit(store, {
       submissionId: "sub-1",
@@ -625,7 +624,7 @@ describe("applySubmit + late draft", () => {
       answers: [{ question_id: Q1, response: "too late", time_spent_seconds: 0 }],
       seq: 2,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     expect(late.applied).toBe("not_editable");
     expect((await store.getAnswers("sub-1")).at(0)?.response).toBe("f");
@@ -636,13 +635,30 @@ describe("getSessionStatus", () => {
   it("reports started/submitted, pending for unknown, never leaks", async () => {
     const store = await startedStore();
     expect(
-      await getSessionStatus(store, { submissionId: "sub-1", studentId: STUDENT, assessmentId: EXAM }),
-    ).toEqual({ status: "started", submissionId: "sub-1", lastAppliedDraftSeq: 0, redirected: false });
+      await getSessionStatus(store, {
+        submissionId: "sub-1",
+        studentId: STUDENT,
+        assessmentId: EXAM,
+      }),
+    ).toEqual({
+      status: "started",
+      submissionId: "sub-1",
+      lastAppliedDraftSeq: 0,
+      redirected: false,
+    });
     expect(
-      await getSessionStatus(store, { submissionId: "sub-1", studentId: OTHER, assessmentId: EXAM }),
+      await getSessionStatus(store, {
+        submissionId: "sub-1",
+        studentId: OTHER,
+        assessmentId: EXAM,
+      }),
     ).toEqual({ status: "pending" });
     expect(
-      await getSessionStatus(store, { submissionId: "sub-nope", studentId: STUDENT, assessmentId: EXAM }),
+      await getSessionStatus(store, {
+        submissionId: "sub-nope",
+        studentId: STUDENT,
+        assessmentId: EXAM,
+      }),
     ).toBeNull();
     await applySubmit(store, {
       submissionId: "sub-1",
@@ -653,7 +669,11 @@ describe("getSessionStatus", () => {
       nowIso: NOW,
     });
     expect(
-      await getSessionStatus(store, { submissionId: "sub-1", studentId: STUDENT, assessmentId: EXAM }),
+      await getSessionStatus(store, {
+        submissionId: "sub-1",
+        studentId: STUDENT,
+        assessmentId: EXAM,
+      }),
     ).toEqual({ status: "submitted", submissionId: "sub-1", lastAppliedDraftSeq: 1 });
   });
 
@@ -666,7 +686,11 @@ describe("getSessionStatus", () => {
       flushError: "D1 overloaded",
     });
     expect(
-      await getSessionStatus(store, { submissionId: "sub-1", studentId: STUDENT, assessmentId: EXAM }),
+      await getSessionStatus(store, {
+        submissionId: "sub-1",
+        studentId: STUDENT,
+        assessmentId: EXAM,
+      }),
     ).toEqual({ status: "failed", reason: "D1 overloaded" });
   });
 });
@@ -708,7 +732,7 @@ describe("flushOne / flushDirty", () => {
       answers: [{ question_id: Q1, response: "a", time_spent_seconds: 3 }],
       seq: 1,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     const sub = (await store.getSubmission("sub-1")) as DoSubmissionState;
     expect(await flushOne(db, store, sub)).toEqual({ ok: true });
@@ -948,12 +972,7 @@ describe("getCachedMarks (V2 cache)", () => {
 
 /* ------------------------------------------------- V3: DO-served take data */
 
-async function doData(
-  store: MapStore,
-  cfg: MapConfigStore,
-  db: D1Database,
-  studentId = STUDENT,
-) {
+async function doData(store: MapStore, cfg: MapConfigStore, db: D1Database, studentId = STUDENT) {
   return loadTakeData(store, cfg, db, {
     studentId,
     assessmentId: EXAM,
@@ -1091,9 +1110,7 @@ describe("loadTakeData (V3 cache)", () => {
     const first = await doData(store, cfg, db);
     expect(first.allowed).toBe(true);
     if (first.allowed) {
-      expect(first.answersBySubmission["sub-draft"]).toEqual([
-        { question_id: Q1, response: "A" },
-      ]);
+      expect(first.answersBySubmission["sub-draft"]).toEqual([{ question_id: Q1, response: "A" }]);
     }
 
     // The student re-answers through the DO (fresher than D1).
@@ -1103,14 +1120,12 @@ describe("loadTakeData (V3 cache)", () => {
       answers: [{ question_id: Q1, response: "B", time_spent_seconds: 5 }],
       seq: 1,
       marks: MARKS,
-          nowIso: NOW,
+      nowIso: NOW,
     });
     const second = await doData(store, cfg, db);
     expect(second.allowed).toBe(true);
     if (second.allowed) {
-      expect(second.answersBySubmission["sub-draft"]).toEqual([
-        { question_id: Q1, response: "B" },
-      ]);
+      expect(second.answersBySubmission["sub-draft"]).toEqual([{ question_id: Q1, response: "B" }]);
     }
   });
 });
@@ -1188,7 +1203,9 @@ describe("expiry freeze (V3.1)", () => {
 describe("stale-config fallback (V3.2)", () => {
   const throwingDb = {
     prepare: () => {
-      throw new Error("D1 DB is overloaded. Too many resources consumed within a 10 second window.");
+      throw new Error(
+        "D1 DB is overloaded. Too many resources consumed within a 10 second window.",
+      );
     },
   } as unknown as D1Database;
 
