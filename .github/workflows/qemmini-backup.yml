@@ -1,0 +1,137 @@
+name: Qemmini Backup
+# Manual-only backup of the LIVE Qemmini database (D1) + R2 buckets,
+# using scripts/backup-d1.mjs. Runs on demand only — the daily schedule
+# is a separate decision (see docs/backup.md).
+#
+# The backup runs in GitHub Actions because the local environment has no
+# Cloudflare auth; the repo already holds CLOUDFLARE_API_TOKEN
+# ("Qemmini Live Deploy") and CLOUDFLARE_ACCOUNT_ID, the same secrets
+# the deploy workflow uses.
+#
+# Outputs: a workflow artifact (retention 30 days) containing
+#   backup-out/live-<stamp>/d1-export.sql
+#   backup-out/live-<stamp>/r2-manifest-<bucket>.json
+#   backup-out/live-<stamp>/r2/<bucket>/<key>   (every R2 object)
+#   backup-out/live-<stamp>/BACKUP-INFO.json    (counts + completeness flag)
+#
+# With drill=true the run ALSO imports the SQL dump into a throwaway
+# D1 database, checks the row counts against a loose sanity range, and
+# deletes the throwaway database in the same run (even if the import or
+# the check fails). The drill NEVER touches qemmini-live-db.
+on:
+  workflow_dispatch:
+    inputs:
+      drill:
+        description: "Run the restore drill: import the dump into a throwaway D1, verify row counts, delete it"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The project installs with Bun (bun.lock is the lockfile); the
+      # backup script runs node_modules/wrangler directly.
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      # scripts/backup-d1.mjs refuses --env live unless the root config
+      # is bound to qemmini-live-db. Same rebind as the deploy workflow:
+      # a no-op safeguard today (the committed file is already live-bound),
+      # and the step that makes it live if the file is ever restored to
+      # staging names. This edits the ephemeral checkout only.
+      - name: Rebind wrangler config to live
+        run: |
+          node -e "
+          const fs = require('fs');
+          let s = fs.readFileSync('wrangler.jsonc', 'utf8');
+          s = s.replace(/\"database_name\": \"qemmini-db\"/, '\"database_name\": \"qemmini-live-db\"');
+          s = s.replace(/\"database_id\": \"382015c0-8484-4143-b2e3-7391b0fffb7d\"/, '\"database_id\": \"3d9fae1b-acb7-426c-a7ec-307217fab151\"');
+          if (!s.includes('qemmini-live-db') || !s.includes('3d9fae1b-acb7-426c-a7ec-307217fab151')) throw new Error('live rebind failed');
+          fs.writeFileSync('wrangler.jsonc', s);
+          console.log('wrangler.jsonc rebound to qemmini-live-db');
+          "
+      - name: Run live backup (D1 export + every R2 object)
+        run: node scripts/backup-d1.mjs --env live --out backup-out --confirm
+      - name: Verify backup completeness
+        run: |
+          set -euo pipefail
+          SQL=$(ls backup-out/live-*/d1-export.sql | head -n 1)
+          [ -s "$SQL" ] || { echo "ERROR: SQL export missing or empty"; exit 1; }
+          INFO=$(ls backup-out/live-*/BACKUP-INFO.json | head -n 1)
+          jq -e '.complete == true' "$INFO" > /dev/null || { echo "ERROR: BACKUP-INFO.json does not say complete"; exit 1; }
+          echo "Backup complete:"
+          du -sh backup-out
+          find backup-out -type f | wc -l
+          jq '{env, takenAt, database, buckets, sqlBytes}' "$INFO"
+      - name: Upload backup as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemmini-backup-live-${{ github.run_id }}
+          path: backup-out/
+          retention-days: 30
+      # ---- Restore drill (only when drill=true) ----
+      - name: Create throwaway D1 for the restore drill
+        if: ${{ inputs.drill }}
+        run: |
+          set -euo pipefail
+          DRILL_NAME="qemmini-restore-drill-${{ github.run_id }}"
+          echo "DRILL_DB_NAME=$DRILL_NAME" >> "$GITHUB_ENV"
+          npx wrangler d1 create "$DRILL_NAME"
+          # Mark created BEFORE resolving the UUID, so the cleanup step
+          # can still delete by name if the lookup below fails.
+          echo "DRILL_DB_CREATED=true" >> "$GITHUB_ENV"
+          DRILL_ID=$(npx wrangler d1 list --json | jq -r --arg n "$DRILL_NAME" '.[] | select(.name == $n) | .uuid')
+          if [ -z "$DRILL_ID" ] || [ "$DRILL_ID" = "null" ]; then
+            echo "ERROR: created $DRILL_NAME but could not resolve its UUID; cleanup will delete it by name."
+            exit 1
+          fi
+          echo "DRILL_DB_ID=$DRILL_ID" >> "$GITHUB_ENV"
+          echo "Drill database: $DRILL_NAME ($DRILL_ID)"
+      - name: Import SQL dump into the drill database
+        if: ${{ inputs.drill }}
+        run: |
+          set -euo pipefail
+          SQL=$(ls backup-out/live-*/d1-export.sql | head -n 1)
+          [ -s "$SQL" ] || { echo "ERROR: no non-empty SQL export found"; exit 1; }
+          echo "Importing $SQL ($(stat -c%s "$SQL") bytes) into drill database $DRILL_DB_ID ..."
+          npx wrangler d1 execute "$DRILL_DB_ID" --remote --file "$SQL" --yes
+      - name: Verify row counts in the drill database
+        if: ${{ inputs.drill }}
+        run: |
+          set -euo pipefail
+          OUT=$(npx wrangler d1 execute "$DRILL_DB_ID" --remote --command "SELECT (SELECT COUNT(*) FROM auth_users) AS users_total, (SELECT COUNT(*) FROM user_roles WHERE role = 'student') AS students, (SELECT COUNT(*) FROM user_roles WHERE role IN ('teacher','school_teacher','tutor')) AS teachers;" --json)
+          echo "$OUT" | jq .
+          USERS=$(echo "$OUT" | jq -r '.[0].results[0].users_total')
+          STUDENTS=$(echo "$OUT" | jq -r '.[0].results[0].students')
+          TEACHERS=$(echo "$OUT" | jq -r '.[0].results[0].teachers')
+          echo "Drill DB counts: users=$USERS students=$STUDENTS teachers=$TEACHERS (live is ~2034 / ~2012 / ~22; counts include test data, so these are loose sanity floors, not exact assertions)"
+          [ "$USERS" -ge 1000 ] || { echo "ERROR: users_total $USERS below sanity floor 1000"; exit 1; }
+          [ "$STUDENTS" -ge 1000 ] || { echo "ERROR: students $STUDENTS below sanity floor 1000"; exit 1; }
+          [ "$TEACHERS" -ge 10 ] || { echo "ERROR: teachers $TEACHERS below sanity floor 10"; exit 1; }
+          echo "Restore drill verification PASSED"
+      - name: Delete the drill database
+        if: ${{ always() && inputs.drill }}
+        run: |
+          set -euo pipefail
+          if [ "${DRILL_DB_CREATED:-}" != "true" ]; then
+            echo "Drill database was never created; nothing to delete."
+            exit 0
+          fi
+          if [ -n "${DRILL_DB_ID:-}" ]; then
+            echo "Deleting drill database $DRILL_DB_ID ..."
+            npx wrangler d1 delete "$DRILL_DB_ID" --skip-confirmation
+          else
+            echo "No UUID captured; deleting drill database by name $DRILL_DB_NAME ..."
+            npx wrangler d1 delete "$DRILL_DB_NAME" --skip-confirmation
+          fi
