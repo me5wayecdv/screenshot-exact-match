@@ -146,12 +146,71 @@ function wrangler(args, { json = false } = {}) {
 }
 
 function d1Query(database, sql) {
+  // --command is the normal path (it is what the backup drill's verify
+  // step uses). If it fails, retry the identical query via --file: the
+  // drill's import proved --file reaches the same endpoint, and the two
+  // paths have failed differently in practice (purge run #2: --command
+  // on the live DB failed with Cloudflare auth error 10000 while the
+  // drill's --command on a fresh DB worked).
+  try {
+    return d1QueryCommand(database, sql);
+  } catch (error) {
+    console.error(`--command failed (${error.message}); retrying the same query via --file...`);
+    return d1QueryFile(database, sql);
+  }
+}
+
+function parseD1Json(out, sql) {
+  // --command --json returns [{ results: [...] }]; --file --json can
+  // return the same shape or a bare results array — accept both.
+  const first = Array.isArray(out) ? out[0] : out;
+  const row = first?.results?.[0] ?? first?.[0];
+  if (!row) throw new Error(`Unexpected D1 response for query: ${sql.slice(0, 80)}`);
+  return row;
+}
+
+function d1QueryCommand(database, sql) {
   const out = wrangler(["d1", "execute", database, "--remote", "--command", sql, "--json"], {
     json: true,
   });
-  const row = out?.[0]?.results?.[0];
-  if (!row) throw new Error(`Unexpected D1 response for query: ${sql.slice(0, 80)}`);
-  return row;
+  return parseD1Json(out, sql);
+}
+
+function d1QueryFile(database, sql) {
+  const dir = join(tmpdir(), `qemmini-purge-query-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const sqlPath = join(dir, "query.sql");
+  writeFileSync(sqlPath, sql);
+  const out = wrangler(["d1", "execute", database, "--remote", "--file", sqlPath, "--json"], {
+    json: true,
+  });
+  return parseD1Json(out, sql);
+}
+
+function d1QueryAll(database, sql) {
+  const parseAll = (out) => {
+    const first = Array.isArray(out) ? out[0] : out;
+    const results = first?.results ?? first;
+    if (!Array.isArray(results))
+      throw new Error(`Unexpected D1 response for query: ${sql.slice(0, 80)}`);
+    return results;
+  };
+  try {
+    const out = wrangler(["d1", "execute", database, "--remote", "--command", sql, "--json"], {
+      json: true,
+    });
+    return parseAll(out);
+  } catch (error) {
+    console.error(`--command failed (${error.message}); retrying the same query via --file...`);
+    const dir = join(tmpdir(), `qemmini-purge-query-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const sqlPath = join(dir, "query.sql");
+    writeFileSync(sqlPath, sql);
+    const out = wrangler(["d1", "execute", database, "--remote", "--file", sqlPath, "--json"], {
+      json: true,
+    });
+    return parseAll(out);
+  }
 }
 
 function checkBinding(env) {
@@ -274,19 +333,10 @@ async function main(argv) {
   // ---- R2 first: an R2 failure aborts with the database untouched.
   // Fetch the full test-user id list (d1Query returns a single row only,
   // so the id list goes through a raw JSON query).
-  const idsOut = wrangler(
-    [
-      "d1",
-      "execute",
-      database,
-      "--remote",
-      "--command",
-      `SELECT id FROM auth_users WHERE email LIKE '%@example.com' AND email <> '${ADMIN_EMAIL}'`,
-      "--json",
-    ],
-    { json: true },
-  );
-  const ids = (idsOut?.[0]?.results ?? []).map((r) => r.id);
+  const ids = d1QueryAll(
+    database,
+    `SELECT id FROM auth_users WHERE email LIKE '%@example.com' AND email <> '${ADMIN_EMAIL}'`,
+  ).map((r) => r.id);
   const idSet = new Set(ids);
   if (ids.length !== before.test_users) {
     console.error(
