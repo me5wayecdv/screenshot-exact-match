@@ -2053,6 +2053,14 @@ function isDatabaseError(err: unknown): boolean {
  * are written for people and are listed in `errorMap`.
  */
 export function translateError(err: unknown, lang: Lang): string {
+  // Prefer the error's code when it carries one: AuthError used to
+  // throw with an English message ("Invalid email or password") and
+  // no code in the message, so the map below never matched and the
+  // raw English text reached the toast. The message scan stays as a
+  // fallback for errors whose code was lost in serialization.
+  const code =
+    typeof err === "object" && err && "code" in err ? String((err as { code: unknown }).code) : "";
+  if (code && code in errorMap) return errorMap[code]![lang];
   const msg =
     err instanceof Error
       ? err.message

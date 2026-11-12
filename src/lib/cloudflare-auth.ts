@@ -138,6 +138,7 @@ export class AuthError extends Error {
       | "ACCOUNT_PENDING"
       | "ACCOUNT_REJECTED"
       | "INVALID_PHONE"
+      | "INVALID_INPUT"
       | "NOT_PASSWORDLESS",
     message?: string,
   ) {
@@ -277,6 +278,10 @@ export async function signUp(
   if (!isValidEmail(email)) throw new AuthError("INVALID_EMAIL");
   if (input.password.length < MIN_PASSWORD_LENGTH) throw new AuthError("WEAK_PASSWORD");
   if (!SIGNUP_ROLES.includes(input.role as SignUpRole)) throw new AuthError("INVALID_ROLE");
+  // The form marks the name required, but the server never checked it:
+  // an empty name sailed through and was stored as "". The zod
+  // validator fronts this, this is defense-in-depth for direct callers.
+  if (!input.fullName.trim()) throw new AuthError("INVALID_INPUT");
   if (await store.findUserByEmail(email)) throw new AuthError("EMAIL_TAKEN");
 
   // Teachers must be identifiable and contactable so the admin can
@@ -287,7 +292,7 @@ export async function signUp(
   if (isTeacherSignUpRole(input.role)) {
     teacherPhone = normalizePhoneInput(input.teacherPhone ?? "");
     if (!isValidEgyptianMobile(teacherPhone)) {
-      throw new AuthError("INVALID_PHONE", "A valid Egyptian mobile is required for teachers.");
+      throw new AuthError("INVALID_PHONE");
     }
   }
 
@@ -315,17 +320,17 @@ export async function signIn(
   // Generic failure for unknown email, OAuth account (null hash), and
   // wrong password alike — do not leak which one it was.
   if (!user || !(await verifyPassword(input.password, user.passwordHash))) {
-    throw new AuthError("INVALID_CREDENTIALS", "Invalid email or password");
+    throw new AuthError("INVALID_CREDENTIALS");
   }
   // Status is checked ONLY after the password verifies, so the
   // pending/rejected messages never leak account state to someone
   // guessing passwords. A legitimate owner with the right password
   // gets a clear, actionable message instead of a generic failure.
   if (user.status === "pending") {
-    throw new AuthError("ACCOUNT_PENDING", "Your account is waiting for admin approval.");
+    throw new AuthError("ACCOUNT_PENDING");
   }
   if (user.status === "rejected") {
-    throw new AuthError("ACCOUNT_REJECTED", "Your account was rejected by an admin.");
+    throw new AuthError("ACCOUNT_REJECTED");
   }
   await store.touchLastSignIn(user.id, nowIso());
   return createSessionFor(store, user.id);
@@ -363,10 +368,10 @@ export async function checkSession(
   const status = await store.findUserStatusById(row.userId);
   if (!status) throw new AuthError("SESSION_NOT_FOUND");
   if (status === "pending") {
-    throw new AuthError("ACCOUNT_PENDING", "Your account is waiting for admin approval.");
+    throw new AuthError("ACCOUNT_PENDING");
   }
   if (status === "rejected") {
-    throw new AuthError("ACCOUNT_REJECTED", "Your account was rejected by an admin.");
+    throw new AuthError("ACCOUNT_REJECTED");
   }
   return { id: row.id, userId: row.userId, role, expiresAt: row.expiresAt };
 }

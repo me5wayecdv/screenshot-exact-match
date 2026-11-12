@@ -15,6 +15,10 @@
  *   (same pattern as isValidEmail in cloudflare-auth.ts).
  * - password: at least MIN_PASSWORD_LENGTH (8) characters, NOT trimmed
  *   (signUp checks the raw length).
+ * - fullName: trimmed, must be non-empty. The form marks it required,
+ *   but the server never checked it — an empty name was stored as "".
+ *   The zod check fronts this; signUp also rejects it (INVALID_INPUT)
+ *   as defense-in-depth.
  * - role: exactly "school_teacher" | "tutor" | "student".
  * - teacher roles: teacherPhone required, normalized with
  *   normalizePhoneInput (local 010… / 201… forms -> +20…), then it
@@ -42,7 +46,7 @@ export const signUpSchema = z
     email: z.string().trim().toLowerCase().regex(EMAIL_REGEX),
     password: z.string().min(MIN_PASSWORD_LENGTH),
     role: z.enum(["school_teacher", "tutor", "student"]),
-    fullName: z.string(),
+    fullName: z.string().trim().min(1),
     parentPhone: z.string().nullish(),
     teacherPhone: z.string().nullish(),
     subjects: z.string().nullish(),
@@ -87,7 +91,7 @@ export function signUpValidationError(error: z.ZodError): Error {
   if (paths.has("password")) return new AuthError("WEAK_PASSWORD");
   if (paths.has("role")) return new AuthError("INVALID_ROLE");
   if (paths.has("teacherPhone")) {
-    return new AuthError("INVALID_PHONE", "A valid Egyptian mobile is required for teachers.");
+    return new AuthError("INVALID_PHONE");
   }
   return new Error("INVALID_INPUT");
 }
@@ -102,6 +106,6 @@ export function validateSignUpInput(data: unknown): SignUpInput {
 /** Parse sign-in input; any malformed payload is INVALID_CREDENTIALS. */
 export function validateSignInInput(data: unknown): SignInInput {
   const parsed = signInSchema.safeParse(data);
-  if (!parsed.success) throw new AuthError("INVALID_CREDENTIALS", "Invalid email or password");
+  if (!parsed.success) throw new AuthError("INVALID_CREDENTIALS");
   return parsed.data;
 }

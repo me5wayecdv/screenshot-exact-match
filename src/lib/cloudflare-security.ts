@@ -159,7 +159,7 @@ export async function checkLoginAllowed(
     windowCounts.byEmail >= RATE_LIMIT_ACCOUNT_MAX_FAILURES ||
     windowCounts.byIp >= RATE_LIMIT_IP_MAX_FAILURES
   ) {
-    throw new AuthError("RATE_LIMITED", "Too many login attempts. Try again later.");
+    throw new AuthError("RATE_LIMITED");
   }
   const lockoutCounts = await store.countRecentFailures({
     email,
@@ -170,7 +170,7 @@ export async function checkLoginAllowed(
     lockoutCounts.byEmail >= LOCKOUT_ACCOUNT_MAX_FAILURES ||
     lockoutCounts.byIp >= LOCKOUT_IP_MAX_FAILURES
   ) {
-    throw new AuthError("RATE_LIMITED", "Too many login attempts. Try again later.");
+    throw new AuthError("RATE_LIMITED");
   }
 }
 
@@ -218,7 +218,7 @@ export async function checkRateLimit(
     sinceIso: new Date(Date.now() - input.windowMs).toISOString(),
   });
   if (byEmail >= input.max) {
-    throw new AuthError("RATE_LIMITED", "Too many requests. Try again later.");
+    throw new AuthError("RATE_LIMITED");
   }
 }
 
@@ -357,7 +357,7 @@ export async function consumePasswordResetToken(
   if (input.newPassword.length < 8) throw new AuthError("WEAK_PASSWORD");
   const row = await store.findPasswordResetTokenByHash(await hashSessionToken(input.token));
   if (!row || row.usedAt || row.expiresAt <= nowIso()) {
-    throw new AuthError("RESET_TOKEN_INVALID", "Invalid or expired reset link.");
+    throw new AuthError("RESET_TOKEN_INVALID");
   }
   const passwordHash = await hashPassword(input.newPassword);
   await store.setPasswordHash(row.userId, passwordHash);
@@ -384,9 +384,8 @@ export async function issueSetPasswordInvitation(
 ): Promise<{ ok: true; token: string }> {
   if (adminSession.role !== "admin") throw new AuthError("FORBIDDEN");
   const user = await store.findUserByEmail(normalizeEmail(email));
-  if (!user) throw new AuthError("ACCOUNT_NOT_FOUND", "No account with that email.");
-  if (user.passwordHash !== null)
-    throw new AuthError("NOT_PASSWORDLESS", "Account already has a password.");
+  if (!user) throw new AuthError("ACCOUNT_NOT_FOUND");
+  if (user.passwordHash !== null) throw new AuthError("NOT_PASSWORDLESS");
   const rawToken = newSessionToken();
   const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
   await store.createPasswordResetToken({
