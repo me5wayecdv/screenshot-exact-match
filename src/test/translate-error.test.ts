@@ -65,3 +65,36 @@ describe("translateError — AuthError codes", () => {
     ).toBe("محاولات كتير في وقت قصير — استنى شوية وحاول تاني.");
   });
 });
+
+describe("translateError — server error classes are code-only", () => {
+  // Live bug (2026-11-12): the password-reset toast showed the raw
+  // English "Email is not configured." — EmailError carried the code
+  // in its `code` property and an English sentence in `message`, and
+  // the code is lost when the error crosses a server-function call.
+  // Every server error class now throws with message === code, and
+  // the map covers every code those classes throw.
+  it("shows Arabic for EMAIL_NOT_CONFIGURED from a code-only EmailError", async () => {
+    const { EmailError } = await import("@/server/d1-email");
+    expect(translateError(new EmailError("EMAIL_NOT_CONFIGURED"), "ar")).toBe(
+      "إرسال البريد مش مظبوط لسه — كلم المشرف.",
+    );
+  });
+
+  it("translates a serialized error whose message IS the code (RPC lost the code)", () => {
+    expect(translateError(new Error("EMAIL_NOT_CONFIGURED"), "ar")).toBe(
+      "إرسال البريد مش مظبوط لسه — كلم المشرف.",
+    );
+    expect(translateError(new Error("NOT_FOUND"), "ar")).toBe("الحاجة دي مش موجودة.");
+    expect(translateError(new Error("INVALID_EMAIL"), "ar")).toBe("البريد ده مش صحيح.");
+    expect(translateError(new Error("WEAK_PASSWORD"), "ar")).toBe(
+      "كلمة السر ضعيفة — خليها أطول وأقوى.",
+    );
+    expect(translateError(new Error("SESSION_EXPIRED"), "ar")).toBe("جلستك خلصت — سجّل دخول تاني.");
+  });
+
+  it("translates lowercase group codes the same way", async () => {
+    const { GroupError } = await import("@/server/d1-groups");
+    expect(translateError(new GroupError("not_teacher"), "ar")).toBe("ده إجراء للمعلم فقط.");
+    expect(translateError(new Error("invalid_code"), "ar")).toBe("كود المجموعة ده مش صحيح.");
+  });
+});
