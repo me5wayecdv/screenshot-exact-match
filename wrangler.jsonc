@@ -19,7 +19,7 @@
   // ports-do/DESIGN.md.
   "main": "src/worker-entry.ts",
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   // Plain-text vars ARE committed here (all non-secret config). A wrangler
   // deploy replaces the Worker's vars with this block, so vars set only in
@@ -34,10 +34,10 @@
   // real users, add these two vars to the block below (uncomment and
   // fill in — a deploy replaces Worker vars with this block, so a
   // dashboard-only EMAIL_FROM would be wiped on the next deploy):
-  //   "EMAIL_PROVIDER": "resend",            // or "mailchannels", or "" for auto-detect
+  //   "EMAIL_PROVIDER": "resend",            // or "cloudflare", or "" for auto-detect
   //   "EMAIL_FROM": "Qemmini <noreply@<your-verified-domain>>",
   // EMAIL_FROM must be a sender on a verified domain (Resend) or a
-  // MailChannels-enabled domain (MailChannels). With neither provider
+  // Email Service-onboarded domain. With neither provider
   // configured, auth-email flows throw EMAIL_NOT_CONFIGURED — they
   // never fall back to printing a token.
   //
@@ -50,7 +50,7 @@
     "AI_BASE_URL": "https://api.cloudflare.com/client/v4/accounts/d76701f3d4e154ceb13d36b94a30a209/ai/v1",
     "AI_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     "AI_VISION_MODEL": "@cf/meta/llama-3.2-11b-vision-instruct",
-    "VISION_PROVIDER": "gemini"
+    "VISION_PROVIDER": "gemini",
   },
   // D1 + R2 bindings (Phase 2). Binding names MUST match src/server/d1.ts
   // (env.DB, env.PAPERS_BUCKET, env.SOURCES_BUCKET) exactly, or server
@@ -62,18 +62,18 @@
     {
       "binding": "DB",
       "database_name": "qemmini-live-db",
-      "database_id": "3d9fae1b-acb7-426c-a7ec-307217fab151"
-    }
+      "database_id": "3d9fae1b-acb7-426c-a7ec-307217fab151",
+    },
   ],
   "r2_buckets": [
     {
       "binding": "PAPERS_BUCKET",
-      "bucket_name": "qemmini-handwritten-papers"
+      "bucket_name": "qemmini-handwritten-papers",
     },
     {
       "binding": "SOURCES_BUCKET",
-      "bucket_name": "qemmini-generation-sources"
-    }
+      "bucket_name": "qemmini-generation-sources",
+    },
   ],
   // Phase 4 (2026-11-10): one TakeSession Durable Object per exam.
   // The binding TAKE_SESSIONS is read by src/server/d1.ts
@@ -90,25 +90,25 @@
     "bindings": [
       {
         "name": "TAKE_SESSIONS",
-        "class_name": "TakeSession"
-      }
-    ]
+        "class_name": "TakeSession",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["TakeSession"]
-    }
+      "new_sqlite_classes": ["TakeSession"],
+    },
   ],
-  // MailChannels Workers integration (cutover gap #1, second provider).
-  // The SEB binding is only usable after MailChannels is enabled for
-  // the Worker's domain (DNS/DKIM in the Cloudflare dashboard) and
-  // EMAIL_PROVIDER=mailchannels (or auto-detect with no Resend key).
+  // Cloudflare Email Service (cutover gap #1, second provider).
+  // The SEB binding is only usable after the domain is onboarded to
+  // Email Service (SPF/DKIM in the Cloudflare dashboard) and
+  // EMAIL_PROVIDER=cloudflare (or auto-detect with no Resend key).
   // Declaring it here does not send anything on its own; with no
-  // MailChannels enablement, sends fail as EMAIL_SEND_FAILED, loudly.
+  // Email Service onboarding, sends fail as EMAIL_SEND_FAILED, loudly.
   "send_email": [
     {
-      "name": "SEB"
-    }
-  ]
+      "name": "SEB",
+    },
+  ],
 }
