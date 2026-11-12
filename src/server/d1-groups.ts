@@ -35,8 +35,10 @@
  *   no_pending_request) so the existing translateError map in
  *   src/lib/i18n.tsx keeps translating them; no new i18n key needed.
  * - NO unassign in v1 (same limit as the Supabase version): deleting
- *   a group cascades its group_members and group_exams rows via the
- *   schema's ON DELETE CASCADE foreign keys.
+ *   a group deletes its group_members and group_exams rows explicitly
+ *   in code — the schema's ON DELETE CASCADE is dead at runtime
+ *   (D1 enforces FKs only with PRAGMA foreign_keys = ON, which no
+ *   code path enables), so it must never be relied on.
  *
  * Pure functions take (db, actor...) and are unit-tested with a
  * dispatch fake in src/test/d1-groups.test.ts — no live D1 needed.
@@ -314,9 +316,11 @@ export async function updateTeacherGroup(
 }
 
 /**
- * Old RPC: delete_teacher_group. Owner only. The schema's
- * ON DELETE CASCADE removes group_members and group_exams rows;
- * there is deliberately no unassign of a single exam in v1.
+ * Old RPC: delete_teacher_group. Owner only. D1/SQLite enforces the
+ * schema's ON DELETE CASCADE only with PRAGMA foreign_keys = ON per
+ * connection, and no code path enables it — the cascade is dead at
+ * runtime. So the child rows are deleted explicitly first; there is
+ * deliberately no unassign of a single exam in v1.
  */
 export async function deleteTeacherGroup(
   db: D1Database,
@@ -331,6 +335,10 @@ export async function deleteTeacherGroup(
     .prepare("SELECT name FROM teacher_groups WHERE id = ? AND teacher_id = ?")
     .bind(groupId, teacherId)
     .first<{ name: string }>();
+  // Explicit child deletes: without them the orphaned group_members /
+  // group_exams rows would keep granting exam access via this group.
+  await db.prepare("DELETE FROM group_members WHERE group_id = ?").bind(groupId).run();
+  await db.prepare("DELETE FROM group_exams WHERE group_id = ?").bind(groupId).run();
   await db
     .prepare("DELETE FROM teacher_groups WHERE id = ? AND teacher_id = ?")
     .bind(groupId, teacherId)

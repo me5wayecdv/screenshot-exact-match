@@ -26,7 +26,9 @@
  *   submissions: this module selects only assessment id/title/
  *   status for linked exams.
  * - NO unassign in v1 (same limit as the Supabase version):
- *   deleting the group cascades its group_exams rows.
+ *   deleting the group deletes its group_exams rows explicitly in
+ *   code (the schema's ON DELETE CASCADE is dead at runtime — see
+ *   deleteTeacherGroup in d1-groups.ts).
  *
  * Pure functions take (db, actor...) and are unit-tested with a
  * dispatch fake in src/test/d1-groups.test.ts — no live D1 needed.
