@@ -45,7 +45,7 @@ export type DoSubmissionState = {
   id: string;
   assessmentId: string;
   studentId: string;
-  status: "in_progress" | "awaiting_review" | "released";
+  status: "in_progress" | "awaiting_review" | "approved" | "released";
   attemptNumber: number;
   startedAt: string;
   submittedAt: string | null;
@@ -315,10 +315,15 @@ export async function seedStudentSubmissions(
 }
 
 /** Map a D1 submission status onto the DO's status set, preserving
- *  "released" (the history view needs it + its final_score). Any
- *  other value coerces to in_progress, as before. */
+ *  "approved" (teacher finished grading, not yet released) and
+ *  "released" (the history view needs it + its final_score). An
+ *  "approved" submission is submitted/non-editable, like
+ *  "awaiting_review" for draft purposes — coercing it to
+ *  in_progress would let the student overwrite graded answers.
+ *  Any other value coerces to in_progress, as before. */
 function toDoStatus(status: string): DoSubmissionState["status"] {
   if (status === "awaiting_review") return "awaiting_review";
+  if (status === "approved") return "approved";
   if (status === "released") return "released";
   return "in_progress";
 }

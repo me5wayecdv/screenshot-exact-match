@@ -182,9 +182,11 @@ class SqliteSessionStore implements SessionStore, ExamConfigStore {
       status:
         row.status === "awaiting_review"
           ? "awaiting_review"
-          : row.status === "released"
-            ? "released"
-            : "in_progress",
+          : row.status === "approved"
+            ? "approved"
+            : row.status === "released"
+              ? "released"
+              : "in_progress",
       attemptNumber: row.attempt_number ?? 1,
       startedAt: row.started_at,
       submittedAt: row.submitted_at ?? null,
