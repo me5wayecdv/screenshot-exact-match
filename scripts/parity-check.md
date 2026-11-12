@@ -11,9 +11,9 @@ before it) on data that may be deleted afterwards.
 - [ ] D1 database provisioned; the real `database_id` is in
       `wrangler.jsonc` (the placeholder must be gone).
 - [ ] Worker deployed from this copy with `DB`, `PAPERS_BUCKET`,
-      `SOURCES_BUCKET` (and `SEB` if MailChannels is the email path).
+      `SOURCES_BUCKET` (and `SEB` if Cloudflare Email Service is the email path).
 - [ ] Email provider configured (see `docs/cutover-readiness.md`):
-      Resend secret + `EMAIL_FROM`, or MailChannels DNS/DKIM + `SEB`.
+      Resend secret + `EMAIL_FROM`, or Email Service SPF/DKIM + `SEB`.
 - [ ] Operator shell has `wrangler` logged in and, for the Supabase
       column, `SUPABASE_URL` + `SUPABASE_KEY` exported (read-only
       key the operator provides; values are never written into any
@@ -102,15 +102,15 @@ test accounts, on the D1 deployment:
 
 ## 7. Sign-off
 
-| Check | Result | Notes |
-| --- | --- | --- |
-| Row counts (script) | MATCH / explained | |
-| Group-exam take (member / non-member / stale) | pass | |
-| Publish loop | pass | |
-| Grading loop | pass | |
-| Handwritten round-trip | pass | |
-| Quota under concurrency | pass | |
-| Email: reset + set-password invitation received | pass | |
+| Check                                           | Result            | Notes |
+| ----------------------------------------------- | ----------------- | ----- |
+| Row counts (script)                             | MATCH / explained |       |
+| Group-exam take (member / non-member / stale)   | pass              |       |
+| Publish loop                                    | pass              |       |
+| Grading loop                                    | pass              |       |
+| Handwritten round-trip                          | pass              |       |
+| Quota under concurrency                         | pass              |       |
+| Email: reset + set-password invitation received | pass              |       |
 
 Do not cut over with an unexplained DIFF, a stale-assignment bypass,
 or an unreceived auth email. Those three are hard blockers.

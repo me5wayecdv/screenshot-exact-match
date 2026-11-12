@@ -49,7 +49,7 @@ const LIVE_DATABASE_ID = "3d9fae1b-acb7-426c-a7ec-307217fab151";
 // identifier is the only remaining difference.
 const DATABASE_ID = LIVE_DATABASE_ID;
 const ADMIN_EMAIL = "qemmini-live-admin-20261104@example.com";
-const EXPECTED_REAL_USERS = 3;
+const EXPECTED_REAL_USERS = 5;
 const BUCKETS = ["qemmini-handwritten-papers", "qemmini-generation-sources"];
 
 const WRANGLER = join(appRoot, "node_modules", "wrangler", "bin", "wrangler.js");
