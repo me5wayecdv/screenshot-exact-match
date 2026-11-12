@@ -1133,7 +1133,11 @@ describe("loadTakeData (V3 cache)", () => {
 /* --------------------------------------- V3.1: expiry freeze in the DO */
 
 describe("expiry freeze (V3.1)", () => {
-  it("rejects drafts and submits past the attempt expiry", async () => {
+  // BIZ-F2: drafts freeze at expiry, but the submit itself stays
+  // allowed (the D1 rule in submitAttemptOnce) — rejecting it would
+  // destroy frozen work, and the countdown auto-submit fires at the
+  // same moment expiry starts.
+  it("rejects drafts but allows submits past the attempt expiry", async () => {
     const store = await startedStore();
     // Age the draft past its expiry (startedStore's expiresAt is
     // null, so set one in the past).
@@ -1156,10 +1160,10 @@ describe("expiry freeze (V3.1)", () => {
       marks: MARKS,
       nowIso: NOW,
     });
-    expect(submitted).toEqual({ submitted: false });
+    expect(submitted).toEqual({ submitted: true });
   });
 
-  it("rejects drafts and submits past the window end (dueAt)", async () => {
+  it("rejects drafts but allows submits past the window end (dueAt)", async () => {
     const store = await startedStore();
     const draft = await applyDraft(store, {
       submissionId: "sub-1",
@@ -1180,7 +1184,7 @@ describe("expiry freeze (V3.1)", () => {
       nowIso: NOW,
       dueAt: "2026-11-10T16:00:00.000Z",
     });
-    expect(submitted).toEqual({ submitted: false });
+    expect(submitted).toEqual({ submitted: true });
   });
 
   it("accepts drafts and submits inside the window", async () => {

@@ -606,12 +606,11 @@ export async function applySubmit(store: SessionStore, input: SubmitInput): Prom
   const sub = await store.getSubmission(input.submissionId);
   if (!sub || sub.studentId !== input.studentId) throw notFound();
   if (sub.status !== "in_progress") return { submitted: false };
-  // Same freeze as drafts (V3.1): an expired attempt cannot submit.
-  if (
-    (sub.expiresAt && input.nowIso > sub.expiresAt) ||
-    (input.dueAt && input.nowIso > input.dueAt)
-  )
-    return { submitted: false };
+  // Submit stays allowed after expiry/window end (the D1 rule in
+  // submitAttemptOnce): edits are already frozen by applyDraft, and
+  // rejecting here would destroy frozen work — the countdown
+  // auto-submit fires at remaining===0, the same moment expiry
+  // starts, so a rejection strands the attempt with no recovery.
   const answers = validAnswers(input.answers, input.marks);
   await store.transaction(async () => {
     await store.upsertAnswers(sub.id, answers);
