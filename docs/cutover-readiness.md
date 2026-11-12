@@ -12,9 +12,9 @@ and by the admin invitation below.
 
 Providers (in order of precedence):
 
-1. `EMAIL_PROVIDER` set to `resend` or `mailchannels` — explicit wins.
+1. `EMAIL_PROVIDER` set to `resend` or `cloudflare` — explicit wins (`mailchannels` is a deprecated alias for `cloudflare`).
 2. Unset/empty: auto-detect — Resend key present → Resend; else a
-   `SEB` binding present → MailChannels; else nothing.
+   `SEB` binding present → Cloudflare Email Service; else nothing.
 3. An unknown `EMAIL_PROVIDER` value, or a named provider missing its
    key/binding/`EMAIL_FROM`, resolves to "not configured" (fail
    closed, never a silent fallback to another sender).
@@ -35,13 +35,14 @@ that block, so dashboard-only vars get wiped):
 
 `EMAIL_FROM` must be a sender on a Resend-verified domain.
 
-Setup — MailChannels (alternative, no third-party key):
+Setup — Cloudflare Email Service (alternative, no third-party key):
 
-- Enable MailChannels for the Worker's domain in the Cloudflare
-  dashboard (DNS/DKIM records), keep the `send_email` binding (`SEB`)
-  in `wrangler.jsonc`, and set `EMAIL_PROVIDER` to `mailchannels`
+- Onboard the Worker's domain to Email Service in the Cloudflare
+  dashboard (SPF/DKIM records), keep the `send_email` binding (`SEB`)
+  in `wrangler.jsonc`, and set `EMAIL_PROVIDER` to `cloudflare`
   (or leave it unset with no Resend key) plus `EMAIL_FROM` on the
-  MailChannels-enabled domain.
+  onboarded domain. (The old MailChannels free integration ended in
+  August 2024 — the same binding now speaks Email Service.)
 
 Failure contract (tested, do not weaken):
 
@@ -109,7 +110,7 @@ provider integration to a cutover that is supposed to shrink risk.
 - [ ] Deploy token re-sent by the user (values are never stored, so
       any deploy needs a fresh token from the user).
 - [ ] Email provider key/setup: `RESEND_API_KEY` secret and a verified
-      `EMAIL_FROM`, OR MailChannels DNS/DKIM enablement.
+      `EMAIL_FROM`, OR Email Service SPF/DKIM enablement.
 - [ ] Live-dump schema comparison (D1 schema vs the live Supabase
       dump) — the parity script compares row counts, not schemas.
 - [ ] First admin creation directly in D1 (there is deliberately no
