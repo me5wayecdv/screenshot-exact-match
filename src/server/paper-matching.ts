@@ -57,6 +57,7 @@ import {
 } from "./handwritten";
 import { resolveAiConfig } from "./ai-config";
 import { extractOpenAiUsage, openAiProvider, type AiTokenUsage } from "./ai-usage";
+import { attemptGeminiVision } from "./vision-fallback";
 import { matchByNumber, parseQuestionNumber } from "@/lib/paper-match";
 
 export type MatchConfidence = "high" | "medium" | "low" | "none";
@@ -186,7 +187,8 @@ function extractMatchReply(rawText: string): { text: string; questionNumber: num
   return { text: candidate, questionNumber: null };
 }
 
-async function callVisionMatch(
+/** Exported for tests (vision-fallback wiring, AI-F7). */
+export async function callVisionMatch(
   baseUrl: string,
   model: string,
   apiKey: string,
@@ -212,25 +214,32 @@ async function callVisionMatch(
     // A/B preparation 2026-10-30 — live behavior unchanged by default.
     const gemini = resolveGeminiConfig();
     if (gemini) {
-      const g = await runGeminiQuery(
-        gemini.apiKey,
-        gemini.model,
-        controller.signal,
+      const attempt = await attemptGeminiVision({
+        gemini,
+        signal: controller.signal,
         imageDataUrl,
-        "Transcribe the text in this image. If a question number is shown in the image, " +
+        prompt:
+          "Transcribe the text in this image. If a question number is shown in the image, " +
           "write it on the first line as: Question number: N. Then write the transcription. " +
           "Return only that, nothing else.",
-      );
-      if (!g.ok) return g;
-      const { text, questionNumber } = extractMatchReply(g.text);
-      return {
-        ok: true,
-        text,
-        questionNumber,
-        provider: "gemini",
-        model: gemini.model,
-        usage: g.usage,
-      };
+        runGemini: runGeminiQuery,
+      });
+      if (attempt.outcome === "gemini") {
+        const { text, questionNumber } = extractMatchReply(attempt.text);
+        return {
+          ok: true,
+          text,
+          questionNumber,
+          provider: "gemini",
+          model: gemini.model,
+          usage: attempt.usage,
+        };
+      }
+      if (attempt.outcome === "error") {
+        return { ok: false, code: attempt.code, message: attempt.message };
+      }
+      // Transient Gemini failure: fall through to the configured
+      // Workers AI vision model below (AI-F7).
     }
     // LLaVA (image-to-text) cannot take the chat-completions shape below:
     // on Cloudflare it needs the native run endpoint with a byte-array

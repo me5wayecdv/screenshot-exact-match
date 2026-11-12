@@ -44,6 +44,7 @@ import {
   type OcrErrorCode,
 } from "./handwritten";
 import { extractOpenAiUsage, openAiProvider, type AiTokenUsage } from "./ai-usage";
+import { attemptGeminiVision } from "./vision-fallback";
 
 export type SourceOcrResult =
   | { ok: true; texts: string[] }
@@ -135,7 +136,8 @@ const SOURCE_SYSTEM_PROMPT =
   SOURCE_OCR_INSTRUCTIONS +
   ' أجب بصيغة JSON فقط: {"text": "..."}.';
 
-async function callVisionOcr(
+/** Exported for tests (vision-fallback wiring, AI-F7). */
+export async function callVisionOcr(
   baseUrl: string,
   model: string,
   apiKey: string,
@@ -154,26 +156,29 @@ async function callVisionOcr(
     // A/B preparation 2026-10-30 — live behavior unchanged by default.
     const gemini = resolveGeminiConfig();
     if (gemini) {
-      const g = await runGeminiQuery(
-        gemini.apiKey,
-        gemini.model,
-        controller.signal,
+      const attempt = await attemptGeminiVision({
+        gemini,
+        signal: controller.signal,
         imageDataUrl,
-        SOURCE_OCR_INSTRUCTIONS,
-      );
-      if (g.ok) {
+        prompt: SOURCE_OCR_INSTRUCTIONS,
+        runGemini: runGeminiQuery,
+      });
+      if (attempt.outcome === "gemini") {
         return {
           ok: true,
-          text: extractTranscription(g.text),
+          text: extractTranscription(attempt.text),
           provider: "gemini",
           model: gemini.model,
-          usage: g.usage,
+          usage: attempt.usage,
         };
       }
-      // Gemini 503s are retried by runGeminiQuery first. If the provider is
-      // still unavailable, continue to the configured Workers AI vision model
-      // below instead of exposing a single-provider outage to the teacher.
-      if (!(g.code === "VISION_UPSTREAM" && /HTTP 503/i.test(g.message))) return g;
+      if (attempt.outcome === "error") {
+        return { ok: false, code: attempt.code, message: attempt.message };
+      }
+      // Transient Gemini failure (503/429/5xx, or a transport error):
+      // fall through to the configured Workers AI vision model below
+      // instead of exposing a single-provider outage to the teacher
+      // (AI-F7; previously 503-only).
     }
     // LLaVA (image-to-text) cannot take the chat-completions shape below:
     // on Cloudflare it needs the native run endpoint with a byte-array
