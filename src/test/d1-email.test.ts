@@ -64,7 +64,18 @@ describe("email provider selection", () => {
     ).resolves.toBeNull();
   });
 
-  it("explicit mailchannels wins when the binding + from are present", async () => {
+  it("explicit cloudflare wins when the binding + from are present", async () => {
+    const { seb } = fakeSeb();
+    await expect(
+      resolveEmailProvider({
+        env: { EMAIL_PROVIDER: "cloudflare", EMAIL_FROM: "Qemmini <test@example.test>" },
+        seb,
+        skipWorkerEnv: true,
+      }),
+    ).resolves.toEqual({ name: "cloudflare", from: "Qemmini <test@example.test>" });
+  });
+
+  it("mailchannels is a deprecated alias for cloudflare", async () => {
     const { seb } = fakeSeb();
     await expect(
       resolveEmailProvider({
@@ -72,13 +83,13 @@ describe("email provider selection", () => {
         seb,
         skipWorkerEnv: true,
       }),
-    ).resolves.toEqual({ name: "mailchannels", from: "Qemmini <test@example.test>" });
+    ).resolves.toEqual({ name: "cloudflare", from: "Qemmini <test@example.test>" });
   });
 
-  it("explicit mailchannels without a binding resolves to nothing", async () => {
+  it("explicit cloudflare without a binding resolves to nothing", async () => {
     await expect(
       resolveEmailProvider({
-        env: { EMAIL_PROVIDER: "mailchannels", EMAIL_FROM: "Qemmini <test@example.test>" },
+        env: { EMAIL_PROVIDER: "cloudflare", EMAIL_FROM: "Qemmini <test@example.test>" },
         skipWorkerEnv: true,
       }),
     ).resolves.toBeNull();
@@ -108,7 +119,7 @@ describe("email provider selection", () => {
     ).resolves.toEqual({ name: "resend", from: "Qemmini <test@example.test>" });
   });
 
-  it("auto-detect falls back to mailchannels when only the binding exists", async () => {
+  it("auto-detect falls back to cloudflare when only the binding exists", async () => {
     const { seb } = fakeSeb();
     await expect(
       resolveEmailProvider({
@@ -116,7 +127,7 @@ describe("email provider selection", () => {
         seb,
         skipWorkerEnv: true,
       }),
-    ).resolves.toEqual({ name: "mailchannels", from: "Qemmini <test@example.test>" });
+    ).resolves.toEqual({ name: "cloudflare", from: "Qemmini <test@example.test>" });
   });
 
   it("no key, no binding, or no from all resolve to nothing", async () => {
@@ -213,17 +224,17 @@ describe("email sending + token safety", () => {
     expect(result).toEqual({ ok: true, provider: "resend" });
   });
 
-  it("mailchannels sends through the injected binding", async () => {
+  it("cloudflare sends through the injected binding", async () => {
     const { sent, seb } = fakeSeb();
     const result = await sendEmail(
       { to: "user@example.test", subject: "Hello", text: "body" },
       {
-        env: { EMAIL_PROVIDER: "mailchannels", EMAIL_FROM: "Qemmini <test@example.test>" },
+        env: { EMAIL_PROVIDER: "cloudflare", EMAIL_FROM: "Qemmini <test@example.test>" },
         seb,
         skipWorkerEnv: true,
       },
     );
-    expect(result).toEqual({ ok: true, provider: "mailchannels" });
+    expect(result).toEqual({ ok: true, provider: "cloudflare" });
     expect(sent).toHaveLength(1);
   });
 
@@ -244,6 +255,27 @@ describe("email sending + token safety", () => {
         purpose: "set-password",
       }).text,
     ).toContain("https://example.test/set-password?token=");
+  });
+
+  it("auth emails are Arabic (subject + body), links unchanged", () => {
+    const reset = buildAuthEmail({
+      to: "u@example.test",
+      origin: "https://example.test",
+      token: DUMMY_TOKEN,
+      purpose: "reset",
+    });
+    expect(reset.subject).toBe("استعادة كلمة سر Qemmini");
+    expect(reset.text).toContain("طلبت استعادة كلمة السر");
+    expect(reset.text).toContain("https://example.test/reset-password?token=");
+    expect(reset.text).not.toContain("You asked to reset");
+    const invite = buildAuthEmail({
+      to: "u@example.test",
+      origin: "https://example.test",
+      token: DUMMY_TOKEN,
+      purpose: "set-password",
+    });
+    expect(invite.subject).toBe("تعيين كلمة سر Qemmini");
+    expect(invite.text).toContain("تمت دعوتك لتعيين كلمة سر");
   });
 
   it("sendEmail never logs: no console output on success or failure", async () => {
