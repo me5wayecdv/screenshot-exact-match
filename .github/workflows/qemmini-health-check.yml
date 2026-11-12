@@ -1,0 +1,21 @@
+name: Qemmini Health Check
+
+# Lightweight uptime watch for the live site: no external account needed.
+# GitHub notifies the repo owner when a scheduled run fails. The /health
+# endpoint stays HTTP 200 even when the DB is down, so the check reads
+# the JSON body: ok must be true AND db must be "ok".
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check /health
+        run: |
+          body=$(curl -sS -m 20 https://qemmini.adhamelhansye.workers.dev/health)
+          echo "$body"
+          echo "$body" | grep -q '"ok":true' || exit 1
+          echo "$body" | grep -q '"db":"ok"' || exit 1
