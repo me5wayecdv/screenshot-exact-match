@@ -143,11 +143,47 @@ const MATCH_SYSTEM_PROMPT =
   'أجب بصيغة JSON فقط: {"text": "...", "question_number": 3} — إن لم يظهر رقم سؤال ضع question_number: null.';
 
 /**
+ * Gemini vision prompt: the SAME JSON shape the native path requests
+ * (MATCH_SYSTEM_PROMPT), as a single text part — runGeminiQuery takes
+ * one prompt string, not a system/user pair. The old plain-text
+ * "Question number: N" first-line instruction is gone: extractMatchReply
+ * still parses such a line if a model produces one anyway.
+ */
+export const GEMINI_VISION_MATCH_PROMPT =
+  MATCH_SYSTEM_PROMPT + "\nاستخرج النص من هذه الصورة وحدد رقم السؤال الظاهر فيها.";
+
+/**
+ * A leading "Question number: N" / "السؤال N" line, as the Gemini and
+ * LLaVA/Moondream branches used to request in plain text. Only a line
+ * that *starts* with such a label counts — a number mentioned inside
+ * the transcription itself is ordinary answer text, not a number.
+ */
+const NUMBER_LINE_RE = /^\s*(?:question\s*number|السؤال)\s*[:：]?\s*(.+?)\s*$/i;
+
+function stripLeadingNumberLine(text: string): { text: string; questionNumber: number | null } {
+  const newline = text.indexOf("\n");
+  const firstLine = newline === -1 ? text : text.slice(0, newline);
+  const m = NUMBER_LINE_RE.exec(firstLine);
+  if (!m) return { text, questionNumber: null };
+  const n = parseQuestionNumber(m[1]);
+  if (n === null) return { text, questionNumber: null };
+  const rest = newline === -1 ? "" : text.slice(newline + 1);
+  return { text: rest.trimStart(), questionNumber: n };
+}
+
+/**
  * Tolerate models that wrap the JSON in ```json fences or extra prose.
  * If no JSON object is found, the raw reply is still usable as text
  * with no question number — the teacher reviews it either way.
+ * Belt and braces for models that ignore the JSON instruction and
+ * answer in plain text: a leading "Question number: N" line is still
+ * parsed (via parseQuestionNumber, so Arabic-Indic digits work) and
+ * stripped from the transcription.
  */
-function extractMatchReply(rawText: string): { text: string; questionNumber: number | null } {
+export function extractMatchReply(rawText: string): {
+  text: string;
+  questionNumber: number | null;
+} {
   const trimmed = rawText.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = (fenced?.[1]?.trim() ?? trimmed).trim();
@@ -165,7 +201,12 @@ function extractMatchReply(rawText: string): { text: string; questionNumber: num
               ? parsed["extracted_text"]
               : null;
       if (text !== null) {
-        return { text, questionNumber: parseQuestionNumber(parsed["question_number"]) };
+        const fromJson = parseQuestionNumber(parsed["question_number"]);
+        const stripped = stripLeadingNumberLine(text);
+        return {
+          text: stripped.text,
+          questionNumber: fromJson ?? stripped.questionNumber,
+        };
       }
     } catch {
       // Same tolerant fallback as the transcription extractors, plus
@@ -179,12 +220,17 @@ function extractMatchReply(rawText: string): { text: string; questionNumber: num
           .replace(/\\n/g, "\n")
           .replace(/\\"/g, '"')
           .replace(/\\\\/g, "\\");
-        return { text: decoded, questionNumber: loose[3] ? parseInt(loose[3], 10) : null };
+        const stripped = stripLeadingNumberLine(decoded);
+        return {
+          text: stripped.text,
+          questionNumber: loose[3] ? parseInt(loose[3], 10) : stripped.questionNumber,
+        };
       }
       // Fall through to raw-text handling below.
     }
   }
-  return { text: candidate, questionNumber: null };
+  const stripped = stripLeadingNumberLine(candidate);
+  return { text: stripped.text, questionNumber: stripped.questionNumber };
 }
 
 /** Exported for tests (vision-fallback wiring, AI-F7). */
@@ -218,10 +264,7 @@ export async function callVisionMatch(
         gemini,
         signal: controller.signal,
         imageDataUrl,
-        prompt:
-          "Transcribe the text in this image. If a question number is shown in the image, " +
-          "write it on the first line as: Question number: N. Then write the transcription. " +
-          "Return only that, nothing else.",
+        prompt: GEMINI_VISION_MATCH_PROMPT,
         runGemini: runGeminiQuery,
       });
       if (attempt.outcome === "gemini") {
