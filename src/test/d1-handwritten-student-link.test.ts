@@ -6,7 +6,7 @@
  *
  * Uses dispatch fakes for D1Database. No live D1 or R2 is required.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listApprovedHwStudents,
   listStudentHandwrittenGrades,
@@ -37,7 +37,20 @@ type Grade = {
 
 type HwLinkState = {
   assessments: Map<string, string>; // assessmentId -> teacherId
-  questions: Map<string, { assessment_id: string }>;
+  questions: Map<
+    string,
+    {
+      assessment_id: string;
+      prompt: string;
+      marks: number;
+      key: {
+        correct_answer: string;
+        accepted_alternatives: string;
+        rubric: string;
+        explanation: string;
+      } | null;
+    }
+  >;
   links: Map<string, string>; // `${teacherId}:${studentId}` -> status
   profiles: Map<string, string>; // id -> full_name
   grades: Map<string, Grade>;
@@ -55,6 +68,18 @@ function fakeDb(state: HwLinkState): D1Database {
         if (sql.includes("FROM assessments WHERE id")) {
           const t = state.assessments.get(params[0] as string);
           return (t ? { teacher_id: t } : null) as T | null;
+        }
+        if (sql.includes("LEFT JOIN question_keys")) {
+          const q = state.questions.get(params[0] as string);
+          if (!q) return null as T | null;
+          return {
+            prompt: q.prompt,
+            marks: q.marks,
+            correct_answer: q.key?.correct_answer ?? null,
+            accepted_alternatives: q.key?.accepted_alternatives ?? null,
+            rubric: q.key?.rubric ?? null,
+            explanation: q.key?.explanation ?? null,
+          } as T | null;
         }
         if (sql.includes("FROM questions WHERE id")) {
           const q = state.questions.get(params[0] as string);
@@ -177,6 +202,16 @@ function fakeDb(state: HwLinkState): D1Database {
             created_at: "2026-11-04T10:00:00.000Z",
           });
         }
+        if (sql.includes("INSERT INTO audit_log")) {
+          // Audit rows are not tracked by this fake.
+        } else if (
+          sql.includes("INSERT OR IGNORE INTO ai_rate_limits") ||
+          sql.includes("UPDATE ai_rate_limits") ||
+          sql.includes("INSERT INTO ai_usage_events")
+        ) {
+          // consumeAiQuota / logAiUsageEvent: the increment lands and
+          // the usage row is recorded; the fake does not track them.
+        }
         return { meta: { changes: 1 } };
       },
     };
@@ -185,8 +220,9 @@ function fakeDb(state: HwLinkState): D1Database {
   return {
     prepare: (sql: string) => make(sql),
     batch: async (stmts: D1Statement[]) => {
-      for (const s of stmts) await s.run();
-      return stmts.map(() => ({}));
+      const out: unknown[] = [];
+      for (const s of stmts) out.push(await s.run());
+      return out as never;
     },
   } as unknown as D1Database;
 }
@@ -197,7 +233,22 @@ const OTHER_TEACHER: Caller = { id: "teacher-2", role: "school_teacher" };
 function baseState(): HwLinkState {
   return {
     assessments: new Map([["assess-1", "teacher-1"]]),
-    questions: new Map([["q-1", { assessment_id: "assess-1" }]]),
+    questions: new Map([
+      [
+        "q-1",
+        {
+          assessment_id: "assess-1",
+          prompt: "Q?",
+          marks: 10,
+          key: {
+            correct_answer: "42",
+            accepted_alternatives: "[]",
+            rubric: "r",
+            explanation: "e",
+          },
+        },
+      ],
+    ]),
     links: new Map([
       ["teacher-1:student-1", "approved"],
       ["teacher-1:student-2", "pending"],
@@ -233,6 +284,53 @@ function gradeInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe("handwritten student link", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of ["AI_BASE_URL", "AI_MODEL", "AI_API_KEY"]) {
+      savedEnv[key] = process.env[key];
+    }
+    // Local endpoint: configured without an API key. The server
+    // re-grade mock returns 8/10 with feedback "good", matching
+    // the client values the old tests asserted — the stored values
+    // below now come from the server, not the client.
+    process.env["AI_BASE_URL"] = "http://localhost:11434/v1";
+    process.env["AI_MODEL"] = "test-model";
+    delete process.env["AI_API_KEY"];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  suggested_score: 8,
+                  feedback: "good",
+                  confidence: "high",
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+        text: async () => "",
+        headers: new Headers(),
+        body: null,
+      })),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   it("saves a linked grade and makes it visible to that student", async () => {
     const state = baseState();
     const db = fakeDb(state);
@@ -299,11 +397,18 @@ describe("handwritten student link", () => {
     ).rejects.toMatchObject({ code: "INVALID_INPUT" });
     expect(state.grades.size).toBe(0);
     // The other teacher CAN link their own approved student (ad-hoc
-    // paper, so no assessment-ownership check is involved).
+    // paper, so no assessment-ownership check is involved). Ad-hoc
+    // saves carry the teacher-supplied prompt for the server re-grade.
     const { id } = await saveHandwrittenGrade(
       db,
       OTHER_TEACHER,
-      gradeInput({ assessmentId: null, questionId: null, studentId: "student-3" }),
+      gradeInput({
+        assessmentId: null,
+        questionId: null,
+        questionPrompt: "Ad-hoc question",
+        rubric: "",
+        studentId: "student-3",
+      }),
     );
     expect(state.grades.get(id)?.student_id).toBe("student-3");
   });

@@ -3,7 +3,7 @@
  * using dispatch fakes for D1Database and a fake R2 bucket object.
  * No live D1 or R2 is required.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteHandwrittenGrade,
   deleteHandwrittenPaper,
@@ -41,6 +41,8 @@ type HwState = {
     string,
     {
       assessment_id: string;
+      prompt: string;
+      marks: number;
       key: {
         correct_answer: string;
         accepted_alternatives: string;
@@ -65,6 +67,18 @@ function fakeDb(state: HwState): D1Database {
         if (sql.includes("FROM assessments WHERE id")) {
           const t = state.assessments.get(params[0] as string);
           return (t ? { teacher_id: t } : null) as T | null;
+        }
+        if (sql.includes("LEFT JOIN question_keys")) {
+          const q = state.questions.get(params[0] as string);
+          if (!q) return null as T | null;
+          return {
+            prompt: q.prompt,
+            marks: q.marks,
+            correct_answer: q.key?.correct_answer ?? null,
+            accepted_alternatives: q.key?.accepted_alternatives ?? null,
+            rubric: q.key?.rubric ?? null,
+            explanation: q.key?.explanation ?? null,
+          } as T | null;
         }
         if (sql.includes("FROM questions WHERE id")) {
           const q = state.questions.get(params[0] as string);
@@ -157,6 +171,13 @@ function fakeDb(state: HwState): D1Database {
           state.grades.delete(params[0] as string);
         } else if (sql.includes("INSERT INTO audit_log")) {
           state.audits.push(params[1] as string);
+        } else if (
+          sql.includes("INSERT OR IGNORE INTO ai_rate_limits") ||
+          sql.includes("UPDATE ai_rate_limits") ||
+          sql.includes("INSERT INTO ai_usage_events")
+        ) {
+          // consumeAiQuota / logAiUsageEvent: the increment lands and
+          // the usage row is recorded; the fake does not track them.
         }
         return { meta: { changes: 1 } };
       },
@@ -166,8 +187,9 @@ function fakeDb(state: HwState): D1Database {
   return {
     prepare: (sql: string) => make(sql),
     batch: async (stmts: D1Statement[]) => {
-      for (const s of stmts) await s.run();
-      return stmts.map(() => ({}));
+      const out: unknown[] = [];
+      for (const s of stmts) out.push(await s.run());
+      return out as never;
     },
   } as unknown as D1Database;
 }
@@ -202,6 +224,8 @@ function baseState(): HwState {
         "q-1",
         {
           assessment_id: "assess-1",
+          prompt: "Q?",
+          marks: 10,
           key: { correct_answer: "42", accepted_alternatives: "[]", rubric: "r", explanation: "e" },
         },
       ],
@@ -237,6 +261,51 @@ function baseState(): HwState {
 const TINY_JPEG = `data:image/jpeg;base64,${btoa("fake-jpeg-bytes")}`;
 
 describe("D1 handwritten grading", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of ["AI_BASE_URL", "AI_MODEL", "AI_API_KEY"]) {
+      savedEnv[key] = process.env[key];
+    }
+    // Local endpoint: configured without an API key. The server
+    // re-grade mock returns 9/10 with server feedback.
+    process.env["AI_BASE_URL"] = "http://localhost:11434/v1";
+    process.env["AI_MODEL"] = "test-model";
+    delete process.env["AI_API_KEY"];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  suggested_score: 9,
+                  feedback: "server feedback",
+                  confidence: "high",
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+        text: async () => "",
+        headers: new Headers(),
+        body: null,
+      })),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
   it("rejects students from every handwritten function", async () => {
     const db = fakeDb(baseState());
     await expect(listHandwrittenHistory(db, STUDENT)).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -309,24 +378,25 @@ describe("D1 handwritten grading", () => {
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("save forces the AI score as final and blocks a foreign-folder key", async () => {
+  it("save ignores the client score, stores the server re-grade, and blocks a foreign-folder key", async () => {
     const state = baseState();
     const db = fakeDb(state);
-    await expect(
-      saveHandwrittenGrade(db, TEACHER, {
-        assessmentId: "assess-1",
-        questionId: "q-1",
-        studentName: "Ali",
-        imagePath: null,
-        extractedText: "x",
-        correctedText: "x",
-        aiSuggestedScore: null,
-        aiFeedback: null,
-        aiModel: null,
-        maxMarks: 10,
-        teacherFeedback: "",
-      }),
-    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    // A null client suggestion no longer blocks the save: the server
+    // re-grades and stores its own fresh suggestion (9/10 here).
+    const { id: idNull } = await saveHandwrittenGrade(db, TEACHER, {
+      assessmentId: "assess-1",
+      questionId: "q-1",
+      studentName: "Ali",
+      imagePath: null,
+      extractedText: "x",
+      correctedText: "x",
+      aiSuggestedScore: null,
+      aiFeedback: null,
+      aiModel: null,
+      maxMarks: 10,
+      teacherFeedback: "",
+    });
+    expect(state.grades.get(idNull)?.final_score).toBe(9);
     await expect(
       saveHandwrittenGrade(db, TEACHER, {
         assessmentId: "assess-1",
@@ -355,7 +425,9 @@ describe("D1 handwritten grading", () => {
       maxMarks: 10,
       teacherFeedback: "",
     });
-    expect(state.grades.get(id)?.final_score).toBe(7);
+    // Server re-grade (9) wins over the client-sent 7.
+    expect(state.grades.get(id)?.final_score).toBe(9);
+    expect(state.grades.get(id)?.ai_feedback).toBe("server feedback");
     expect(state.audits).toContain("handwritten_grade");
   });
 
