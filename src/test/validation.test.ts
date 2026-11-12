@@ -190,3 +190,18 @@ describe("signInSchema", () => {
     expect(thrownCode(() => validateSignInInput(null))).toBe("INVALID_CREDENTIALS");
   });
 });
+
+describe("signUpSchema — fullName", () => {
+  it("rejects an empty or whitespace-only name with INVALID_INPUT", () => {
+    expect(thrownCode(() => validateSignUpInput({ ...validStudent, fullName: "" }))).toBe(
+      "INVALID_INPUT",
+    );
+    expect(thrownCode(() => validateSignUpInput({ ...validStudent, fullName: "   " }))).toBe(
+      "INVALID_INPUT",
+    );
+  });
+
+  it("trims a valid name", () => {
+    expect(signUpSchema.parse({ ...validStudent, fullName: "  Ahmed  " }).fullName).toBe("Ahmed");
+  });
+});

@@ -47,3 +47,21 @@ describe("translateError", () => {
     );
   });
 });
+
+describe("translateError — AuthError codes", () => {
+  it("shows Arabic for a wrong password (message is the code, no English text)", async () => {
+    const { AuthError } = await import("@/lib/cloudflare-auth");
+    expect(translateError(new AuthError("INVALID_CREDENTIALS"), "ar")).toBe(
+      "البريد أو كلمة السر مش صح.",
+    );
+  });
+
+  it("prefers the error code over an English message", () => {
+    expect(
+      translateError(
+        { code: "RATE_LIMITED", message: "Too many login attempts. Try again later." },
+        "ar",
+      ),
+    ).toBe("محاولات كتير في وقت قصير — استنى شوية وحاول تاني.");
+  });
+});
