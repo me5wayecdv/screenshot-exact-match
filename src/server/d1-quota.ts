@@ -143,12 +143,19 @@ export type AiUsageInput = {
   model: string;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  /** AI-F4: which exam/question the event graded (NULL when unknown). */
+  assessmentId?: string | null | undefined;
+  questionId?: string | null | undefined;
+  /** AI-F4: the AI's suggested score (NULL when unknown / not a grade). */
+  suggestedScore?: number | null | undefined;
 };
 
 /**
  * Append an ai_usage_events row for the caller's own usage. Stores
  * token counts and model only — never prompts, replies, student
- * names, or individual answers.
+ * names, or individual answers. The optional AI-F4 linkage fields
+ * (assessment/question ids, suggested score) let override/agreement
+ * rates be computed later; they carry no student content.
  */
 export async function logAiUsageEvent(
   db: D1Database,
@@ -158,8 +165,9 @@ export async function logAiUsageEvent(
   await db
     .prepare(
       "INSERT INTO ai_usage_events " +
-        "(id, teacher_id, kind, provider, model, input_tokens, output_tokens) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "(id, teacher_id, kind, provider, model, input_tokens, output_tokens, " +
+        "assessment_id, question_id, suggested_score) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(
       crypto.randomUUID(),
@@ -169,6 +177,9 @@ export async function logAiUsageEvent(
       input.model,
       input.inputTokens ?? null,
       input.outputTokens ?? null,
+      input.assessmentId ?? null,
+      input.questionId ?? null,
+      input.suggestedScore ?? null,
     )
     .run();
 }

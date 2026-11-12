@@ -79,7 +79,7 @@ function formatScore(value: number): string {
 }
 
 export function AiGradeSuggestion({
-  answerId: _answerId,
+  answerId,
   questionPrompt,
   rubric,
   acceptedAlternatives,
@@ -120,6 +120,11 @@ export function AiGradeSuggestion({
           studentAnswer,
           maxMarks,
           assessmentId,
+          // AI-F4: the server persists the suggestion into
+          // answers.ai_suggestion for this row (ownership verified
+          // server-side). This component has no submission/question
+          // ids as props; the server resolves them from the answer.
+          answerId,
         },
       });
       if (!result.ok) {

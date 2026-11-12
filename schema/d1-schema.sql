@@ -349,6 +349,14 @@ CREATE TABLE IF NOT EXISTS ai_usage_events (
   model TEXT NOT NULL,
   input_tokens INTEGER,
   output_tokens INTEGER,
+  -- AI-F4 (2026-11-12): linkage so override/agreement rates are
+  -- computable — which exam/question was graded, and what score the AI
+  -- suggested. Nullable: events logged before the migration have NULLs.
+  -- Added by schema/migrations/20261112_ai_suggestion_tracking.sql on
+  -- existing databases; fresh databases get them from here.
+  assessment_id TEXT,
+  question_id TEXT,
+  suggested_score REAL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
