@@ -284,6 +284,26 @@ export async function removeStudent(
     .prepare("DELETE FROM teacher_students WHERE teacher_id = ? AND student_id = ?")
     .bind(caller.id, studentId)
     .run();
+  // Revoke exam access too: the take gate checks group membership and
+  // assignments, so both must go or a "removed" student keeps taking exams.
+  // Scoped to this teacher's groups / assessments only. Submitted work and
+  // handwritten grades are kept as record and are NOT deleted here.
+  await db
+    .prepare(
+      "DELETE FROM group_members WHERE student_id = ? AND group_id IN (" +
+        "SELECT id FROM teacher_groups WHERE teacher_id = ?" +
+        ")",
+    )
+    .bind(studentId, caller.id)
+    .run();
+  await db
+    .prepare(
+      "DELETE FROM assessment_assignments WHERE student_id = ? AND assessment_id IN (" +
+        "SELECT id FROM assessments WHERE teacher_id = ?" +
+        ")",
+    )
+    .bind(studentId, caller.id)
+    .run();
 }
 
 function ctxSession(context: unknown): AuthSession {
