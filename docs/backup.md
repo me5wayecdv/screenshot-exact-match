@@ -9,31 +9,37 @@ a database-only dump restores broken links:
 
 ```sh
 # Dry run first (prints the plan, touches nothing):
-node scripts/backup-d1.mjs --env staging
+node scripts/backup-d1.mjs --env live
 # Then, with Cloudflare credentials in the environment:
 CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... \
-  node scripts/backup-d1.mjs --env staging --confirm
+  node scripts/backup-d1.mjs --env live --confirm
 ```
 
-Binding rule: the root `wrangler.jsonc` is the authority. It is
-staging-bound by default (`qemmini-db`). For a **live** backup, rebind
-it to `qemmini-live-db` first (database_name AND database_id, as the
-deploy procedure does), run the backup, then restore the config to
-staging. Never pass `--config wrangler-live.jsonc`. Staging and live
-share both R2 buckets, so an R2 backup for either env contains the
-other env's objects too.
+Binding rule: the root `wrangler.jsonc` is the authority and it is
+**live-bound by default** (`database_name: qemmini-live-db`,
+`database_id: 3d9fae1b-acb7-426c-a7ec-307217fab151`) — it has held the
+live binding since the 2026-11-04 cutover. For a **live** backup, use
+`--env live` as-is; do NOT rebind the config first. (An older version
+of this document said the config was staging-bound by default — that
+was true before the cutover and is no longer true.) Never pass
+`--config wrangler-live.jsonc` — that file is local-only and not used
+by any workflow. `scripts/backup-d1.mjs` also refuses `--env live`
+unless the root config currently points at `qemmini-live-db`, so a
+mis-bound config fails loudly instead of silently backing up the
+wrong database.
 
 Suggested cadence: before every deploy, plus weekly. Keep at least the
 last four backups, stored offsite (not in the repo).
 
-## Restore drill (still owed)
+## Restore drill — DONE (2026-11-11)
 
-This script has **not** been run against a real Cloudflare account yet,
-and no restore has been drilled. The first restore drill — to a
-throwaway database, then the pilot smoke tests from
-`docs/cloudflare-deploy.md` before letting users back in — is part of
-the pilot checklist, and this document must be corrected with whatever
-that drill teaches.
+The restore drill has been run and passed: backup workflow run #3
+(`drill=true`) imported the live dump into a throwaway D1 database and
+verified row counts matched the live database exactly (2035 users /
+2035 profiles / 3285 submissions at the time), then deleted the
+throwaway database. The drill never touches `qemmini-live-db`. Re-run
+the drill after any change to the backup script's export or reorder
+logic, and before relying on a backup taken by a new script version.
 
 ## Supabase backup (historical — pre-cutover)
 

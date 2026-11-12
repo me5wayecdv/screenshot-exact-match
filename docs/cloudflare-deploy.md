@@ -1,5 +1,16 @@
 # Deploying Qayyimni on Cloudflare Workers (pilot)
 
+> ⚠️ **DEPRECATED — do not follow this document.**
+> It describes the pre-cutover architecture (Supabase auth / Postgres /
+> Storage as the live backend). Since the 2026-11-04 cutover the live
+> system is Cloudflare-only (Workers + D1 + R2 + Durable Objects, custom
+> auth) and the Supabase project is kept untouched only as a rollback
+> path. Current references: [`docs/cutover-readiness.md`](cutover-readiness.md),
+> [`docs/launch-readiness.md`](launch-readiness.md), and the manual-only
+> deploy workflow `.github/workflows/qemmini-live-deploy.yml`. This file
+> is kept for history only; if you need deployment steps, use those
+> documents instead.
+
 Target: the TanStack Start app runs as a Cloudflare Worker (SSR + server
 functions on the edge); Supabase stays where it is (auth, Postgres, Storage)
 and the browser keeps talking to Supabase directly. This is a **pilot**
