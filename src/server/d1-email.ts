@@ -8,12 +8,17 @@
  * - "resend": Resend HTTP API. Needs secrets/vars RESEND_API_KEY (set
  *   with `wrangler secret put`, NEVER committed) + EMAIL_FROM (a
  *   verified sender on a verified domain, set in wrangler.jsonc vars).
- * - "mailchannels": Cloudflare's MailChannels Workers integration.
- *   Needs the `send_email` binding (SEB in wrangler.jsonc) + EMAIL_FROM
- *   on a domain with MailChannels DNS/DKIM enabled in the dashboard.
- *   The binding is only reachable inside a Worker; outside one the
+ * - "cloudflare": Cloudflare Email Service via the `send_email`
+ *   binding (SEB in wrangler.jsonc) — the native Workers way to send,
+ *   no API key. Needs EMAIL_FROM on a domain onboarded to Email
+ *   Service, with SPF/DKIM DNS in the Cloudflare dashboard. The
+ *   binding is only reachable inside a Worker; outside one the
  *   provider resolves to "not configured", never to a fallback that
  *   prints a token.
+ * - "mailchannels": deprecated alias for "cloudflare" (same binding).
+ *   MailChannels' free Workers integration ended in August 2024; the
+ *   `send_email` binding now speaks Cloudflare Email Service. The
+ *   alias stays so an old EMAIL_PROVIDER value keeps working.
  *
  * Token safety (do not weaken):
  * - The raw reset/set-password token appears ONLY inside the email
@@ -51,7 +56,7 @@ export type EmailMessage = {
   text: string;
 };
 
-export type EmailProviderName = "resend" | "mailchannels";
+export type EmailProviderName = "resend" | "cloudflare";
 
 export type ResolvedEmailProvider = {
   name: EmailProviderName;
@@ -61,7 +66,7 @@ export type ResolvedEmailProvider = {
 export type EmailDeps = {
   /** Test/override env. Production reads process.env (see readServerEnv). */
   env?: Record<string, string | undefined>;
-  /** Injected MailChannels binding (tests, or a Worker env override). */
+  /** Injected Cloudflare Email Service binding (tests, or a Worker env override). */
   seb?: SendEmailBindingLike | null;
   /** Injected fetch (tests). Defaults to the global fetch. */
   fetchFn?: typeof fetch;
@@ -103,10 +108,13 @@ export async function resolveEmailProvider(
   }
   if (!from) return null;
   if (provider === "resend") return resendKey ? { name: "resend", from } : null;
-  if (provider === "mailchannels") return seb ? { name: "mailchannels", from } : null;
+  // "cloudflare" is the canonical name for the send_email binding;
+  // "mailchannels" is its deprecated alias (same binding, same path).
+  if (provider === "cloudflare" || provider === "mailchannels")
+    return seb ? { name: "cloudflare", from } : null;
   if (provider !== "") return null; // Unknown EMAIL_PROVIDER: fail closed.
   if (resendKey) return { name: "resend", from };
-  if (seb) return { name: "mailchannels", from };
+  if (seb) return { name: "cloudflare", from };
   return null;
 }
 
@@ -118,7 +126,7 @@ export async function assertEmailConfigured(deps: EmailDeps = {}): Promise<Resol
 }
 
 function buildRfc822(from: string, to: string, subject: string, text: string): string {
-  // Minimal plain-text RFC 822 message for the MailChannels binding.
+  // Minimal plain-text RFC 822 message for the send_email binding.
   // Header values come from server config / the account's own address
   // only — never from untrusted caller input beyond the validated `to`.
   const safeSubject = subject.replace(/[\r\n]+/g, " ");
@@ -162,7 +170,7 @@ async function sendViaResend(
   }
 }
 
-async function sendViaMailchannels(
+async function sendViaCloudflare(
   message: EmailMessage,
   provider: ResolvedEmailProvider,
   deps: EmailDeps,
@@ -188,7 +196,7 @@ async function sendViaMailchannels(
     await seb.send(wire);
   } catch (err) {
     if (err instanceof EmailError) throw err;
-    throw new EmailError("EMAIL_SEND_FAILED", "Email send failed (mailchannels).");
+    throw new EmailError("EMAIL_SEND_FAILED", "Email send failed (cloudflare).");
   }
 }
 
@@ -204,7 +212,7 @@ export async function sendEmail(
   if (!isValidEmail(message.to)) throw new EmailError("INVALID_EMAIL", "Invalid email address.");
   const provider = await assertEmailConfigured(deps);
   if (provider.name === "resend") await sendViaResend(message, provider, deps);
-  else await sendViaMailchannels(message, provider, deps);
+  else await sendViaCloudflare(message, provider, deps);
   return { ok: true, provider: provider.name };
 }
 
@@ -225,17 +233,19 @@ export function buildAuthEmail(input: {
   const path = input.purpose === "set-password" ? "/set-password" : "/reset-password";
   const link = `${input.origin.replace(/\/+$/, "")}${path}?token=${encodeURIComponent(input.token)}`;
   const isSetPassword = input.purpose === "set-password";
+  // Arabic-first product: auth emails are Arabic. The link mechanics
+  // are unchanged — the token lives only in this body.
   return {
     to: input.to,
-    subject: isSetPassword ? "Set your Qemmini password" : "Reset your Qemmini password",
+    subject: isSetPassword ? "تعيين كلمة سر Qemmini" : "استعادة كلمة سر Qemmini",
     text:
       (isSetPassword
-        ? "You were invited to set a password for your Qemmini account.\n\n"
-        : "You asked to reset your Qemmini password.\n\n") +
-      `Open this link to set your new password:\n${link}\n\n` +
-      "The link is valid for one hour and can be used only once. " +
-      "After you set the new password, all old sessions are signed out.\n" +
-      "If you did not ask for this, ignore this message.",
+        ? "تمت دعوتك لتعيين كلمة سر لحسابك في Qemmini.\n\n"
+        : "طلبت استعادة كلمة السر لحسابك في Qemmini.\n\n") +
+      `افتح الرابط ده لتعيين كلمة سر جديدة:\n${link}\n\n` +
+      "الرابط صالح لمدة ساعة واحدة ويُستخدم مرة واحدة. " +
+      "بعد تعيين كلمة السر الجديدة، سيتم تسجيل خروج كل الجلسات القديمة.\n" +
+      "إذا لم تطلب هذا، تجاهل الرسالة.",
   };
 }
 

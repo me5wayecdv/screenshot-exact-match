@@ -11,7 +11,7 @@
  *
  * EMAIL DELIVERY (cutover gap #1, now wired): requestPasswordReset
  * sends the token by email through src/server/d1-email.ts (Resend or
- * MailChannels). The provider check runs BEFORE a token is issued, so
+ * Cloudflare Email Service). The provider check runs BEFORE a token is issued, so
  * EMAIL_NOT_CONFIGURED is identical for known and unknown emails
  * (no account-enumeration signal) and no orphan token is created.
  * The token itself is never returned, logged, or printed — the email

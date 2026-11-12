@@ -43,7 +43,7 @@ export type R2BucketLike = {
   head?(key: string): Promise<{ size: number } | null>;
 };
 
-/** MailChannels `send_email` binding shape (wrangler.jsonc). The real
+/** Cloudflare Email Service `send_email` binding shape (wrangler.jsonc). The real
  *  binding's send() takes a Worker EmailMessage; d1-email.ts adapts a
  *  plain message to it, so this type stays testable without a Worker. */
 export type SendEmailBindingLike = {
@@ -125,7 +125,7 @@ export function getD1(): D1Database {
 }
 
 /** Raw Worker env for callers that need non-D1/R2 bindings (e.g. the
- *  MailChannels send_email binding). Returns null outside a Worker. */
+ *  Cloudflare Email Service send_email binding). Returns null outside a Worker. */
 export async function getWorkerEnv(): Promise<CloudflareEnv | null> {
   return loadWorkerEnv();
 }
