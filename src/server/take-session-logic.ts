@@ -918,9 +918,12 @@ function toSubmissionRow(sub: DoSubmissionState): SubmissionRow {
 /** Flush one dirty submission to D1, reusing the existing D1
  *  functions (no new D1-write code). Order matters: the row must
  *  exist before its answers (insertSubmission is idempotent), the
- *  answers apply on the D1 row, the D1 draft_seq is then set to the
- *  DO's seq, and a submitted row flips + audits only when D1 still
- *  shows it in_progress (so a duplicate flush never double-audits).
+ *  answers apply on the D1 row only while D1 still shows it
+ *  in_progress — a late flush after grading/release drops the stale
+ *  draft instead of overwriting graded answers (BIZ-F7) — the D1
+ *  draft_seq is then set to the DO's seq, and a submitted row flips
+ *  + audits only when D1 still shows it in_progress (so a duplicate
+ *  flush never double-audits).
  *  Returns ok:false (and records a failure at the threshold) instead
  *  of throwing, so one poison submission cannot block the batch. */
 export async function flushOne(
@@ -945,17 +948,24 @@ export async function flushOne(
         .bind(sub.id)
         .first<SubmissionRow>();
       if (!d1row) throw new Error("TAKE_FLUSH_NO_ROW");
-      const answers = await store.getAnswers(sub.id);
-      const inputs: DraftAnswerInput[] = answers.map((a) => ({
-        question_id: a.questionId,
-        response: a.response,
-        time_spent_seconds: a.timeSpentSeconds,
-      }));
-      await applyDraftAnswers(db, d1row, inputs, null);
-      await db
-        .prepare("UPDATE submissions SET draft_seq = ? WHERE id = ?")
-        .bind(sub.draftSeq, sub.id)
-        .run();
+      // BIZ-F7: D1 is authoritative once the submission leaves
+      // in_progress. A late flush (a draft made before the teacher
+      // graded/released, flushed after) must never rewrite answer
+      // text underneath already-set scores — skip the answer write
+      // and let the stale DO draft be dropped by markClean below.
+      if (d1row.status === "in_progress") {
+        const answers = await store.getAnswers(sub.id);
+        const inputs: DraftAnswerInput[] = answers.map((a) => ({
+          question_id: a.questionId,
+          response: a.response,
+          time_spent_seconds: a.timeSpentSeconds,
+        }));
+        await applyDraftAnswers(db, d1row, inputs, null);
+        await db
+          .prepare("UPDATE submissions SET draft_seq = ? WHERE id = ?")
+          .bind(sub.draftSeq, sub.id)
+          .run();
+      }
       if (sub.status === "awaiting_review") {
         const current = await db
           .prepare("SELECT * FROM submissions WHERE id = ?")
