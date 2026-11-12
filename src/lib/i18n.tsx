@@ -1928,7 +1928,7 @@ const dict = {
 export type TKey = keyof (typeof dict)["ar"];
 
 const errorMap: Record<string, { ar: string; en: string }> = {
-  invalid_code: { ar: "الرمز غير صحيح.", en: "Invalid code." },
+  invalid_code: { ar: "كود المجموعة ده مش صحيح.", en: "That group code isn't valid." },
   RATE_LIMITED: {
     ar: "محاولات كتير في وقت قصير — استنى شوية وحاول تاني.",
     en: "Too many attempts in a short time — wait a little and try again.",
@@ -1974,6 +1974,35 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     en: "The submitted data is incomplete or invalid — check the fields and try again.",
   },
   FORBIDDEN: { ar: "مش مسموح لك تعمل ده.", en: "You're not allowed to do that." },
+  NOT_FOUND: { ar: "الحاجة دي مش موجودة.", en: "That item was not found." },
+  INVALID_EMAIL: { ar: "البريد ده مش صحيح.", en: "That email address isn't valid." },
+  INVALID_KEY: { ar: "الرابط أو المفتاح ده مش صالح.", en: "That link or key isn't valid." },
+  INVALID_ROLE: {
+    ar: "نوع الحساب ده مش مسموح هنا.",
+    en: "That account type isn't allowed here.",
+  },
+  INVALID_SEND: { ar: "الإرسال ده مش صالح.", en: "That send isn't valid." },
+  EMAIL_TAKEN: { ar: "البريد ده مسجّل قبل كده.", en: "That email is already registered." },
+  WEAK_PASSWORD: {
+    ar: "كلمة السر ضعيفة — خليها أطول وأقوى.",
+    en: "That password is too weak — make it longer and stronger.",
+  },
+  SESSION_EXPIRED: {
+    ar: "جلستك خلصت — سجّل دخول تاني.",
+    en: "Your session expired — sign in again.",
+  },
+  SESSION_NOT_FOUND: {
+    ar: "جلستك مش موجودة — سجّل دخول تاني.",
+    en: "Your session wasn't found — sign in again.",
+  },
+  SESSION_REVOKED: {
+    ar: "جلستك اتلغت — سجّل دخول تاني.",
+    en: "Your session was revoked — sign in again.",
+  },
+  group_code_unavailable: {
+    ar: "مقدرناش نعمل كود انضمام — حاول تاني.",
+    en: "Couldn't create a join code — try again.",
+  },
   name_required: {
     ar: "اكتب اسمك الأول قبل ما تنضم — المعلم محتاج يعرف مين بيطلب.",
     en: "Add your name before joining — the teacher needs to know who is asking.",
@@ -1989,7 +2018,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     ar: "هذا الإجراء لمعلمي المدارس فقط.",
     en: "Only school teachers can do this.",
   },
-  only_students: { ar: "هذا الإجراء للطلاب فقط.", en: "Only students can do this." },
+  only_students: {
+    ar: "الانضمام للمجموعة للطلاب بس.",
+    en: "Joining a group is for students only.",
+  },
   no_questions: {
     ar: "أضف سؤالاً واحداً على الأقل قبل النشر.",
     en: "Add at least one question before publishing.",
