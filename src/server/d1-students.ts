@@ -69,7 +69,7 @@ export class StudentError extends Error {
 
 function requireTeacher(caller: Caller): void {
   if (!isTeacherCaller(caller)) {
-    throw new StudentError("FORBIDDEN", "Student management is teacher-only.");
+    throw new StudentError("FORBIDDEN");
   }
 }
 
@@ -186,16 +186,16 @@ export async function decideEnrollment(
 ): Promise<void> {
   requireTeacher(caller);
   if (!studentId || studentId === caller.id) {
-    throw new StudentError("INVALID_INPUT", "Invalid student.");
+    throw new StudentError("INVALID_INPUT");
   }
   const decided = approve ? "approved" : "rejected";
   const row = await db
     .prepare("SELECT status FROM teacher_students WHERE teacher_id = ? AND student_id = ?")
     .bind(caller.id, studentId)
     .first<{ status: string }>();
-  if (!row) throw new StudentError("NOT_FOUND", "No enrollment request found.");
+  if (!row) throw new StudentError("NOT_FOUND");
   if (!(row.status === "pending" || (approve && row.status === "rejected"))) {
-    throw new StudentError("NOT_FOUND", "No pending request to decide.");
+    throw new StudentError("NOT_FOUND");
   }
   await db
     .prepare(

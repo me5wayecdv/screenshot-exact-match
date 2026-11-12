@@ -66,7 +66,7 @@ export async function listReleasedForStudent(
   caller: Caller,
 ): Promise<{ id: string; assessment_id: string }[]> {
   if (normalizeRole(caller.role) !== "student") {
-    throw new ReviewError("FORBIDDEN", "Released submissions list is student-only.");
+    throw new ReviewError("FORBIDDEN");
   }
   const { results } = await db
     .prepare(
@@ -90,7 +90,7 @@ export async function listQuestionsForReleasedAssessment(
   assessmentId: string,
 ): Promise<ReviewQuestion[]> {
   if (normalizeRole(caller.role) !== "student") {
-    throw new ReviewError("FORBIDDEN", "Questions list is student-only.");
+    throw new ReviewError("FORBIDDEN");
   }
   const sub = await db
     .prepare(
@@ -99,7 +99,7 @@ export async function listQuestionsForReleasedAssessment(
     .bind(assessmentId, caller.id)
     .first<{ id: string }>();
   if (!sub) {
-    throw new ReviewError("FORBIDDEN", "No released submission for this assessment.");
+    throw new ReviewError("FORBIDDEN");
   }
   const { results } = await db
     .prepare("SELECT id, prompt FROM questions WHERE assessment_id = ? ORDER BY position")
@@ -112,7 +112,7 @@ export async function listReviewRequests(db: D1Database, caller: Caller): Promis
   const role = normalizeRole(caller.role);
   const col = role === "student" ? "student_id" : "teacher_id";
   if (role !== "student" && !isTeacherCaller(caller)) {
-    throw new ReviewError("FORBIDDEN", "Reviews are for students and teachers only.");
+    throw new ReviewError("FORBIDDEN");
   }
   const { results } = await db
     .prepare(
@@ -205,25 +205,25 @@ export async function submitReviewRequest(
   input: { submissionId: string; questionId: string | null; message: string },
 ): Promise<{ id: string }> {
   if (normalizeRole(caller.role) !== "student") {
-    throw new ReviewError("FORBIDDEN", "Only students file review requests.");
+    throw new ReviewError("FORBIDDEN");
   }
-  if (!input.message.trim()) throw new ReviewError("INVALID_INPUT", "Message is required.");
+  if (!input.message.trim()) throw new ReviewError("INVALID_INPUT");
   const sub = await db
     .prepare("SELECT assessment_id, student_id, status FROM submissions WHERE id = ?")
     .bind(input.submissionId)
     .first<{ assessment_id: string; student_id: string; status: string }>();
-  if (!sub) throw new ReviewError("NOT_FOUND", "Submission not found.");
+  if (!sub) throw new ReviewError("NOT_FOUND");
   if (sub.student_id !== caller.id) {
-    throw new ReviewError("FORBIDDEN", "Submission belongs to another student.");
+    throw new ReviewError("FORBIDDEN");
   }
   if (sub.status !== "released") {
-    throw new ReviewError("INVALID_INPUT", "Only released submissions can be reviewed.");
+    throw new ReviewError("INVALID_INPUT");
   }
   const assessment = await db
     .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
     .bind(sub.assessment_id)
     .first<{ teacher_id: string }>();
-  if (!assessment) throw new ReviewError("NOT_FOUND", "Assessment not found.");
+  if (!assessment) throw new ReviewError("NOT_FOUND");
   if (input.questionId) {
     const q = await db
       .prepare("SELECT assessment_id FROM questions WHERE id = ?")
@@ -262,7 +262,7 @@ export async function resolveReviewRequest(
   response: string,
 ): Promise<boolean> {
   if (!isTeacherCaller(caller)) {
-    throw new ReviewError("FORBIDDEN", "Only teachers resolve review requests.");
+    throw new ReviewError("FORBIDDEN");
   }
   if (response.length > 5000) return false;
   const row = await db

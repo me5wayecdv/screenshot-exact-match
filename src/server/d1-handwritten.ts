@@ -89,7 +89,7 @@ export class HandwrittenError extends Error {
 
 function requireTeacher(caller: Caller): void {
   if (!isTeacherCaller(caller)) {
-    throw new HandwrittenError("FORBIDDEN", "Handwritten grading is teacher-only.");
+    throw new HandwrittenError("FORBIDDEN");
   }
 }
 
@@ -166,9 +166,9 @@ export async function listHandwrittenQuestions(
     .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
     .bind(assessmentId)
     .first<{ teacher_id: string }>();
-  if (!owner) throw new HandwrittenError("NOT_FOUND", "Assessment not found.");
+  if (!owner) throw new HandwrittenError("NOT_FOUND");
   if (owner.teacher_id !== caller.id) {
-    throw new HandwrittenError("FORBIDDEN", "Assessment belongs to another teacher.");
+    throw new HandwrittenError("FORBIDDEN");
   }
   const { results } = await db
     .prepare(
@@ -298,8 +298,7 @@ const MAX_PAPER_DATA_URL_CHARS = 8_000_000;
 
 export function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
   const match = DATA_URL_RE.exec(dataUrl);
-  if (!match)
-    throw new HandwrittenError("INVALID_INPUT", "Paper must be a JPEG/PNG/WebP data URL.");
+  if (!match) throw new HandwrittenError("INVALID_INPUT");
   const mime = `image/${match[1]}`;
   const b64 = dataUrl.split(",", 2)[1] ?? "";
   const bin = atob(b64);
@@ -322,7 +321,7 @@ export async function uploadHandwrittenPaper(
   requireTeacher(caller);
   void db;
   if (!input.dataUrl || input.dataUrl.length > MAX_PAPER_DATA_URL_CHARS) {
-    throw new HandwrittenError("INVALID_INPUT", "Paper is missing or too large.");
+    throw new HandwrittenError("INVALID_INPUT");
   }
   const { bytes } = decodeDataUrl(input.dataUrl);
   const safeName = (input.fileName || "paper.jpg").replace(/[\\/]/g, "_");
@@ -360,19 +359,19 @@ export async function saveHandwrittenGrade(
 ): Promise<{ id: string }> {
   requireTeacher(caller);
   if (input.aiSuggestedScore === null || !Number.isFinite(input.aiSuggestedScore)) {
-    throw new HandwrittenError("INVALID_INPUT", "Saving requires an AI suggestion.");
+    throw new HandwrittenError("INVALID_INPUT");
   }
   if (!input.correctedText.trim()) {
-    throw new HandwrittenError("INVALID_INPUT", "Corrected text is required.");
+    throw new HandwrittenError("INVALID_INPUT");
   }
   if (!Number.isFinite(input.maxMarks) || input.maxMarks <= 0 || input.maxMarks > 1000) {
-    throw new HandwrittenError("INVALID_INPUT", "Invalid max marks.");
+    throw new HandwrittenError("INVALID_INPUT");
   }
   if (input.imagePath) {
     try {
       validateR2Key(caller.id, input.imagePath);
     } catch (e) {
-      if (e instanceof R2Error) throw new HandwrittenError("INVALID_KEY", "Invalid paper key.");
+      if (e instanceof R2Error) throw new HandwrittenError("INVALID_KEY");
       throw e;
     }
   }
@@ -381,9 +380,9 @@ export async function saveHandwrittenGrade(
       .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
       .bind(input.assessmentId)
       .first<{ teacher_id: string }>();
-    if (!owner) throw new HandwrittenError("NOT_FOUND", "Assessment not found.");
+    if (!owner) throw new HandwrittenError("NOT_FOUND");
     if (owner.teacher_id !== caller.id) {
-      throw new HandwrittenError("FORBIDDEN", "Assessment belongs to another teacher.");
+      throw new HandwrittenError("FORBIDDEN");
     }
   }
   if (input.questionId) {
@@ -391,9 +390,9 @@ export async function saveHandwrittenGrade(
       .prepare("SELECT assessment_id FROM questions WHERE id = ?")
       .bind(input.questionId)
       .first<{ assessment_id: string }>();
-    if (!q) throw new HandwrittenError("NOT_FOUND", "Question not found.");
+    if (!q) throw new HandwrittenError("NOT_FOUND");
     if (input.assessmentId && q.assessment_id !== input.assessmentId) {
-      throw new HandwrittenError("INVALID_INPUT", "Question does not belong to the assessment.");
+      throw new HandwrittenError("INVALID_INPUT");
     }
     if (!input.assessmentId) {
       const owner = await db
@@ -401,7 +400,7 @@ export async function saveHandwrittenGrade(
         .bind(q.assessment_id)
         .first<{ teacher_id: string }>();
       if (!owner || owner.teacher_id !== caller.id) {
-        throw new HandwrittenError("FORBIDDEN", "Question belongs to another teacher.");
+        throw new HandwrittenError("FORBIDDEN");
       }
     }
   }
@@ -496,9 +495,9 @@ export async function deleteHandwrittenGrade(
     .prepare("SELECT teacher_id, image_path FROM handwritten_grades WHERE id = ?")
     .bind(gradeId)
     .first<{ teacher_id: string; image_path: string | null }>();
-  if (!row) throw new HandwrittenError("NOT_FOUND", "Grade not found.");
+  if (!row) throw new HandwrittenError("NOT_FOUND");
   if (row.teacher_id !== caller.id) {
-    throw new HandwrittenError("FORBIDDEN", "Grade belongs to another teacher.");
+    throw new HandwrittenError("FORBIDDEN");
   }
   const del = db.prepare("DELETE FROM handwritten_grades WHERE id = ?").bind(gradeId);
   const audit = db
@@ -531,12 +530,12 @@ export async function getHandwrittenPaper(
     .prepare("SELECT teacher_id, image_path FROM handwritten_grades WHERE id = ?")
     .bind(gradeId)
     .first<{ teacher_id: string; image_path: string | null }>();
-  if (!row || !row.image_path) throw new HandwrittenError("NOT_FOUND", "Paper not found.");
+  if (!row || !row.image_path) throw new HandwrittenError("NOT_FOUND");
   if (row.teacher_id !== caller.id) {
-    throw new HandwrittenError("FORBIDDEN", "Paper belongs to another teacher.");
+    throw new HandwrittenError("FORBIDDEN");
   }
   const bytes = await r2Get(bucket, caller.id, row.image_path);
-  if (!bytes) throw new HandwrittenError("NOT_FOUND", "Paper not found in storage.");
+  if (!bytes) throw new HandwrittenError("NOT_FOUND");
   let bin = "";
   const arr = new Uint8Array(bytes);
   for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]!);

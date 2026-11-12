@@ -67,9 +67,9 @@ async function assertOwnsSubmission(
     )
     .bind(submissionId)
     .first<{ teacher_id: string }>();
-  if (!row) throw new WhatsappClaimError("NOT_FOUND", "Submission not found.");
+  if (!row) throw new WhatsappClaimError("NOT_FOUND");
   if (row.teacher_id !== teacherId) {
-    throw new WhatsappClaimError("FORBIDDEN", "Submission belongs to another teacher.");
+    throw new WhatsappClaimError("FORBIDDEN");
   }
 }
 
@@ -137,10 +137,10 @@ export async function finishWhatsappSend(
 ): Promise<boolean> {
   await assertOwnsSubmission(db, teacherId, submissionId);
   if (!["sent", "failed", "skipped"].includes(input.status)) {
-    throw new WhatsappClaimError("INVALID_SEND", "Invalid send status.");
+    throw new WhatsappClaimError("INVALID_SEND");
   }
   if (!["manual", "auto"].includes(input.trigger)) {
-    throw new WhatsappClaimError("INVALID_SEND", "Invalid send trigger.");
+    throw new WhatsappClaimError("INVALID_SEND");
   }
   const claim = await db
     .prepare(

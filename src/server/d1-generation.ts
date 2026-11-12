@@ -61,7 +61,7 @@ export class GenerationError extends Error {
 
 function requireTeacher(caller: Caller): void {
   if (!isTeacherCaller(caller)) {
-    throw new GenerationError("FORBIDDEN", "Generation is teacher-only.");
+    throw new GenerationError("FORBIDDEN");
   }
 }
 
@@ -101,13 +101,13 @@ export async function uploadGenerationSource(
   void db;
   const ext = (input.fileName.split(".").pop() ?? "").toLowerCase();
   if (!SOURCE_EXTS.has(ext)) {
-    throw new GenerationError("INVALID_INPUT", "Unsupported source file type.");
+    throw new GenerationError("INVALID_INPUT");
   }
   if (!input.dataUrl || input.dataUrl.length > MAX_SOURCE_DATA_URL_CHARS) {
-    throw new GenerationError("INVALID_INPUT", "Source file is missing or too large.");
+    throw new GenerationError("INVALID_INPUT");
   }
   const b64 = input.dataUrl.split(",", 2)[1];
-  if (!b64) throw new GenerationError("INVALID_INPUT", "Source file is not a data URL.");
+  if (!b64) throw new GenerationError("INVALID_INPUT");
   const safeName = input.fileName.replace(/[\\/]/g, "_");
   const key = buildR2Key(caller.id, crypto.randomUUID(), safeName);
   await r2Put(bucket, caller.id, key, decodeBase64(b64));
@@ -150,13 +150,13 @@ export async function saveGeneratedDraft(
   input: SaveDraftInput,
 ): Promise<{ assessmentId: string; questionCount: number }> {
   requireTeacher(caller);
-  if (!input.title.trim()) throw new GenerationError("INVALID_INPUT", "Title is required.");
+  if (!input.title.trim()) throw new GenerationError("INVALID_INPUT");
   if (input.questions.length < 1 || input.questions.length > 20) {
-    throw new GenerationError("INVALID_INPUT", "Question count must be 1..20.");
+    throw new GenerationError("INVALID_INPUT");
   }
   for (const q of input.questions) {
     if (!QUESTION_TYPES.has(q.type) || !q.prompt.trim() || !(q.marks > 0)) {
-      throw new GenerationError("INVALID_INPUT", "Invalid generated question.");
+      throw new GenerationError("INVALID_INPUT");
     }
   }
   if (input.subjectId) {
@@ -164,7 +164,7 @@ export async function saveGeneratedDraft(
       .prepare("SELECT id FROM subjects WHERE id = ?")
       .bind(input.subjectId)
       .first<{ id: string }>();
-    if (!subj) throw new GenerationError("NOT_FOUND", "Subject not found.");
+    if (!subj) throw new GenerationError("NOT_FOUND");
   }
   const assessmentId = crypto.randomUUID();
   const stmts = [

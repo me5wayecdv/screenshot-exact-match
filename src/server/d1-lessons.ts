@@ -40,7 +40,7 @@ export class LessonError extends Error {
 
 function requireTutor(caller: Caller): void {
   if (normalizeRole(caller.role) !== "tutor") {
-    throw new LessonError("FORBIDDEN", "Lessons are tutor-only.");
+    throw new LessonError("FORBIDDEN");
   }
 }
 
@@ -123,13 +123,13 @@ export async function createLesson(
   input: CreateLessonInput,
 ): Promise<{ id: string; joinCode: string }> {
   requireTutor(caller);
-  if (!input.title.trim()) throw new LessonError("INVALID_INPUT", "Lesson title is required.");
+  if (!input.title.trim()) throw new LessonError("INVALID_INPUT");
   if (input.subjectId) {
     const subj = await db
       .prepare("SELECT id FROM subjects WHERE id = ? AND teacher_id = ?")
       .bind(input.subjectId, caller.id)
       .first<{ id: string }>();
-    if (!subj) throw new LessonError("NOT_FOUND", "Subject not found.");
+    if (!subj) throw new LessonError("NOT_FOUND");
   }
   const id = crypto.randomUUID();
   let lastError: unknown = null;
@@ -161,9 +161,7 @@ export async function createLesson(
       lastError = e;
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new LessonError("INVALID_INPUT", "Could not create lesson.");
+  throw lastError instanceof Error ? lastError : new LessonError("INVALID_INPUT");
 }
 
 function ctxSession(context: unknown): AuthSession {

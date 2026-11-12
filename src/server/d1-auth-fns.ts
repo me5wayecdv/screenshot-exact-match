@@ -78,7 +78,7 @@ function requestOrigin(): string {
   }
   const fallback = typeof process !== "undefined" ? (process.env["APP_URL"] ?? "").trim() : "";
   if (fallback) return fallback.replace(/\/+$/, "");
-  throw new EmailError("EMAIL_SEND_FAILED", "Email send failed (no origin).");
+  throw new EmailError("EMAIL_SEND_FAILED");
 }
 
 function requestIp(): string {

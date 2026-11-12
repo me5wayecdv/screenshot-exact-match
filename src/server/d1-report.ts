@@ -70,7 +70,7 @@ function ctxCaller(context: unknown): Caller {
 function requireTeacher(caller: Caller): void {
   const role = normalizeRole(caller.role);
   if (role !== "school_teacher" && role !== "tutor" && role !== "admin") {
-    throw new ReportError("FORBIDDEN", "Report pages are teacher-only.");
+    throw new ReportError("FORBIDDEN");
   }
 }
 
@@ -136,7 +136,7 @@ export async function getAssessmentReport(
 ): Promise<AssessmentReport> {
   requireTeacher(caller);
   const assessment = await loadOwnedAssessment(db, caller, assessmentId);
-  if (!assessment) throw new ReportError("NOT_FOUND", "Assessment not found.");
+  if (!assessment) throw new ReportError("NOT_FOUND");
   const [assignmentsRes, submissionsRes] = await Promise.all([
     db
       .prepare("SELECT student_id FROM assessment_assignments WHERE assessment_id = ?")
@@ -204,7 +204,7 @@ export async function listReportQuestions(
 ): Promise<ReportQuestionsData> {
   requireTeacher(caller);
   const assessment = await loadOwnedAssessment(db, caller, assessmentId);
-  if (!assessment) throw new ReportError("NOT_FOUND", "Assessment not found.");
+  if (!assessment) throw new ReportError("NOT_FOUND");
   const submissions = await db
     .prepare("SELECT id FROM submissions WHERE assessment_id = ?")
     .bind(assessmentId)
@@ -282,12 +282,12 @@ export async function getIntegritySummary(
     )
     .bind(submissionId)
     .first<{ assessment_id: string; teacher_id: string }>();
-  if (!sub) throw new ReportError("NOT_FOUND", "Submission not found.");
+  if (!sub) throw new ReportError("NOT_FOUND");
   if (normalizeRole(caller.role) !== "admin" && sub.teacher_id !== caller.id) {
-    throw new ReportError("FORBIDDEN", "Submission belongs to another teacher.");
+    throw new ReportError("FORBIDDEN");
   }
   if (assessmentId && assessmentId !== sub.assessment_id) {
-    throw new ReportError("NOT_FOUND", "Submission not found.");
+    throw new ReportError("NOT_FOUND");
   }
   const [eventsRes, answersRes, questionsRes] = await Promise.all([
     db
@@ -345,7 +345,7 @@ export async function getParentContact(
   if (caller.id !== studentId) {
     const role = normalizeRole(caller.role);
     if (role !== "school_teacher" && role !== "tutor" && role !== "admin") {
-      throw new ReportError("FORBIDDEN", "Only the student or a linked teacher may read this.");
+      throw new ReportError("FORBIDDEN");
     }
     if (role !== "admin") {
       const link = await db
@@ -353,7 +353,7 @@ export async function getParentContact(
         .bind(caller.id, studentId)
         .first<{ status: string }>();
       if (!link || link.status !== "approved") {
-        throw new ReportError("FORBIDDEN", "Student is not linked to the caller.");
+        throw new ReportError("FORBIDDEN");
       }
     }
   }
@@ -361,7 +361,7 @@ export async function getParentContact(
     .prepare("SELECT parent_phone, whatsapp_consent FROM profiles WHERE id = ?")
     .bind(studentId)
     .first<{ parent_phone: string | null; whatsapp_consent: number | null }>();
-  if (!profile) throw new ReportError("NOT_FOUND", "Student not found.");
+  if (!profile) throw new ReportError("NOT_FOUND");
   return {
     parent_phone: profile.parent_phone,
     whatsapp_consent: profile.whatsapp_consent === 1,
@@ -378,7 +378,7 @@ export async function updateParentContact(
 ): Promise<void> {
   const cleaned = normalizePhoneInput(phone);
   if (cleaned === "" || !isValidEgyptianMobile(cleaned)) {
-    throw new ReportError("INVALID_INPUT", "Parent phone must be a valid Egyptian mobile.");
+    throw new ReportError("INVALID_INPUT");
   }
   // Reuses the same authorization as the read: self or approved link.
   await getParentContact(db, caller, studentId);
@@ -387,7 +387,7 @@ export async function updateParentContact(
     .bind(cleaned, consent ? 1 : 0, studentId)
     .run();
   const changed = (changes as unknown as { meta?: { changes?: number } }).meta?.changes ?? 1;
-  if (changed === 0) throw new ReportError("NOT_FOUND", "Student not found.");
+  if (changed === 0) throw new ReportError("NOT_FOUND");
 }
 
 /** Per-assessment auto-send toggle, owner-only. */
@@ -399,7 +399,7 @@ export async function setAutoWhatsAppSend(
 ): Promise<void> {
   requireTeacher(caller);
   const assessment = await loadOwnedAssessment(db, caller, assessmentId);
-  if (!assessment) throw new ReportError("NOT_FOUND", "Assessment not found.");
+  if (!assessment) throw new ReportError("NOT_FOUND");
   await db
     .prepare("UPDATE assessments SET auto_whatsapp_send = ? WHERE id = ? AND teacher_id = ?")
     .bind(on ? 1 : 0, assessmentId, assessment.teacher_id)
@@ -430,9 +430,9 @@ export async function listWhatsAppSends(
     )
     .bind(submissionId)
     .first<{ teacher_id: string }>();
-  if (!sub) throw new ReportError("NOT_FOUND", "Submission not found.");
+  if (!sub) throw new ReportError("NOT_FOUND");
   if (normalizeRole(caller.role) !== "admin" && sub.teacher_id !== caller.id) {
-    throw new ReportError("FORBIDDEN", "Submission belongs to another teacher.");
+    throw new ReportError("FORBIDDEN");
   }
   const res = await db
     .prepare(
@@ -494,15 +494,15 @@ export async function recordIntegrityEvents(
   events: BufferedIntegrityEventInput[],
 ): Promise<void> {
   if (normalizeRole(caller.role) !== "student") {
-    throw new ReportError("FORBIDDEN", "Integrity events are student-only.");
+    throw new ReportError("FORBIDDEN");
   }
   const sub = await db
     .prepare("SELECT student_id FROM submissions WHERE id = ?")
     .bind(submissionId)
     .first<{ student_id: string }>();
-  if (!sub) throw new ReportError("NOT_FOUND", "Submission not found.");
+  if (!sub) throw new ReportError("NOT_FOUND");
   if (sub.student_id !== caller.id) {
-    throw new ReportError("FORBIDDEN", "Submission belongs to another student.");
+    throw new ReportError("FORBIDDEN");
   }
   const valid = events.filter(
     (e) =>

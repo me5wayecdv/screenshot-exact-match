@@ -37,6 +37,7 @@
  */
 
 import { getWorkerEnv, type SendEmailBindingLike } from "@/server/d1";
+import { log } from "@/lib/logger";
 
 export type { SendEmailBindingLike };
 
@@ -121,7 +122,7 @@ export async function resolveEmailProvider(
 /** Throws EMAIL_NOT_CONFIGURED unless a provider resolves. */
 export async function assertEmailConfigured(deps: EmailDeps = {}): Promise<ResolvedEmailProvider> {
   const provider = await resolveEmailProvider(deps);
-  if (!provider) throw new EmailError("EMAIL_NOT_CONFIGURED", "Email is not configured.");
+  if (!provider) throw new EmailError("EMAIL_NOT_CONFIGURED");
   return provider;
 }
 
@@ -142,7 +143,7 @@ async function sendViaResend(
   deps: EmailDeps,
 ): Promise<void> {
   const apiKey = readServerEnv("RESEND_API_KEY", deps.env);
-  if (!apiKey) throw new EmailError("EMAIL_NOT_CONFIGURED", "Email is not configured.");
+  if (!apiKey) throw new EmailError("EMAIL_NOT_CONFIGURED");
   const fetchFn = deps.fetchFn ?? fetch;
   let res: Response;
   try {
@@ -161,12 +162,14 @@ async function sendViaResend(
       }),
     });
   } catch {
-    throw new EmailError("EMAIL_SEND_FAILED", "Email send failed (resend).");
+    throw new EmailError("EMAIL_SEND_FAILED");
   }
   if (!res.ok) {
-    // Status only: the provider error body is never surfaced, so it
-    // can never echo the message (or anything inside it) back.
-    throw new EmailError("EMAIL_SEND_FAILED", `Email send failed (resend, ${res.status}).`);
+    // Status only, server-side: the provider error body is never
+    // surfaced, so it can never echo the message back to the client.
+    // The toast shows the code (translated by translateError).
+    log("warn", "resend-send-failed", { status: res.status });
+    throw new EmailError("EMAIL_SEND_FAILED");
   }
 }
 
@@ -183,7 +186,7 @@ async function sendViaCloudflare(
       seb = null;
     }
   }
-  if (!seb) throw new EmailError("EMAIL_NOT_CONFIGURED", "Email is not configured.");
+  if (!seb) throw new EmailError("EMAIL_NOT_CONFIGURED");
   const raw = buildRfc822(provider.from, message.to, message.subject, message.text);
   try {
     const EmailMessageCtor = (globalThis as unknown as { EmailMessage?: unknown }).EmailMessage as
@@ -196,7 +199,7 @@ async function sendViaCloudflare(
     await seb.send(wire);
   } catch (err) {
     if (err instanceof EmailError) throw err;
-    throw new EmailError("EMAIL_SEND_FAILED", "Email send failed (cloudflare).");
+    throw new EmailError("EMAIL_SEND_FAILED");
   }
 }
 
@@ -209,7 +212,7 @@ export async function sendEmail(
   message: EmailMessage,
   deps: EmailDeps = {},
 ): Promise<{ ok: true; provider: EmailProviderName }> {
-  if (!isValidEmail(message.to)) throw new EmailError("INVALID_EMAIL", "Invalid email address.");
+  if (!isValidEmail(message.to)) throw new EmailError("INVALID_EMAIL");
   const provider = await assertEmailConfigured(deps);
   if (provider.name === "resend") await sendViaResend(message, provider, deps);
   else await sendViaCloudflare(message, provider, deps);

@@ -77,7 +77,7 @@ export class AdminError extends Error {
 
 function requireAdmin(caller: Caller): void {
   if (normalizeRole(caller.role) !== "admin") {
-    throw new AdminError("FORBIDDEN", "Admin only.");
+    throw new AdminError("FORBIDDEN");
   }
 }
 
@@ -158,7 +158,7 @@ function parseDetails(raw: string): Record<string, AuditDetailValue> | string {
 export async function listAuditLog(db: D1Database, caller: Caller): Promise<AuditRow[]> {
   const role = normalizeRole(caller.role);
   if (role === "student") {
-    throw new AdminError("FORBIDDEN", "Audit history is not available to students.");
+    throw new AdminError("FORBIDDEN");
   }
   const { results } = await db
     .prepare(
@@ -476,7 +476,7 @@ function requestOrigin(): string {
   }
   const fallback = typeof process !== "undefined" ? (process.env["APP_URL"] ?? "").trim() : "";
   if (fallback) return fallback.replace(/\/+$/, "");
-  throw new EmailError("EMAIL_SEND_FAILED", "Email send failed (no origin).");
+  throw new EmailError("EMAIL_SEND_FAILED");
 }
 
 function ctxSession(context: unknown): AuthSession {
@@ -601,7 +601,7 @@ export async function decideAccount(
 ): Promise<{ ok: true; status: AccountStatus; changed: boolean }> {
   requireAdmin(caller);
   if (input.decision !== "approved" && input.decision !== "rejected") {
-    throw new AdminError("INVALID_INPUT", "Decision must be approved or rejected.");
+    throw new AdminError("INVALID_INPUT");
   }
   const target = await db
     .prepare(
@@ -610,9 +610,9 @@ export async function decideAccount(
     )
     .bind(input.userId)
     .first<{ role: string; email: string; full_name: string | null }>();
-  if (!target) throw new AdminError("INVALID_INPUT", "No such account.");
+  if (!target) throw new AdminError("INVALID_INPUT");
   if (normalizeRole(target.role) === "admin") {
-    throw new AdminError("INVALID_INPUT", "Admin accounts cannot be approved or rejected here.");
+    throw new AdminError("INVALID_INPUT");
   }
   const result = await db
     .prepare(
@@ -631,7 +631,7 @@ export async function decideAccount(
       .bind(input.userId)
       .first<{ role: string }>();
     if (now && normalizeRole(now.role) === "admin") {
-      throw new AdminError("INVALID_INPUT", "Admin accounts cannot be approved or rejected here.");
+      throw new AdminError("INVALID_INPUT");
     }
     return { ok: true, status: input.decision, changed: false };
   }
@@ -694,7 +694,7 @@ export async function resetUserPassword(
     )
     .bind(input.userId)
     .first<{ id: string; email: string; full_name: string | null }>();
-  if (!target) throw new AdminError("INVALID_INPUT", "No such account.");
+  if (!target) throw new AdminError("INVALID_INPUT");
   const temporaryPassword = newTemporaryPassword();
   await setPasswordHash(db, input.userId, await hashPassword(temporaryPassword));
   await revokeAllSessions(db, input.userId, new Date().toISOString());

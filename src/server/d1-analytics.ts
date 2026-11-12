@@ -50,7 +50,7 @@ export class AnalyticsError extends Error {
 
 function requireTeacher(caller: Caller): void {
   if (!isTeacherCaller(caller)) {
-    throw new AnalyticsError("FORBIDDEN", "Analytics are teacher-only.");
+    throw new AnalyticsError("FORBIDDEN");
   }
 }
 
@@ -63,9 +63,9 @@ async function assertOwnsAssessment(
     .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
     .bind(assessmentId)
     .first<{ teacher_id: string }>();
-  if (!row) throw new AnalyticsError("NOT_FOUND", "Assessment not found.");
+  if (!row) throw new AnalyticsError("NOT_FOUND");
   if (row.teacher_id !== caller.id) {
-    throw new AnalyticsError("FORBIDDEN", "Assessment belongs to another teacher.");
+    throw new AnalyticsError("FORBIDDEN");
   }
 }
 
@@ -329,9 +329,9 @@ async function readOwnedAssessmentSource(
     .prepare("SELECT teacher_id, subject_id, grade_level FROM assessments WHERE id = ?")
     .bind(assessmentId)
     .first<{ teacher_id: string; subject_id: string | null; grade_level: string }>();
-  if (!row) throw new AnalyticsError("NOT_FOUND", "Assessment not found.");
+  if (!row) throw new AnalyticsError("NOT_FOUND");
   if (row.teacher_id !== caller.id) {
-    throw new AnalyticsError("FORBIDDEN", "Assessment belongs to another teacher.");
+    throw new AnalyticsError("FORBIDDEN");
   }
   return { subjectId: row.subject_id, gradeLevel: row.grade_level };
 }
@@ -370,16 +370,16 @@ export async function createPracticeDraft(
   requireTeacher(caller);
   const title = input.title.trim();
   if (title === "" || title.length > MAX_PRACTICE_TITLE_CHARS) {
-    throw new AnalyticsError("INVALID_INPUT", "Invalid practice title.");
+    throw new AnalyticsError("INVALID_INPUT");
   }
   // Check the raw length first: 21 copies of one id is still an
   // oversized request, and de-duplicating before the check would
   // quietly accept it.
   if (!Array.isArray(input.questionIds) || input.questionIds.length === 0) {
-    throw new AnalyticsError("INVALID_INPUT", "No questions to copy.");
+    throw new AnalyticsError("INVALID_INPUT");
   }
   if (input.questionIds.length > MAX_PRACTICE_QUESTIONS) {
-    throw new AnalyticsError("INVALID_INPUT", "Too many questions to copy.");
+    throw new AnalyticsError("INVALID_INPUT");
   }
   const ids = [...new Set(input.questionIds)];
   const source = await readOwnedAssessmentSource(db, caller, input.assessmentId);
@@ -400,7 +400,7 @@ export async function createPracticeDraft(
     .all<OwnedPracticeQuestion>();
   const found = results ?? [];
   if (found.length !== ids.length) {
-    throw new AnalyticsError("NOT_FOUND", "One or more questions were not found.");
+    throw new AnalyticsError("NOT_FOUND");
   }
 
   const id = crypto.randomUUID();
@@ -468,14 +468,14 @@ export async function createPracticeDraft(
     .bind(id, caller.id)
     .first<{ id: string }>();
   if (!created) {
-    throw new AnalyticsError("INVALID_INPUT", "Practice draft was not created.");
+    throw new AnalyticsError("INVALID_INPUT");
   }
   const count = await db
     .prepare("SELECT COUNT(*) AS n FROM questions WHERE assessment_id = ?")
     .bind(id)
     .first<{ n: number }>();
   if (Number(count?.n ?? 0) !== found.length) {
-    throw new AnalyticsError("INVALID_INPUT", "Practice draft questions were not created.");
+    throw new AnalyticsError("INVALID_INPUT");
   }
   return { id, copied: found.length };
 }

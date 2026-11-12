@@ -66,7 +66,7 @@ export async function updateMyFullName(
 ): Promise<void> {
   const trimmed = fullName.trim();
   if (!trimmed || trimmed.length > 100) {
-    throw new ProfileError("INVALID_INPUT", "Full name is required (max 100 chars).");
+    throw new ProfileError("INVALID_INPUT");
   }
   await db.prepare("UPDATE profiles SET full_name = ? WHERE id = ?").bind(trimmed, caller.id).run();
 }
@@ -78,7 +78,7 @@ export async function updateMySubject(
 ): Promise<void> {
   const role = normalizeRole(caller.role);
   if (role !== "school_teacher" && role !== "tutor") {
-    throw new ProfileError("FORBIDDEN", "Subject field is teacher-only.");
+    throw new ProfileError("FORBIDDEN");
   }
   const trimmed = subjectsText.trim().slice(0, 100);
   await db

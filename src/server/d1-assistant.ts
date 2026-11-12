@@ -38,6 +38,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import type { R2BucketLike } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
+import { log } from "@/lib/logger";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { buildR2Key, r2Put, sourcesBucket } from "@/server/d1-r2";
 
@@ -64,7 +65,7 @@ export class AssistantError extends Error {
 
 function requireTeacher(caller: Caller): void {
   if (!isTeacherCaller(caller)) {
-    throw new AssistantError("FORBIDDEN", "The assistant is teacher-only.");
+    throw new AssistantError("FORBIDDEN");
   }
 }
 
@@ -92,10 +93,10 @@ export const ASSISTANT_ALLOWED_ACTIONS = new Set(["chat", "explain", "overview"]
  */
 export function assertAssistantActionAllowed(action: string): void {
   if (!ASSISTANT_ALLOWED_ACTIONS.has(action)) {
-    throw new AssistantError(
-      "FORBIDDEN",
-      `Assistant action '${action}' is not allowed: the assistant is drafts-only.`,
-    );
+    // The refused action is diagnostic only — it stays in the server
+    // log; the client sees the code, translated by translateError.
+    log("warn", "assistant-action-refused", { action });
+    throw new AssistantError("FORBIDDEN");
   }
 }
 
@@ -178,13 +179,13 @@ export async function uploadLessonSource(
   void db;
   const ext = (input.fileName.split(".").pop() ?? "").toLowerCase();
   if (!LESSON_SOURCE_EXTS.has(ext)) {
-    throw new AssistantError("INVALID_INPUT", "Unsupported lesson file type.");
+    throw new AssistantError("INVALID_INPUT");
   }
   if (!input.dataUrl || input.dataUrl.length > MAX_LESSON_SOURCE_CHARS) {
-    throw new AssistantError("INVALID_INPUT", "Lesson file is missing or too large.");
+    throw new AssistantError("INVALID_INPUT");
   }
   const b64 = input.dataUrl.split(",", 2)[1];
-  if (!b64) throw new AssistantError("INVALID_INPUT", "Lesson file is not a data URL.");
+  if (!b64) throw new AssistantError("INVALID_INPUT");
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);

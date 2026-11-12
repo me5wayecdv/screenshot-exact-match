@@ -53,7 +53,7 @@ export class TutorError extends Error {
 
 function requireStudent(caller: Caller): void {
   if (normalizeRole(caller.role) !== "student") {
-    throw new TutorError("FORBIDDEN", "The tutor page is student-only.");
+    throw new TutorError("FORBIDDEN");
   }
 }
 
@@ -130,13 +130,13 @@ export async function getTutorDetail(
     .prepare("SELECT assessment_id, student_id, status FROM submissions WHERE id = ?")
     .bind(submissionId)
     .first<{ assessment_id: string; student_id: string; status: string }>();
-  if (!sub) throw new TutorError("NOT_FOUND", "Submission not found.");
+  if (!sub) throw new TutorError("NOT_FOUND");
   if (
     sub.student_id !== caller.id ||
     sub.status !== "released" ||
     sub.assessment_id !== assessmentId
   ) {
-    throw new TutorError("FORBIDDEN", "Submission is not the caller's released submission.");
+    throw new TutorError("FORBIDDEN");
   }
   const [questionsRes, answersRes] = await Promise.all([
     db
