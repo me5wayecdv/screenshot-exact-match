@@ -48,7 +48,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import { isLocalBaseUrl } from "./ai-config";
 import {
   extractGeminiUsage,
@@ -792,7 +792,11 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
       };
     }
     const result = await callVisionOcr(config, request.imageDataUrl);
-    if (!result.ok) return { ok: false, code: result.code, message: result.message };
+    if (!result.ok) {
+      // AI-F5: the OCR call failed, so the unit consumed above goes back.
+      await refundAiQuota(db, auth.userId, 1);
+      return { ok: false, code: result.code, message: result.message };
+    }
     // Pilot cost measurement (best-effort, never fails the OCR result).
     await logAiUsageEvent(db, auth.userId, {
       kind: "ocr",

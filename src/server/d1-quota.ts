@@ -124,6 +124,50 @@ export async function consumeAiQuota(
   }
 }
 
+/**
+ * Best-effort refund of `units` of AI quota for `userId` (AI-F5).
+ *
+ * Reverses one earlier consumeAiQuota increment when the AI call it paid
+ * for failed, or the flow aborted before the AI result was used. Each
+ * window is decremented only while it is still the window the consume
+ * landed in, and floored at 0 (the table also has CHECK (units >= 0)):
+ * a refund after the minute rolled over refunds the day window but
+ * never debits the new minute window's units.
+ *
+ * Best-effort by design: it never throws and returns false when the
+ * units are invalid, there is no quota row, or anything at all goes
+ * wrong. A failed refund must never turn a good response into an error.
+ * Callers refund at most once per consume; the 0 floor also makes a
+ * repeated refund harmless (it can never drive the counters negative).
+ */
+export async function refundAiQuota(
+  db: D1Database,
+  userId: string,
+  units: number,
+  nowIso: string = new Date().toISOString(),
+): Promise<boolean> {
+  try {
+    if (!userId || !Number.isInteger(units) || units < 1 || units > QUOTA_MAX_UNITS_PER_CALL) {
+      return false;
+    }
+    const minute = minuteOf(nowIso);
+    const day = dayOf(nowIso);
+    const result = await db
+      .prepare(
+        "UPDATE ai_rate_limits SET " +
+          "minute_units = CASE WHEN minute_started_at = ? THEN MAX(0, minute_units - ?) ELSE minute_units END, " +
+          "day_units = CASE WHEN day_started_on = ? THEN MAX(0, day_units - ?) ELSE day_units END, " +
+          "updated_at = ? " +
+          "WHERE user_id = ?",
+      )
+      .bind(minute, units, day, units, nowIso, userId)
+      .run();
+    return runChanges(result) === 1;
+  } catch {
+    return false;
+  }
+}
+
 /** Read the caller's current quota row (own row only). */
 export async function getAiQuotaUsage(
   db: D1Database,

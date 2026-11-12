@@ -32,7 +32,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import {
   resolveGeminiConfig,
   resolveVisionConfig,
@@ -488,6 +488,9 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
         imageDataUrls[i] as string,
       );
       if (!result.ok) {
+        // AI-F5: this image and the rest were never OCR'd, so their units
+        // go back (images before this one already succeeded and stay paid).
+        await refundAiQuota(db, auth.userId, imageDataUrls.length - i);
         return { ok: false, code: result.code, message: result.message, imageIndex: i };
       }
       await logAiUsageEvent(db, auth.userId, {

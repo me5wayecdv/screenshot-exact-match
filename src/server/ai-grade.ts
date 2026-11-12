@@ -35,9 +35,10 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import { isAiConfigured } from "./ai-config";
 import { suggestGradeWithAi, type AiGradeSuggestion } from "./ai-client";
+import type { AiFailureCode } from "@/lib/ai-failure";
 export type { AiGradeSuggestion } from "./ai-client";
 
 export type AiGradeRequest = {
@@ -64,7 +65,9 @@ export type AiGradeResult =
   | { ok: true; suggestion: AiGradeSuggestion }
   | {
       ok: false;
-      code: "INVALID_INPUT" | "UNAUTHORIZED" | "AI_NOT_CONFIGURED" | "AI_ERROR" | "AI_RATE_LIMIT";
+      // AI_* codes are the shared ai-client taxonomy (AI-F6); AI_ERROR is
+      // kept for an unusable model reply (AI-F3 contract).
+      code: "INVALID_INPUT" | "UNAUTHORIZED" | AiFailureCode | "AI_ERROR";
       message: string;
     };
 
@@ -342,6 +345,9 @@ export const suggestGrade = createServerFn({ method: "POST" })
       },
     );
     if (!result.ok) {
+      // AI-F5: the AI call failed, so the unit consumed above goes back.
+      // Best-effort: a failed refund never changes this failure result.
+      await refundAiQuota(db, auth.userId, 1);
       return { ok: false, code: result.error.code, message: result.error.message };
     }
     if (usageEvent) {

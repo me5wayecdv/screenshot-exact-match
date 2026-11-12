@@ -44,7 +44,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import {
   resolveGeminiConfig,
   resolveVisionConfig,
@@ -655,6 +655,9 @@ export const matchPaperPages = createServerFn({ method: "POST" })
         page.imageDataUrl,
       );
       if (!visionRes.ok) {
+        // AI-F5: this page and the rest were never matched, so their
+        // units (2 per page) go back; earlier pages stay paid.
+        await refundAiQuota(db, auth.userId, (pages.length - i) * 2);
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
       }
       // Pilot cost measurement (best-effort, never fails the match result).

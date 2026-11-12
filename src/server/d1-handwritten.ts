@@ -73,7 +73,7 @@ import type { R2BucketLike } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { suggestGradeWithAi } from "./ai-client";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import {
   buildR2Key,
   papersBucket,
@@ -601,6 +601,9 @@ export async function saveHandwrittenGrade(
     },
   );
   if (!regrade.ok) {
+    // The re-grade consumed 1 unit and the AI call failed: refund it
+    // (AI-F5). Best-effort — refundAiQuota never throws.
+    await refundAiQuota(db, caller.id, 1);
     throw new HandwrittenError(
       regrade.error.code === "AI_NOT_CONFIGURED" ? "AI_NOT_CONFIGURED" : "AI_ERROR",
       regrade.error.message,

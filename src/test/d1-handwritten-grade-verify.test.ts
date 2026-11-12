@@ -169,6 +169,13 @@ function fakeDb(state: HwState): D1Database {
           return { meta: { changes: 1 } };
         }
         if (sql.includes("UPDATE ai_rate_limits")) {
+          // refundAiQuota's UPDATE decrements (MAX(0, minute_units - ?)):
+          // undo one earlier consume. The consume UPDATE increments
+          // (minute_units + ?) instead — the two are distinct statements.
+          if (sql.includes("minute_units - ?")) {
+            state.quotaUnits = Math.max(0, state.quotaUnits - 1);
+            return { meta: { changes: 1 } };
+          }
           // consumeAiQuota's conditional UPDATE: 1 row when the
           // increment lands, 0 when the cap blocks it.
           if (state.quotaExhausted) return { meta: { changes: 0 } };
@@ -375,6 +382,18 @@ describe("saveHandwrittenGrade server verification (AI-F2)", () => {
     });
     expect(state.grades.size).toBe(0);
     expect(state.audits).toEqual([]);
+  });
+
+  it("a server re-grade failure refunds the consumed quota unit (AI-F5)", async () => {
+    const state = baseState();
+    const db = fakeDb(state);
+    mockFailingFetch(500);
+    await expect(saveHandwrittenGrade(db, TEACHER, gradeInput())).rejects.toMatchObject({
+      code: "AI_ERROR",
+    });
+    // 1 unit consumed for the re-grade, then refunded on AI failure.
+    expect(state.quotaUnits).toBe(0);
+    expect(state.grades.size).toBe(0);
   });
 
   it("an unconfigured AI provider refuses the save and stores nothing", async () => {
