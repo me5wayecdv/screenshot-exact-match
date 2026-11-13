@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Tests for AI-F5: quota consumed before an AI call must be refunded when
  * the AI call fails (or the flow aborts before the AI result is used).

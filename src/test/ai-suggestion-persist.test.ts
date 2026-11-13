@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Tests for AI-F4: AI grading suggestions must be persisted so grading
  * accuracy is measurable from data.
