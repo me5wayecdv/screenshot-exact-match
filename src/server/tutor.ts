@@ -34,7 +34,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 
 import { resolveAiConfig } from "./ai-config";
 import { extractOpenAiUsage, openAiProvider } from "./ai-usage";
@@ -370,6 +370,8 @@ export const askTutor = createServerFn({ method: "POST" })
     if (questionId) {
       const question = await loadReleasedQuestion(db, userId, questionId);
       if (!question) {
+        // AI-F5: the flow aborted before any AI call, so the unit goes back.
+        await refundAiQuota(db, userId, 1);
         return {
           ok: false,
           code: "UNAUTHORIZED",
@@ -397,7 +399,7 @@ export const askTutor = createServerFn({ method: "POST" })
           : `اشرح الموضوع التالي خطوة بخطوة وبتلميحات، لا بإجابة جاهزة: ${topic}`);
     }
 
-    return callChat(
+    const chatResult = await callChat(
       [
         { role: "system", content: tutorSystemPrompt(language) },
         ...history,
@@ -406,6 +408,9 @@ export const askTutor = createServerFn({ method: "POST" })
       0.3,
       usageLogger(db, userId),
     );
+    // AI-F5: the AI call failed, so the unit consumed above goes back.
+    if (!chatResult.ok) await refundAiQuota(db, userId, 1);
+    return chatResult;
   });
 
 export const tutorPracticeFeedback = createServerFn({ method: "POST" })
@@ -436,13 +441,15 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
     }
     const question = await loadReleasedQuestion(db, userId, questionId);
     if (!question) {
+      // AI-F5: the flow aborted before any AI call, so the unit goes back.
+      await refundAiQuota(db, userId, 1);
       return {
         ok: false,
         code: "UNAUTHORIZED",
         message: "This question is not part of a released result for the caller.",
       };
     }
-    return callChat(
+    const chatResult = await callChat(
       [
         { role: "system", content: tutorSystemPrompt(language) },
         {
@@ -453,6 +460,9 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
       0.3,
       usageLogger(db, userId),
     );
+    // AI-F5: the AI call failed, so the unit consumed above goes back.
+    if (!chatResult.ok) await refundAiQuota(db, userId, 1);
+    return chatResult;
   });
 
 export const tutorStudyTips = createServerFn({ method: "POST" })
@@ -490,6 +500,8 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
       };
     }
     if (!(await hasReleasedSubmission(db, userId, assessmentId))) {
+      // AI-F5: the flow aborted before any AI call, so the unit goes back.
+      await refundAiQuota(db, userId, 1);
       return {
         ok: false,
         code: "UNAUTHORIZED",
@@ -504,9 +516,15 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
       0.3,
       usageLogger(db, userId),
     );
-    if (!result.ok) return result;
+    if (!result.ok) {
+      // AI-F5: the AI call failed, so the unit consumed above goes back.
+      await refundAiQuota(db, userId, 1);
+      return result;
+    }
     const tips = extractTips(result.reply);
     if (!tips) {
+      // AI-F5: the reply was unusable, so the unit consumed above goes back.
+      await refundAiQuota(db, userId, 1);
       return { ok: false, code: "TUTOR_PARSE_FAILED", message: "Could not parse study tips." };
     }
     return { ok: true, tips, model: result.model };

@@ -26,7 +26,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import { resolveAiConfig } from "@/server/ai-config";
 import { cleanAiOutputText } from "@/lib/ai-output";
 import { extractOpenAiUsage, openAiProvider } from "@/server/ai-usage";
@@ -172,7 +172,11 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
       return { ok: false, code: "AI_RATE_LIMIT" };
     }
     const summary = await loadWorkspaceSummary(db, session.userId);
-    if (!summary) return { ok: false, code: "DB_ERROR" };
+    if (!summary) {
+      // AI-F5: the flow aborted before any AI call, so the unit goes back.
+      await refundAiQuota(db, session.userId, 1);
+      return { ok: false, code: "DB_ERROR" };
+    }
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
@@ -195,6 +199,9 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
       });
 
       if (!response.ok) {
+        // AI-F5: the AI call failed, so the unit consumed above goes back.
+        // Best-effort: a failed refund never changes this failure result.
+        await refundAiQuota(db, session.userId, 1);
         if (response.status === 401 || response.status === 403) {
           return { ok: false, code: "AI_AUTH" };
         }
@@ -207,7 +214,11 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
         usage?: unknown;
       };
       const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
-      if (!reply || reply.length > 10_000) return { ok: false, code: "AI_UPSTREAM" };
+      if (!reply || reply.length > 10_000) {
+        // AI-F5: empty/oversized reply — no usable result, unit goes back.
+        await refundAiQuota(db, session.userId, 1);
+        return { ok: false, code: "AI_UPSTREAM" };
+      }
 
       // Usage rows store token counts/model only, never prompts or replies.
       const usage = extractOpenAiUsage(payload);
@@ -221,6 +232,8 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
       return { ok: true, reply };
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
+      // AI-F5: the AI call failed, so the unit consumed above goes back.
+      await refundAiQuota(db, session.userId, 1);
       return { ok: false, code: timedOut ? "AI_TIMEOUT" : "AI_UPSTREAM" };
     } finally {
       clearTimeout(timeout);

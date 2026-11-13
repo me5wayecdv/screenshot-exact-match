@@ -853,8 +853,9 @@ function Handwritten() {
         );
         return;
       }
-      // The AI's score IS the final score (user-directed): it is adopted
-      // automatically on save, not prefilled into an editable field.
+      // Preview only: the server re-grades the corrected text
+      // against the question's keys on save, so the stored final
+      // score is the server's fresh suggestion, not this one.
       setSuggestion(result.suggestion);
     } catch (err) {
       toast.error(translateError(err, lang));
@@ -879,9 +880,14 @@ function Handwritten() {
     }
     setBusySave(true);
     try {
-      // D1: the server forces final_score = AI suggestion (the AI
-      // grade is FINAL on save) and re-validates the paper key
-      // against the teacher. A save without a suggestion is refused.
+      // D1: the server re-grades the corrected text and stores
+      // its own fresh suggestion as the final score (the AI grade
+      // is FINAL on save); a client-sent score can never become
+      // final. The paper key is re-validated against the teacher.
+      // An ad-hoc paper (no linked question) sends the
+      // teacher-supplied prompt/rubric for the server re-grade; a
+      // save with neither a linked question nor ad-hoc criteria —
+      // or with the re-grade failing — is refused.
       await saveHwGradeD1({
         data: {
           assessmentId: assessmentId || null,
@@ -894,6 +900,9 @@ function Handwritten() {
           aiSuggestedScore: suggestion.suggestedScore,
           aiFeedback: suggestion.feedback,
           aiModel: ocrModel || null,
+          questionPrompt: questionId ? undefined : questionPrompt.trim(),
+          rubric: questionId ? undefined : rubric,
+          acceptedAlternatives: questionId ? undefined : alternatives,
           maxMarks,
           teacherFeedback: teacherFeedback.trim(),
         },
@@ -1314,6 +1323,9 @@ function Handwritten() {
             maxLength={20000}
             onChange={(e) => {
               setCorrectedText(e.target.value);
+              // Editing the text voids the suggestion: it was graded
+              // against the old text, and must never be saved stale.
+              setSuggestion(null);
             }}
           />
           <div className="flex flex-wrap gap-2">

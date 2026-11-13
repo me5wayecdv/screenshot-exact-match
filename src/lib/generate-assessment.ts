@@ -28,7 +28,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import { resolveAiConfig } from "@/server/ai-config";
 import { extractOpenAiUsage, openAiProvider } from "@/server/ai-usage";
 import { saveGeneratedDraft, GenerationError } from "@/server/d1-generation";
@@ -196,7 +196,8 @@ export const generateAssessment = createServerFn({ method: "POST" })
     // provider is a configuration state, not a silent failure.
     const aiConfig = resolveAiConfig();
     if (!aiConfig) return fail("AI_NOT_CONFIGURED");
-    if (!(await consumeAiQuota(db, userId, Math.ceil(input.questionCount / 5)))) {
+    const quotaUnits = Math.ceil(input.questionCount / 5);
+    if (!(await consumeAiQuota(db, userId, quotaUnits))) {
       return fail("AI_RATE_LIMIT");
     }
     const { baseUrl, model, apiKey } = aiConfig;
@@ -248,6 +249,9 @@ export const generateAssessment = createServerFn({ method: "POST" })
         } catch {
           detail = "";
         }
+        // AI-F5: the generation call failed, so the units consumed above
+        // go back. Best-effort: a failed refund never changes this result.
+        await refundAiQuota(db, userId, quotaUnits);
         return fail(
           classifyAiHttpStatus(res.status),
           `HTTP ${res.status}${detail ? ` — ${detail}` : ""}`,
@@ -258,6 +262,8 @@ export const generateAssessment = createServerFn({ method: "POST" })
       finishReason =
         (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
       if (!replyText.trim()) {
+        // AI-F5: empty reply — no usable result, so the units go back.
+        await refundAiQuota(db, userId, quotaUnits);
         return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
       }
       // Pilot cost measurement (best-effort, never fails generation):
@@ -272,6 +278,8 @@ export const generateAssessment = createServerFn({ method: "POST" })
       }).catch(() => undefined);
     } catch (e) {
       const name = e instanceof Error ? e.name : "";
+      // AI-F5: the generation call failed, so the units consumed above go back.
+      await refundAiQuota(db, userId, quotaUnits);
       if (name === "TimeoutError" || name === "AbortError") return fail("AI_TIMEOUT");
       return fail("AI_UPSTREAM", describeThrown(e));
     }
@@ -287,6 +295,8 @@ export const generateAssessment = createServerFn({ method: "POST" })
       // carry private lesson/student content and is never echoed to the
       // UI or the logs.
       const pos = e instanceof Error ? / at position (\d+)$/.exec(e.message)?.[1] : undefined;
+      // AI-F5: the reply was unusable, so the units consumed above go back.
+      await refundAiQuota(db, userId, quotaUnits);
       return fail(
         "AI_PARSE_FAILED",
         [

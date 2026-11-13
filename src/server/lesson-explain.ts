@@ -18,7 +18,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import { resolveAiConfig } from "@/server/ai-config";
 import { extractOpenAiUsage, openAiProvider } from "@/server/ai-usage";
 import { cleanAiOutputText } from "@/lib/ai-output";
@@ -115,6 +115,9 @@ export const explainLesson = createServerFn({ method: "POST" })
       });
 
       if (!response.ok) {
+        // AI-F5: the AI call failed, so the unit consumed above goes back.
+        // Best-effort: a failed refund never changes this failure result.
+        await refundAiQuota(db, session.userId, 1);
         if (response.status === 401 || response.status === 403) {
           return { ok: false, code: "AI_AUTH" };
         }
@@ -128,6 +131,8 @@ export const explainLesson = createServerFn({ method: "POST" })
       };
       const explanation = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
       if (!explanation || explanation.length > MAX_REPLY_CHARS) {
+        // AI-F5: empty/oversized reply — no usable result, unit goes back.
+        await refundAiQuota(db, session.userId, 1);
         return { ok: false, code: "AI_UPSTREAM" };
       }
 
@@ -149,6 +154,8 @@ export const explainLesson = createServerFn({ method: "POST" })
       };
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
+      // AI-F5: the AI call failed, so the unit consumed above goes back.
+      await refundAiQuota(db, session.userId, 1);
       return { ok: false, code: timedOut ? "AI_TIMEOUT" : "AI_UPSTREAM" };
     } finally {
       clearTimeout(timeout);

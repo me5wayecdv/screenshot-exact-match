@@ -40,15 +40,18 @@
  * All pure vision helpers below (resolveVisionConfig,
  * resolveGeminiConfig, runImageToTextModel, runMoondreamQuery,
  * runGeminiQuery, textFromContent, stripDataUris,
- * extractTranscription, callVisionOcr) are UNCHANGED from the
- * Supabase original, so the provider behavior is identical.
+ * extractTranscription) are UNCHANGED from the
+ * Supabase original, so the provider behavior is identical — except
+ * callVisionOcr, whose Gemini branch now falls back to the configured
+ * Workers AI vision model on transient failures via
+ * attemptGeminiVision (./vision-fallback, AI-F7).
  */
 
 import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { consumeAiQuota, logAiUsageEvent } from "@/server/d1-quota";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import { isLocalBaseUrl } from "./ai-config";
 import {
   extractGeminiUsage,
@@ -56,6 +59,7 @@ import {
   openAiProvider,
   type AiTokenUsage,
 } from "./ai-usage";
+import { attemptGeminiVision } from "./vision-fallback";
 
 export type VisionConfig = {
   baseUrl: string;
@@ -477,7 +481,8 @@ export async function runGeminiQuery(
   return { ok: true, text, usage: extractGeminiUsage(json) };
 }
 
-async function callVisionOcr(
+/** Exported for tests (vision-fallback wiring, AI-F7). */
+export async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
 ): Promise<
@@ -494,24 +499,31 @@ async function callVisionOcr(
     // A/B preparation 2026-10-30 — live behavior unchanged by default.
     const gemini = resolveGeminiConfig();
     if (gemini) {
-      const g = await runGeminiQuery(
-        gemini.apiKey,
-        gemini.model,
-        controller.signal,
+      const attempt = await attemptGeminiVision({
+        gemini,
+        signal: controller.signal,
         imageDataUrl,
-        "Transcribe all text visible in this image completely and literally, " +
+        prompt:
+          "Transcribe all text visible in this image completely and literally, " +
           "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
           "Parts that are unreadable, write [unclear] in their place. " +
           "Return only the transcription, nothing else.",
-      );
-      if (!g.ok) return g;
-      return {
-        ok: true,
-        text: extractTranscription(g.text),
-        provider: "gemini",
-        model: gemini.model,
-        usage: g.usage,
-      };
+        runGemini: runGeminiQuery,
+      });
+      if (attempt.outcome === "gemini") {
+        return {
+          ok: true,
+          text: extractTranscription(attempt.text),
+          provider: "gemini",
+          model: gemini.model,
+          usage: attempt.usage,
+        };
+      }
+      if (attempt.outcome === "error") {
+        return { ok: false, code: attempt.code, message: attempt.message };
+      }
+      // Transient Gemini failure: fall through to the configured
+      // Workers AI vision model below (AI-F7).
     }
     // Cloudflare's OpenAI-compatible endpoint is documented for TEXT
     // generation only — a vision model called through it is refused
@@ -792,7 +804,11 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
       };
     }
     const result = await callVisionOcr(config, request.imageDataUrl);
-    if (!result.ok) return { ok: false, code: result.code, message: result.message };
+    if (!result.ok) {
+      // AI-F5: the OCR call failed, so the unit consumed above goes back.
+      await refundAiQuota(db, auth.userId, 1);
+      return { ok: false, code: result.code, message: result.message };
+    }
     // Pilot cost measurement (best-effort, never fails the OCR result).
     await logAiUsageEvent(db, auth.userId, {
       kind: "ocr",

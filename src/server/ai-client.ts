@@ -29,6 +29,7 @@
 import { buildAiGradingPrompt, type AiGradingPromptInput } from "./ai-grading-prompt";
 import { resolveAiConfig } from "./ai-config";
 import { extractOpenAiUsage, logAiUsage, openAiProvider, type AiUsageSink } from "./ai-usage";
+import { classifyAiHttpStatus, type AiFailureCode } from "@/lib/ai-failure";
 import { cleanAiOutputText } from "@/lib/ai-output";
 
 export type AiConfidence = "high" | "medium" | "low";
@@ -42,9 +43,31 @@ export type AiGradeSuggestion = {
 };
 
 export type AiClientError = {
-  code: "AI_NOT_CONFIGURED" | "AI_ERROR";
+  /**
+   * Shared taxonomy from @/lib/ai-failure.ts (AI-F6): provider HTTP
+   * statuses are classified, not collapsed to a generic code. AI_ERROR
+   * is kept only for an unusable model reply — the AI-F3 contract pins
+   * it for a non-finite/missing suggested_score, and parseSuggestion
+   * still throws for those (clampScore still clamps to [0, maxMarks]).
+   */
+  code: AiFailureCode | "AI_ERROR";
   message: string;
 };
+
+/**
+ * Bounded retry (AI-F6) for transient provider failures only: 429
+ * (rate limit) and 503 (temporarily unavailable), at most 2 retries
+ * (3 attempts total) with a short fixed delay. No retry on 400/401/403
+ * (retrying those cannot succeed), no retry on network errors, and no
+ * exponential backoff. This is retry only — there is no circuit-breaker
+ * state; see the Wave 3 report for why a breaker was deferred.
+ */
+const AI_MAX_ATTEMPTS = 3;
+const AI_RETRY_DELAY_MS = 500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function clampScore(value: number, maxMarks: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -129,41 +152,80 @@ export async function suggestGradeWithAi(
     // prompt demands JSON-only output and extractJson() tolerates fences.
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
-    const res = await fetch(`${config.baseUrl}/chat/completions`, {
-      method: "POST",
-      signal: controller.signal,
-      headers,
-      body: JSON.stringify({
-        model: config.model,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
-    });
-    if (!res.ok) {
-      // Do not leak the provider's body (it may echo request details).
+    // Bounded retry on transient 429/503 only; every other non-OK status
+    // is classified once via the shared taxonomy and returned as-is.
+    let res: Response | null = null;
+    for (let attempt = 1; attempt <= AI_MAX_ATTEMPTS; attempt++) {
+      const attemptRes = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: "POST",
+        signal: controller.signal,
+        headers,
+        body: JSON.stringify({
+          model: config.model,
+          temperature: 0.2,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
+      });
+      if (attemptRes.ok) {
+        res = attemptRes;
+        break;
+      }
+      const retryable =
+        (attemptRes.status === 429 || attemptRes.status === 503) && attempt < AI_MAX_ATTEMPTS;
+      if (!retryable) {
+        // Do not leak the provider's body (it may echo request details).
+        return {
+          ok: false,
+          error: {
+            code: classifyAiHttpStatus(attemptRes.status),
+            message: `AI provider returned HTTP ${attemptRes.status}.`,
+          },
+        };
+      }
+      await sleep(AI_RETRY_DELAY_MS);
+    }
+    if (!res) {
       return {
         ok: false,
-        error: {
-          code: "AI_ERROR",
-          message: `AI provider returned HTTP ${res.status}.`,
-        },
+        error: { code: "AI_UPSTREAM", message: "AI request failed." },
       };
     }
-    const payload = (await res.json()) as {
+    let payload: {
       choices?: Array<{ message?: { content?: string | null } }>;
       usage?: unknown;
     };
+    try {
+      payload = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string | null } }>;
+        usage?: unknown;
+      };
+    } catch {
+      return {
+        ok: false,
+        error: { code: "AI_ERROR", message: "AI provider returned an unreadable response." },
+      };
+    }
     const content = payload.choices?.[0]?.message?.content ?? "";
     if (!content) {
       return {
         ok: false,
-        error: { code: "AI_ERROR", message: "AI provider returned an empty response." },
+        error: { code: "AI_EMPTY_REPLY", message: "AI provider returned an empty response." },
       };
     }
-    const suggestion = parseSuggestion(extractJson(content), input.maxMarks);
+    // parseSuggestion still throws on a non-finite/missing score (AI-F3);
+    // that stays AI_ERROR by contract — the validation is not weakened.
+    let suggestion: AiGradeSuggestion;
+    try {
+      suggestion = parseSuggestion(extractJson(content), input.maxMarks);
+    } catch {
+      return {
+        ok: false,
+        error: { code: "AI_ERROR", message: "AI provider returned an unusable response." },
+      };
+    }
     if (usage) {
       await logAiUsage(usage.client, usage.teacherId, {
         kind: "grade",
@@ -181,11 +243,16 @@ export async function suggestGradeWithAi(
     }
     return { ok: true, suggestion };
   } catch (error) {
-    const message =
-      error instanceof Error && error.name === "AbortError"
-        ? "AI request timed out."
-        : "AI request failed.";
-    return { ok: false, error: { code: "AI_ERROR", message } };
+    // The fetch itself threw (network failure, or the 60s timeout above):
+    // a timeout is its own code, anything else is provider-side.
+    const timedOut = error instanceof Error && error.name === "AbortError";
+    return {
+      ok: false,
+      error: {
+        code: timedOut ? "AI_TIMEOUT" : "AI_UPSTREAM",
+        message: timedOut ? "AI request timed out." : "AI request failed.",
+      },
+    };
   } finally {
     clearTimeout(timeout);
   }

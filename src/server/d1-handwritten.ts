@@ -22,11 +22,27 @@
  *   {teacher_id}/{uuid}/{name}, no traversal). A key that fails
  *   validation blocks the save; it is never silently cleaned.
  * - AI grade is FINAL on save (user-directed exception to the
- *   teacher-final-word rule that applies on /grading): the saved
- *   final_score is forced to the AI suggested score, and a save
- *   without an AI suggestion is refused. The teacher's control
+ *   teacher-final-word rule that applies on /grading) — but the
+ *   final score is NEVER a client-supplied value. On save the
+ *   server re-grades the submitted corrected text against the
+ *   linked question's own keys (correct answer, accepted
+ *   alternatives, rubric) via suggestGradeWithAi, and the server's
+ *   fresh suggestion is what is stored as ai_suggested_score,
+ *   ai_feedback and final_score. The client-sent score, feedback
+ *   and model are accepted in the input type only and ignored for
+ *   grading, so a stale suggestion (text edited after Suggest) or
+ *   a tampered client can never become a final grade. A save needs
+ *   either a linked question WITH keys, or — for an ad-hoc paper
+ *   with no linked question — the teacher-supplied prompt/rubric
+ *   (validated with suggestGrade's bounds); the ad-hoc criteria
+ *   are recorded in the audit row. An AI failure (not configured,
+ *   provider error, quota spent) refuses the save and stores
+ *   nothing — no handwritten grade without independent server
+ *   verification. The teacher's control
  *   point is reviewing/correcting the extracted text BEFORE
  *   grading. A wrong record is deleted from history and re-graded.
+ *   Quota: the server re-grade consumes 1 AI quota unit, so one
+ *   Suggest + Save paper costs 2 units in total.
  * - History papers are viewed through the Worker (session-checked
  *   R2 download returning a data URL), never through a public or
  *   signed R2 URL.
@@ -56,6 +72,8 @@ import type { D1Database } from "@/server/d1-auth-store";
 import type { R2BucketLike } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import { suggestGradeWithAi } from "./ai-client";
+import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import {
   buildR2Key,
   papersBucket,
@@ -79,7 +97,14 @@ export function isTeacherCaller(caller: Caller): boolean {
 
 export class HandwrittenError extends Error {
   constructor(
-    public readonly code: "FORBIDDEN" | "NOT_FOUND" | "INVALID_INPUT" | "INVALID_KEY",
+    public readonly code:
+      | "FORBIDDEN"
+      | "NOT_FOUND"
+      | "INVALID_INPUT"
+      | "INVALID_KEY"
+      | "AI_NOT_CONFIGURED"
+      | "AI_ERROR"
+      | "AI_RATE_LIMIT",
     message?: string,
   ) {
     super(message ?? code);
@@ -135,6 +160,16 @@ type HwQuestionRow = {
   type: string;
   marks: number;
   position: number;
+  correct_answer: string | null;
+  accepted_alternatives: string | null;
+  rubric: string | null;
+  explanation: string | null;
+};
+
+/** One question with its keys, for the server-side save re-grade. */
+type HwQuestionKeyRow = {
+  prompt: string;
+  marks: number;
   correct_answer: string | null;
   accepted_alternatives: string | null;
   rubric: string | null;
@@ -339,17 +374,41 @@ export type SaveHandwrittenGradeInput = {
   imagePath: string | null;
   extractedText: string;
   correctedText: string;
+  /**
+   * Client-supplied suggestion, accepted for compatibility only.
+   * IGNORED for grading: the server re-grades the submitted
+   * corrected text against the linked question's keys and saves
+   * its own fresh suggestion instead, so a stale or tampered
+   * client value can never become a final grade.
+   */
   aiSuggestedScore: number | null;
+  /** Accepted for compatibility only — ignored for grading (see above). */
   aiFeedback: string | null;
+  /** Accepted for compatibility only — ignored for grading (see above). */
   aiModel: string | null;
+  /**
+   * Ad-hoc grading criteria, used ONLY when questionId is null
+   * (a paper with no linked question). The teacher-supplied prompt
+   * / rubric / alternatives the Suggest preview was graded against.
+   * Validated server-side like suggestGrade's own bounds; ignored
+   * when a question is linked (the DB keys win). The score is still
+   * produced server-side by the model — these criteria can never
+   * smuggle a client-chosen score in.
+   */
+  questionPrompt?: string;
+  rubric?: string;
+  acceptedAlternatives?: string[];
   maxMarks: number;
   teacherFeedback: string;
 };
 
 /**
- * Save a handwritten grade. The AI score IS the final score: a save
- * without an AI suggestion is refused, and final_score is forced to
- * the suggestion (a client-supplied final score is ignored).
+ * Save a handwritten grade. The final score is the SERVER's fresh
+ * re-grade of the submitted corrected text against the linked
+ * question's keys — never the client-sent suggestion, which is
+ * accepted in the input type only and ignored. A save without a
+ * linked question (or a question without keys) is refused, and an
+ * AI/quota failure refuses the save with nothing stored.
  * The image key, when present, must validate against the teacher id.
  */
 export async function saveHandwrittenGrade(
@@ -358,9 +417,6 @@ export async function saveHandwrittenGrade(
   input: SaveHandwrittenGradeInput,
 ): Promise<{ id: string }> {
   requireTeacher(caller);
-  if (input.aiSuggestedScore === null || !Number.isFinite(input.aiSuggestedScore)) {
-    throw new HandwrittenError("INVALID_INPUT");
-  }
   if (!input.correctedText.trim()) {
     throw new HandwrittenError("INVALID_INPUT");
   }
@@ -431,6 +487,130 @@ export async function saveHandwrittenGrade(
       studentName = (profile?.full_name ?? "").trim();
     }
   }
+  // Server-verified grading (AI-F2): a handwritten grade is never
+  // saved on a client-supplied score. The server re-grades the
+  // submitted corrected text and stores its own fresh suggestion.
+  // Criteria come from the linked question's keys when a question
+  // is linked (the marks ceiling is the question's own marks, never
+  // the client's). Without a linked question the paper is ad-hoc:
+  // the teacher-supplied prompt/rubric travel with the request and
+  // are validated here with the same bounds suggestGrade uses
+  // (ai-grade.ts validateRequest). Either way the SCORE is produced
+  // server-side by the model from the submitted text — a client can
+  // never dictate it, and a stale suggestion can never land. The
+  // ad-hoc criteria are recorded (truncated) in the audit row so
+  // the grade stays traceable; question-linked criteria live in
+  // question_keys. Any AI/quota failure refuses the save.
+  let questionPrompt: string;
+  let rubric: string;
+  let acceptedAlternatives: string[];
+  let effectiveMaxMarks: number;
+  let adHoc = false;
+  if (input.questionId) {
+    const keyRow = await db
+      .prepare(
+        "SELECT q.prompt, q.marks, k.correct_answer, k.accepted_alternatives, k.rubric, " +
+          "k.explanation FROM questions q LEFT JOIN question_keys k ON k.question_id = q.id " +
+          "WHERE q.id = ?",
+      )
+      .bind(input.questionId)
+      .first<HwQuestionKeyRow>();
+    if (
+      !keyRow ||
+      (keyRow.correct_answer === null && keyRow.rubric === null && keyRow.explanation === null)
+    ) {
+      throw new HandwrittenError(
+        "INVALID_INPUT",
+        "This question has no answer key, so the paper cannot be graded.",
+      );
+    }
+    if (!Number.isFinite(keyRow.marks) || keyRow.marks <= 0 || keyRow.marks > 1000) {
+      throw new HandwrittenError("INVALID_INPUT", "This question has no usable marks.");
+    }
+    questionPrompt = keyRow.prompt;
+    rubric = keyRow.rubric ?? "";
+    acceptedAlternatives = parseAlternatives(keyRow.accepted_alternatives);
+    effectiveMaxMarks = keyRow.marks;
+  } else {
+    questionPrompt = (input.questionPrompt ?? "").trim();
+    rubric = (input.rubric ?? "").trim();
+    const rawAlternatives: unknown[] = Array.isArray(input.acceptedAlternatives)
+      ? input.acceptedAlternatives
+      : [];
+    if (!questionPrompt) {
+      throw new HandwrittenError(
+        "INVALID_INPUT",
+        "An ad-hoc paper needs a question prompt to grade against.",
+      );
+    }
+    if (questionPrompt.length > 20000 || rubric.length > 20000) {
+      throw new HandwrittenError("INVALID_INPUT", "Input exceeds the maximum allowed size.");
+    }
+    if (rawAlternatives.length > 50) {
+      throw new HandwrittenError("INVALID_INPUT", "Input exceeds the maximum allowed size.");
+    }
+    if (
+      rawAlternatives.some(
+        (alternative) => typeof alternative !== "string" || alternative.length > 2000,
+      )
+    ) {
+      throw new HandwrittenError(
+        "INVALID_INPUT",
+        "Each accepted alternative must be a string of at most 2000 characters.",
+      );
+    }
+    const alternativesChars = (rawAlternatives as string[]).reduce(
+      (total, alternative) => total + alternative.length,
+      0,
+    );
+    if (alternativesChars > 20000) {
+      throw new HandwrittenError("INVALID_INPUT", "Input exceeds the maximum allowed size.");
+    }
+    acceptedAlternatives = rawAlternatives as string[];
+    effectiveMaxMarks = input.maxMarks;
+    adHoc = true;
+  }
+  // Quota first, fail-closed: 1 unit for the server re-grade. The
+  // client's earlier Suggest call already consumed 1 unit, so one
+  // Suggest + Save paper costs 2 units in total.
+  if (!(await consumeAiQuota(db, caller.id, 1))) {
+    throw new HandwrittenError("AI_RATE_LIMIT", "AI usage limit reached. Try again later.");
+  }
+  let verifiedModel: string | null = null;
+  const regrade = await suggestGradeWithAi(
+    {
+      questionPrompt,
+      rubric,
+      acceptedAlternatives,
+      studentAnswer: input.correctedText.trim(),
+      // The question's own marks are the ceiling — a tampered
+      // client maxMarks can never raise it. (Ad-hoc: the validated
+      // per-request maxMarks, already bounded 1..1000 above.)
+      maxMarks: effectiveMaxMarks,
+    },
+    undefined,
+    async (event) => {
+      verifiedModel = event.model;
+      await logAiUsageEvent(db, caller.id, {
+        kind: "grade",
+        provider: event.provider,
+        model: event.model,
+        inputTokens: event.usage.inputTokens,
+        outputTokens: event.usage.outputTokens,
+      });
+    },
+  );
+  if (!regrade.ok) {
+    // The re-grade consumed 1 unit and the AI call failed: refund it
+    // (AI-F5). Best-effort — refundAiQuota never throws.
+    await refundAiQuota(db, caller.id, 1);
+    throw new HandwrittenError(
+      regrade.error.code === "AI_NOT_CONFIGURED" ? "AI_NOT_CONFIGURED" : "AI_ERROR",
+      regrade.error.message,
+    );
+  }
+  const verifiedScore = regrade.suggestion.suggestedScore;
+  const verifiedFeedback = regrade.suggestion.feedback;
   const id = crypto.randomUUID();
   const grade = db
     .prepare(
@@ -450,15 +630,17 @@ export async function saveHandwrittenGrade(
       input.imagePath,
       input.extractedText,
       input.correctedText.trim(),
-      input.aiSuggestedScore,
-      input.aiFeedback,
-      input.aiModel,
-      input.aiSuggestedScore,
-      input.maxMarks,
+      verifiedScore,
+      verifiedFeedback,
+      verifiedModel,
+      verifiedScore,
+      effectiveMaxMarks,
       input.teacherFeedback.trim(),
     );
   // Activity-feed label: linked student name, or "unlinked" for a
-  // free-text paper. Never answer text, never the image path.
+  // free-text paper. Never answer text, never the image path. An
+  // ad-hoc grade also records its (truncated) criteria, since no
+  // question_keys row exists to trace it back to.
   const audit = db
     .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
     .bind(
@@ -466,12 +648,19 @@ export async function saveHandwrittenGrade(
       "handwritten_grade",
       id,
       JSON.stringify({
-        final_score: input.aiSuggestedScore,
-        max_marks: input.maxMarks,
+        final_score: verifiedScore,
+        max_marks: effectiveMaxMarks,
         assessment_id: input.assessmentId,
         question_id: input.questionId,
         student_id: studentId,
         target_label: studentName || "Unlinked paper",
+        ...(adHoc
+          ? {
+              ad_hoc: true,
+              question_prompt: questionPrompt.slice(0, 500),
+              rubric: rubric.slice(0, 500),
+            }
+          : {}),
       }),
     );
   await runBatchOrSequential(db, [grade, audit]);
