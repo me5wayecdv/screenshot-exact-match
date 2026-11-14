@@ -1372,6 +1372,27 @@ describe("stale-config fallback in validateStart / loadTakeData (ARCH-F1 / BIZ-F
   });
 });
 
+/* ----------------- CQ-F9: D1-binding errors are codes, not English text --
+ * The three `!db` throws in the take path used to carry raw English
+ * ("TakeSession: D1 binding unavailable ..."), which the DO fetch
+ * catch returned verbatim and the take page toasted as-is. They now
+ * throw TAKE_SESSION_ERROR (in errorMap since CQ-F1), so the student
+ * sees the Arabic sentence. The binding is one env.DB for all three
+ * sites, so the per-site wording carried no diagnostic value beyond
+ * which endpoint was hit — and that is visible from the request line.
+ * The take-session.ts sites have no unit harness (CQ-F7: the real
+ * TakeSession class is untested); the getCachedMarks site below is
+ * the testable one, and the other two are the identical one-line
+ * change, verified by reading them. */
+describe("D1-binding errors are codes (CQ-F9)", () => {
+  it("getCachedMarks with a cold cache and no DB throws TAKE_SESSION_ERROR", async () => {
+    const cfg = new MapConfigStore();
+    await expect(getCachedMarks(cfg, null, EXAM, Date.parse(NOW))).rejects.toThrow(
+      "TAKE_SESSION_ERROR",
+    );
+  });
+});
+
 describe("score-refresh TTL (V3.3)", () => {
   it("does NOT re-read inside 5 min even when past the old 60s TTL", async () => {
     const state = fakeState();

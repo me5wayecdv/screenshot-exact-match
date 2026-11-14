@@ -465,7 +465,7 @@ export async function getCachedMarks(
   ) {
     return configStore.getMarks();
   }
-  if (!db) throw new Error("TakeSession: D1 binding unavailable — cannot load exam config");
+  if (!db) throw new Error("TAKE_SESSION_ERROR");
   // loadConfigOrStale serves the stale config (with its cached
   // questions) on a failed reload and throws only when no cached
   // config exists — the same V3.2 behavior as before.
