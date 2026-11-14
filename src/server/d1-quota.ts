@@ -162,7 +162,7 @@ export async function refundAiQuota(
     const day = dayOf(nowIso);
     const claimToken = crypto.randomUUID();
     const cutoff = new Date(Date.parse(nowIso) - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const results = await db.batch([
+    const results = (await db.batch([
       db.prepare("DELETE FROM ai_quota_refunds WHERE created_at < ?").bind(cutoff),
       db.prepare(
         "INSERT OR IGNORE INTO ai_quota_refunds " +
@@ -176,7 +176,7 @@ export async function refundAiQuota(
           "WHERE user_id = ? AND EXISTS (" +
           "SELECT 1 FROM ai_quota_refunds WHERE refund_key = ? AND claim_token = ? AND user_id = ?)",
       ).bind(minute, units, day, units, nowIso, userId, idempotencyKey, claimToken, userId),
-    ]);
+    ])) as unknown[];
     return runChanges(results[2]) === 1;
   } catch {
     return false;

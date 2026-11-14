@@ -416,8 +416,8 @@ export const suggestGrade = createServerFn({ method: "POST" })
     const result = await suggestGradeWithAi(
       {
         questionPrompt: effectiveRequest.questionPrompt,
-        correctAnswer: effectiveRequest.correctAnswer,
-        explanation: effectiveRequest.explanation,
+        correctAnswer: effectiveRequest.correctAnswer ?? "",
+        explanation: effectiveRequest.explanation ?? "",
         rubric: effectiveRequest.rubric,
         acceptedAlternatives: effectiveRequest.acceptedAlternatives,
         studentAnswer: effectiveRequest.studentAnswer,
