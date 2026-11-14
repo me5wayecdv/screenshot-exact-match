@@ -33,7 +33,7 @@ import { resolveAiConfig } from "@/server/ai-config";
 import { extractOpenAiUsage, openAiProvider } from "@/server/ai-usage";
 import { saveGeneratedDraft, GenerationError } from "@/server/d1-generation";
 import {
-  buildGeneratePrompt,
+  buildGeneratePromptMessages,
   distributeCounts,
   extractJsonObject,
   isGenerateDifficulty,
@@ -204,7 +204,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
     const { baseUrl, model, apiKey } = aiConfig;
 
     const counts = distributeCounts(input.questionCount, input.types);
-    const prompt = buildGeneratePrompt({
+    const prompt = buildGeneratePromptMessages({
       sourceText: input.sourceText,
       subjectName,
       gradeLevel: input.gradeLevel,
@@ -236,7 +236,8 @@ export const generateAssessment = createServerFn({ method: "POST" })
               content:
                 "You generate assessments from curriculum text. Reply with JSON only, no markdown fences, no extra text.",
             },
-            { role: "user", content: prompt },
+            { role: "system", content: prompt.system },
+            { role: "user", content: prompt.user },
           ],
         }),
         signal: AbortSignal.timeout(AI_TIMEOUT_MS),
