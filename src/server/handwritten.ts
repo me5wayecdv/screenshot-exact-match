@@ -817,7 +817,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
     }).catch(() => undefined);
-    return { ok: true, text: result.text, model: config.model };
+    return { ok: true, text: result.text, model: result.model };
   });
 
 /**

@@ -732,7 +732,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
           questionNumber: visionRes.questionNumber,
           confidence: "high",
           method: "number",
-          model: vision.model,
+          model: visionRes.model,
         });
         continue;
       }
@@ -752,7 +752,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
             questionNumber: null,
             confidence: ai.confidence,
             method: "ai",
-            model: vision.model,
+            model: visionRes.model,
           });
           continue;
         }
@@ -764,7 +764,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
         questionNumber: null,
         confidence: "none",
         method: "none",
-        model: vision.model,
+        model: visionRes.model,
       });
     }
     return { ok: true, pages: out };

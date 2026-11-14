@@ -431,6 +431,7 @@ export async function saveHandwrittenGrade(
       throw e;
     }
   }
+  let effectiveAssessmentId = input.assessmentId ?? null;
   if (input.assessmentId) {
     const owner = await db
       .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
@@ -450,6 +451,7 @@ export async function saveHandwrittenGrade(
     if (input.assessmentId && q.assessment_id !== input.assessmentId) {
       throw new HandwrittenError("INVALID_INPUT");
     }
+    effectiveAssessmentId = q.assessment_id;
     if (!input.assessmentId) {
       const owner = await db
         .prepare("SELECT teacher_id FROM assessments WHERE id = ?")
@@ -502,6 +504,8 @@ export async function saveHandwrittenGrade(
   // the grade stays traceable; question-linked criteria live in
   // question_keys. Any AI/quota failure refuses the save.
   let questionPrompt: string;
+  let correctAnswer = "";
+  let explanation = "";
   let rubric: string;
   let acceptedAlternatives: string[];
   let effectiveMaxMarks: number;
@@ -517,7 +521,9 @@ export async function saveHandwrittenGrade(
       .first<HwQuestionKeyRow>();
     if (
       !keyRow ||
-      (keyRow.correct_answer === null && keyRow.rubric === null && keyRow.explanation === null)
+      (!keyRow.correct_answer?.trim() &&
+        !keyRow.rubric?.trim() &&
+        parseAlternatives(keyRow.accepted_alternatives).length === 0)
     ) {
       throw new HandwrittenError(
         "INVALID_INPUT",
@@ -528,6 +534,8 @@ export async function saveHandwrittenGrade(
       throw new HandwrittenError("INVALID_INPUT", "This question has no usable marks.");
     }
     questionPrompt = keyRow.prompt;
+    correctAnswer = keyRow.correct_answer ?? "";
+    explanation = keyRow.explanation ?? "";
     rubric = keyRow.rubric ?? "";
     acceptedAlternatives = parseAlternatives(keyRow.accepted_alternatives);
     effectiveMaxMarks = keyRow.marks;
@@ -580,6 +588,8 @@ export async function saveHandwrittenGrade(
   const regrade = await suggestGradeWithAi(
     {
       questionPrompt,
+      correctAnswer,
+      explanation,
       rubric,
       acceptedAlternatives,
       studentAnswer: input.correctedText.trim(),
@@ -623,7 +633,7 @@ export async function saveHandwrittenGrade(
     .bind(
       id,
       caller.id,
-      input.assessmentId,
+      effectiveAssessmentId,
       input.questionId,
       studentId,
       studentName,
@@ -650,7 +660,7 @@ export async function saveHandwrittenGrade(
       JSON.stringify({
         final_score: verifiedScore,
         max_marks: effectiveMaxMarks,
-        assessment_id: input.assessmentId,
+        assessment_id: effectiveAssessmentId,
         question_id: input.questionId,
         student_id: studentId,
         target_label: studentName || "Unlinked paper",

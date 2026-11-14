@@ -43,6 +43,9 @@ export type { AiGradeSuggestion } from "./ai-client";
 
 export type AiGradeRequest = {
   questionPrompt: string;
+  /** Server-resolved teacher answer key; ignored when supplied by a client. */
+  correctAnswer?: string;
+  explanation?: string;
   rubric: string;
   acceptedAlternatives: string[];
   studentAnswer: string;
@@ -207,6 +210,7 @@ export async function persistAiSuggestion(
   ids: AiSuggestionIds,
   suggestion: AiGradeSuggestion,
   model: string,
+  expectedResponse?: string,
 ): Promise<boolean> {
   try {
     if (!ids.answerId && !(ids.submissionId && ids.questionId)) return false;
@@ -264,9 +268,16 @@ export async function persistAiSuggestion(
       ? await db
           .prepare(
             "UPDATE answers SET ai_suggestion = ? " +
-              "WHERE id = ? AND submission_id = ? AND question_id = ?",
+              "WHERE id = ? AND submission_id = ? AND question_id = ?" +
+              (expectedResponse === undefined ? "" : " AND response = ?"),
           )
-          .bind(payload, ids.answerId, submissionId, questionId)
+          .bind(
+            payload,
+            ids.answerId,
+            submissionId,
+            questionId,
+            ...(expectedResponse === undefined ? [] : [expectedResponse]),
+          )
           .run()
       : await db
           .prepare(
@@ -300,11 +311,80 @@ export const suggestGrade = createServerFn({ method: "POST" })
 
     const db = ctxDb(context);
     const session = ctxSession(context);
-    const auth = await authorize(db, session, request.assessmentId);
+    let effectiveRequest: AiGradeRequest = request;
+    if (request.answerId) {
+      const canonical = await db
+        .prepare(
+          "SELECT a.response, a.submission_id, a.question_id, s.assessment_id, " +
+            "ass.teacher_id, q.prompt, q.marks, k.correct_answer, " +
+            "k.accepted_alternatives, k.rubric, k.explanation " +
+            "FROM answers a " +
+            "JOIN submissions s ON s.id = a.submission_id " +
+            "JOIN assessments ass ON ass.id = s.assessment_id " +
+            "JOIN questions q ON q.id = a.question_id " +
+            "LEFT JOIN question_keys k ON k.question_id = q.id " +
+            "WHERE a.id = ?",
+        )
+        .bind(request.answerId)
+        .first<{
+          response: string;
+          submission_id: string;
+          question_id: string;
+          assessment_id: string;
+          teacher_id: string;
+          prompt: string;
+          marks: number;
+          correct_answer: string | null;
+          accepted_alternatives: string | null;
+          rubric: string | null;
+          explanation: string | null;
+        }>();
+      if (!canonical) {
+        return { ok: false, code: "UNAUTHORIZED", message: "The answer could not be verified." };
+      }
+      if (normalizeRole(session.role) !== "admin" && canonical.teacher_id !== session.userId) {
+        return { ok: false, code: "UNAUTHORIZED", message: "This answer does not belong to the caller." };
+      }
+      if (
+        (request.submissionId && request.submissionId !== canonical.submission_id) ||
+        (request.questionId && request.questionId !== canonical.question_id) ||
+        (request.assessmentId && request.assessmentId !== canonical.assessment_id)
+      ) {
+        return { ok: false, code: "INVALID_INPUT", message: "The answer identifiers do not match." };
+      }
+      let alternatives: string[] = [];
+      try {
+        const parsed: unknown = JSON.parse(canonical.accepted_alternatives ?? "[]");
+        if (Array.isArray(parsed)) alternatives = parsed.filter((v): v is string => typeof v === "string");
+      } catch {
+        alternatives = [];
+      }
+      if (
+        !canonical.correct_answer?.trim() &&
+        !canonical.rubric?.trim() &&
+        alternatives.length === 0
+      ) {
+        return { ok: false, code: "INVALID_INPUT", message: "This question has no grading key." };
+      }
+      effectiveRequest = {
+        ...request,
+        questionPrompt: canonical.prompt,
+        correctAnswer: canonical.correct_answer ?? "",
+        explanation: canonical.explanation ?? "",
+        rubric: canonical.rubric ?? "",
+        acceptedAlternatives: alternatives,
+        studentAnswer: canonical.response ?? "",
+        maxMarks: canonical.marks,
+        assessmentId: canonical.assessment_id,
+        submissionId: canonical.submission_id,
+        questionId: canonical.question_id,
+      };
+    }
+    const auth = await authorize(db, session, effectiveRequest.assessmentId);
     if (!auth.ok) return { ok: false, code: "UNAUTHORIZED", message: auth.message };
 
     // A blank answer needs no AI call, but authorization still applies.
-    if (!request.studentAnswer.trim()) {
+    if (!effectiveRequest.studentAnswer.trim()) {
       return {
         ok: true,
         suggestion: { suggestedScore: 0, feedback: "", confidence: "low" },
@@ -333,11 +413,13 @@ export const suggestGrade = createServerFn({ method: "POST" })
       | undefined;
     const result = await suggestGradeWithAi(
       {
-        questionPrompt: request.questionPrompt,
-        rubric: request.rubric,
-        acceptedAlternatives: request.acceptedAlternatives,
-        studentAnswer: request.studentAnswer,
-        maxMarks: request.maxMarks,
+        questionPrompt: effectiveRequest.questionPrompt,
+        correctAnswer: effectiveRequest.correctAnswer,
+        explanation: effectiveRequest.explanation,
+        rubric: effectiveRequest.rubric,
+        acceptedAlternatives: effectiveRequest.acceptedAlternatives,
+        studentAnswer: effectiveRequest.studentAnswer,
+        maxMarks: effectiveRequest.maxMarks,
       },
       undefined,
       async (event) => {
@@ -358,8 +440,8 @@ export const suggestGrade = createServerFn({ method: "POST" })
           model: usageEvent.model,
           inputTokens: usageEvent.usage.inputTokens,
           outputTokens: usageEvent.usage.outputTokens,
-          assessmentId: request.assessmentId,
-          questionId: request.questionId,
+          assessmentId: effectiveRequest.assessmentId,
+          questionId: effectiveRequest.questionId,
           suggestedScore: result.suggestion.suggestedScore,
         });
       } catch {
@@ -374,13 +456,14 @@ export const suggestGrade = createServerFn({ method: "POST" })
       db,
       { teacherId: auth.userId, isAdmin: normalizeRole(session.role) === "admin" },
       {
-        answerId: request.answerId,
-        submissionId: request.submissionId,
-        questionId: request.questionId,
-        assessmentId: request.assessmentId,
+        answerId: effectiveRequest.answerId,
+        submissionId: effectiveRequest.submissionId,
+        questionId: effectiveRequest.questionId,
+        assessmentId: effectiveRequest.assessmentId,
       },
       result.suggestion,
       usageEvent?.model ?? "unknown",
+      request.answerId ? effectiveRequest.studentAnswer : undefined,
     );
     return { ok: true, suggestion: result.suggestion };
   });
