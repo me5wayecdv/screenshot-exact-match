@@ -1249,7 +1249,149 @@ describe("stale-config fallback (V3.2)", () => {
   });
 });
 
-/* --------------------------------------- V3.3: score-refresh TTL */
+/* ----------------- ARCH-F1 / BIZ-F10: stale fallback in validateStart + loadTakeData */
+
+describe("stale-config fallback in validateStart / loadTakeData (ARCH-F1 / BIZ-F10)", () => {
+  const OVERLOAD = "D1 DB is overloaded. Too many resources consumed within a 10 second window.";
+
+  function overloadDb(counter?: { calls: number }): D1Database {
+    return {
+      prepare: () => {
+        if (counter) counter.calls += 1;
+        throw new Error(OVERLOAD);
+      },
+    } as unknown as D1Database;
+  }
+  function notFoundDb(): D1Database {
+    return {
+      prepare: () => {
+        throw new Error("TAKE_NOT_FOUND");
+      },
+    } as unknown as D1Database;
+  }
+
+  /** Warm the config (validateStart only — no submission is created,
+   *  so loadTakeData has no draft to hydrate and no D1 read past
+   *  the config load), then age it past the TTL. */
+  async function warmed() {
+    const state = fakeState();
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+    await validateStart(store, cfg, db, {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    cfg.config!.loadedAt = Date.parse(NOW) - TAKE_SESSION_CACHE_TTL_MS - 1000;
+    return { store, cfg };
+  }
+
+  it("(a) validateStart serves the stale config when the reload throws", async () => {
+    const { store, cfg } = await warmed();
+    const counter = { calls: 0 };
+    const result = await validateStart(store, cfg, overloadDb(counter), {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    expect(result).toMatchObject({ attemptNumber: 1, totalPossible: 15 });
+    // (d) the touch re-stamps loadedAt, so the burst does not retry
+    // the reload: exactly one failed load attempt, and a second
+    // start makes no further D1 call at all.
+    expect(cfg.config?.loadedAt).toBe(Date.parse(NOW));
+    expect(counter.calls).toBe(1);
+    await validateStart(store, cfg, overloadDb(counter), {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    expect(counter.calls).toBe(1);
+  });
+
+  it("(b) loadTakeData serves the stale-config payload when the reload throws", async () => {
+    const { store, cfg } = await warmed();
+    const counter = { calls: 0 };
+    const data = await loadTakeData(store, cfg, overloadDb(counter), {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    expect(data.allowed).toBe(true);
+    if (data.allowed) {
+      expect(data.assessment).toMatchObject({ id: EXAM, title: "Exam 1", status: "published" });
+      expect(data.questions).toHaveLength(2);
+      expect(data.submissions).toEqual([]);
+    }
+    expect(cfg.config?.loadedAt).toBe(Date.parse(NOW));
+    expect(counter.calls).toBe(1);
+    const again = await loadTakeData(store, cfg, overloadDb(counter), {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    expect(again.allowed).toBe(true);
+    expect(counter.calls).toBe(1);
+  });
+
+  it("(c) no cached config: validateStart still throws, loadTakeData still maps NOT_FOUND", async () => {
+    const store = new MapStore();
+    await expect(
+      validateStart(store, new MapConfigStore(), overloadDb(), {
+        studentId: STUDENT,
+        assessmentId: EXAM,
+        nowIso: NOW,
+      }),
+    ).rejects.toThrow(OVERLOAD);
+    await expect(
+      validateStart(new MapStore(), new MapConfigStore(), notFoundDb(), {
+        studentId: STUDENT,
+        assessmentId: EXAM,
+        nowIso: NOW,
+      }),
+    ).rejects.toThrow("TAKE_NOT_FOUND");
+
+    const missing = await loadTakeData(new MapStore(), new MapConfigStore(), notFoundDb(), {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    expect(missing).toEqual({ allowed: false, reason: "NOT_FOUND" });
+    await expect(
+      loadTakeData(new MapStore(), new MapConfigStore(), overloadDb(), {
+        studentId: STUDENT,
+        assessmentId: EXAM,
+        nowIso: NOW,
+      }),
+    ).rejects.toThrow(OVERLOAD);
+  });
+
+  it("(e) getCachedConfig still returns null for a missing exam with no cache", async () => {
+    const cfg = new MapConfigStore();
+    expect(await getCachedConfig(cfg, notFoundDb(), EXAM, Date.parse(NOW))).toBeNull();
+  });
+});
+
+/* ----------------- CQ-F9: D1-binding errors are codes, not English text --
+ * The three `!db` throws in the take path used to carry raw English
+ * ("TakeSession: D1 binding unavailable ..."), which the DO fetch
+ * catch returned verbatim and the take page toasted as-is. They now
+ * throw TAKE_SESSION_ERROR (in errorMap since CQ-F1), so the student
+ * sees the Arabic sentence. The binding is one env.DB for all three
+ * sites, so the per-site wording carried no diagnostic value beyond
+ * which endpoint was hit — and that is visible from the request line.
+ * The take-session.ts sites have no unit harness (CQ-F7: the real
+ * TakeSession class is untested); the getCachedMarks site below is
+ * the testable one, and the other two are the identical one-line
+ * change, verified by reading them. */
+describe("D1-binding errors are codes (CQ-F9)", () => {
+  it("getCachedMarks with a cold cache and no DB throws TAKE_SESSION_ERROR", async () => {
+    const cfg = new MapConfigStore();
+    await expect(getCachedMarks(cfg, null, EXAM, Date.parse(NOW))).rejects.toThrow(
+      "TAKE_SESSION_ERROR",
+    );
+  });
+});
 
 describe("score-refresh TTL (V3.3)", () => {
   it("does NOT re-read inside 5 min even when past the old 60s TTL", async () => {

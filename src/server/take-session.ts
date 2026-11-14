@@ -666,7 +666,7 @@ export class TakeSession extends DurableObjectBase {
           };
           const db = this.db;
           if (!db) {
-            throw new Error("TakeSession: D1 binding unavailable for start validation");
+            throw new Error("TAKE_SESSION_ERROR");
           }
           const validated = await validateStart(this.store, this.store, db, {
             studentId: input.studentId,
@@ -756,7 +756,7 @@ export class TakeSession extends DurableObjectBase {
           };
           const db = this.db;
           if (!db) {
-            throw new Error("TakeSession: D1 binding unavailable for take data");
+            throw new Error("TAKE_SESSION_ERROR");
           }
           const data = await loadTakeData(this.store, this.store, db, input);
           return jsonResponse(data);

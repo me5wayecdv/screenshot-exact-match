@@ -328,6 +328,45 @@ function toDoStatus(status: string): DoSubmissionState["status"] {
   return "in_progress";
 }
 
+/** Single config-load entry point (ARCH-F1 / BIZ-F10, ARCH-F11):
+ *  load the exam config from D1, falling back to the stale cached
+ *  config on ANY reload failure — the V3.2 pattern, previously
+ *  duplicated in getCachedConfig/getCachedMarks and missing from
+ *  validateStart/loadTakeData, where a D1 overload error on a 60s
+ *  TTL boundary 500ed the exam start / take-page load. On success
+ *  the fresh config is cached and returned; on failure, when a
+ *  config for the same assessment is cached, it is touch()ed
+ *  (re-stamped so the burst does not retry the reload for another
+ *  TTL) and returned with its cached questions/enrolled. It throws
+ *  only when no cached config for this assessment exists at all.
+ *
+ *  NOTE: a TAKE_NOT_FOUND reload failure also serves stale here —
+ *  there is no delete-assessment path in the product, so a cached
+ *  config can only be "missing" in D1 transiently (overload /
+ *  replication lag), never because the exam was genuinely deleted.
+ *  Callers that must distinguish a genuinely missing exam
+ *  (loadTakeData, getCachedConfig) map the no-cache throw
+ *  themselves. */
+async function loadConfigOrStale(
+  configStore: ExamConfigStore,
+  db: D1Database,
+  assessmentId: string,
+  nowMs: number,
+): Promise<{ config: ExamConfig; questions: ExamQuestion[] }> {
+  try {
+    const loaded = await loadExamConfig(db, assessmentId, nowMs);
+    await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
+    return loaded;
+  } catch (error) {
+    const cached = await configStore.getConfig();
+    if (cached && cached.assessmentId === assessmentId) {
+      await configStore.touchConfig(nowMs);
+      return { config: cached, questions: await configStore.getQuestions() };
+    }
+    throw error;
+  }
+}
+
 /** Start validation, inside the DO (DESIGN-V2.md) — the replacement
  *  for the Worker's resolveStart. Reads D1 only on cache misses: the
  *  config load (once per TTL per exam), the full gate fallback (a
@@ -352,8 +391,7 @@ export async function validateStart(
     config.assessmentId !== input.assessmentId ||
     nowMs - config.loadedAt > TAKE_SESSION_CACHE_TTL_MS
   ) {
-    const loaded = await loadExamConfig(db, input.assessmentId, nowMs);
-    await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
+    const loaded = await loadConfigOrStale(configStore, db, input.assessmentId, nowMs);
     config = loaded.config;
   }
   if (config.status !== "published") throw new Error("TAKE_NOT_PUBLISHED");
@@ -400,19 +438,10 @@ export async function getCachedConfig(
   }
   if (!db) return null;
   try {
-    const loaded = await loadExamConfig(db, assessmentId, nowMs);
-    await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
-    return loaded.config;
+    return (await loadConfigOrStale(configStore, db, assessmentId, nowMs)).config;
   } catch (error) {
-    // V3.2: a reload that fails under load serves the stale config
-    // instead of throwing — the exam's questions/window almost never
-    // change mid-burst, and the touch stops every later call in the
-    // burst from retrying the reload. (An unpublish is then honored
-    // up to one TTL late, only while D1 is overloaded.)
-    if (config && config.assessmentId === assessmentId) {
-      await configStore.touchConfig(nowMs);
-      return config;
-    }
+    // No cached config and the reload failed: a genuinely missing
+    // exam is "no config" (null); any other failure still throws.
     if (error instanceof Error && error.message === "TAKE_NOT_FOUND") return null;
     throw error;
   }
@@ -436,22 +465,14 @@ export async function getCachedMarks(
   ) {
     return configStore.getMarks();
   }
-  if (!db) throw new Error("TakeSession: D1 binding unavailable — cannot load exam config");
-  try {
-    const loaded = await loadExamConfig(db, assessmentId, nowMs);
-    await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
-    const marks: Record<string, number> = {};
-    for (const q of loaded.questions) marks[q.id] = q.marks;
-    return marks;
-  } catch (error) {
-    // V3.2: same stale fallback as getCachedConfig — a failed reload
-    // must not fail the student's draft/submit.
-    if (config && config.assessmentId === assessmentId) {
-      await configStore.touchConfig(nowMs);
-      return configStore.getMarks();
-    }
-    throw error;
-  }
+  if (!db) throw new Error("TAKE_SESSION_ERROR");
+  // loadConfigOrStale serves the stale config (with its cached
+  // questions) on a failed reload and throws only when no cached
+  // config exists — the same V3.2 behavior as before.
+  const { questions } = await loadConfigOrStale(configStore, db, assessmentId, nowMs);
+  const marks: Record<string, number> = {};
+  for (const q of questions) marks[q.id] = q.marks;
+  return marks;
 }
 
 export type StartInput = {
@@ -774,10 +795,10 @@ export async function loadTakeData(
     nowMs - config.loadedAt > TAKE_SESSION_CACHE_TTL_MS
   ) {
     try {
-      const loaded = await loadExamConfig(db, input.assessmentId, nowMs);
-      await configStore.setConfig(loaded.config, loaded.questions, loaded.enrolled);
-      config = loaded.config;
+      config = (await loadConfigOrStale(configStore, db, input.assessmentId, nowMs)).config;
     } catch (error) {
+      // No cached config and the reload failed: a genuinely missing
+      // exam is NOT_FOUND; any other failure still throws.
       if (error instanceof Error && error.message === "TAKE_NOT_FOUND") {
         return { allowed: false, reason: "NOT_FOUND" };
       }
