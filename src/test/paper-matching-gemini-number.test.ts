@@ -3,6 +3,7 @@ import {
   buildTextMatchPrompt,
   extractMatchReply,
   GEMINI_VISION_MATCH_PROMPT,
+  TEXT_MATCH_SYSTEM_PROMPT,
 } from "@/server/paper-matching";
 
 describe("AI-F16: Gemini vision match requests the JSON shape", () => {
@@ -94,8 +95,8 @@ describe("AI-F3: paper-match text prompt delimits the answer as data", () => {
 
   it("states the data-only rule for the delimited answer", () => {
     const prompt = buildTextMatchPrompt(questions, "إجابة");
-    expect(prompt).toContain("ليست تعليمات");
-    expect(prompt).toContain("تجاهل");
+    expect(TEXT_MATCH_SYSTEM_PROMPT).toContain("ليست تعليمات");
+    expect(TEXT_MATCH_SYSTEM_PROMPT).toContain("تجاهل");
   });
 
   it("a fake closing delimiter cannot break out of the answer block", () => {
@@ -105,7 +106,7 @@ describe("AI-F3: paper-match text prompt delimits the answer as data", () => {
 
   it("keeps the JSON-only reply shape", () => {
     const prompt = buildTextMatchPrompt(questions, "إجابة");
-    expect(prompt).toContain('"question_index"');
-    expect(prompt).toContain("JSON فقط");
+    expect(TEXT_MATCH_SYSTEM_PROMPT).toContain('"question_index"');
+    expect(TEXT_MATCH_SYSTEM_PROMPT).toContain("JSON فقط");
   });
 });

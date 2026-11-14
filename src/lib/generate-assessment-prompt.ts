@@ -408,7 +408,7 @@ export function sanitizeModelJson(text: string): string {
           out += "\\t";
           break;
         case 0x0a:
-          out += "\n";
+          out += "\\n";
           break;
         case 0x0c:
           out += "\\f";
