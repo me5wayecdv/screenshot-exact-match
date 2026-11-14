@@ -23,6 +23,13 @@
  *
  * Parent wiring (see NOTES.md): render with key={answerId} so switching
  * submissions never leaks one answer's suggestion into another's card.
+ * The grading page passes the suggestion persisted for this answer
+ * (answers.ai_suggestion, read back by getGradingDetailD1) as
+ * `initialSuggestion`: it renders on mount exactly like a fresh
+ * suggestion, so a generated suggestion survives a reload. It stays
+ * advisory — Accept only fills the parent's score/feedback fields, the
+ * teacher still saves and releases. Regenerating replaces the saved
+ * suggestion (the server overwrites answers.ai_suggestion).
  */
 
 import { useEffect, useState } from "react";
@@ -56,6 +63,20 @@ export type AiGradeSuggestionProps = {
   /** submissions.assessment_id — enables the server-side ownership check. */
   assessmentId?: string;
   /**
+   * The suggestion persisted for this answer (answers.ai_suggestion),
+   * already parsed + validated server-side. When present it renders on
+   * mount, so a generated suggestion survives a reload. Absent when no
+   * suggestion was ever generated (or the stored JSON was unusable).
+   */
+  initialSuggestion?: ServerSuggestion;
+  /**
+   * AI-F4 usage linkage: the grading page's question/submission ids.
+   * Forwarded to suggestGrade so the usage event is logged with the
+   * question it belongs to (previously question_id was always NULL).
+   */
+  questionId?: string;
+  submissionId?: string;
+  /**
    * Called on Accept (or on applying an edited suggestion). The parent
    * writes these into its existing score/feedback state, e.g.:
    *   setScores((p) => ({ ...p, [answerId]: String(v.score) }));
@@ -86,28 +107,38 @@ export function AiGradeSuggestion({
   studentAnswer,
   maxMarks,
   assessmentId,
+  initialSuggestion,
+  questionId,
+  submissionId,
   onAccept,
 }: AiGradeSuggestionProps) {
   const { t } = useI18n();
-  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  // A persisted suggestion renders on mount exactly like a fresh one;
+  // without one the card starts idle. The parent keys by answerId, so a
+  // different answer never inherits this state.
+  const [phase, setPhase] = useState<Phase>(() =>
+    initialSuggestion ? { kind: "suggested", suggestion: initialSuggestion } : { kind: "idle" },
+  );
   const blank = !studentAnswer.trim();
 
   // Probe once: if the server has no AI provider configured, show the
-  // disabled state up front. A probe failure is ignored on purpose — the
-  // Suggest click will surface the real error instead of disabling a
-  // working button.
+  // disabled state up front — unless a persisted suggestion exists, which
+  // stays visible (it was generated when AI was configured). A probe
+  // failure is ignored on purpose — the Suggest click will surface the
+  // real error instead of disabling a working button.
   useEffect(() => {
     let cancelled = false;
     void getAiGradingStatus({ data: {} })
       .then((res) => {
-        if (!cancelled && !res.configured) setPhase({ kind: "needsKey" });
+        if (!cancelled && !res.configured && !initialSuggestion) setPhase({ kind: "needsKey" });
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-    // Probe once per answer card (keyed by answerId upstream).
-  }, []);
+    // Probe once per answer card (keyed by answerId upstream); the dep
+    // only re-runs the probe if the persisted suggestion itself changes.
+  }, [initialSuggestion]);
 
   async function handleSuggest() {
     setPhase({ kind: "loading" });
@@ -122,9 +153,14 @@ export function AiGradeSuggestion({
           assessmentId,
           // AI-F4: the server persists the suggestion into
           // answers.ai_suggestion for this row (ownership verified
-          // server-side). This component has no submission/question
-          // ids as props; the server resolves them from the answer.
+          // server-side); the server resolves submission/question from
+          // the answer row, and cross-checks any ids passed below.
           answerId,
+          // AI-F4 usage linkage: the grading page passes these so the
+          // usage event carries the question it belongs to. The server
+          // cross-checks them against the answer row before persisting.
+          ...(questionId ? { questionId } : {}),
+          ...(submissionId ? { submissionId } : {}),
         },
       });
       if (!result.ok) {

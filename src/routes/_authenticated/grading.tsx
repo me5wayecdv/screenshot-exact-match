@@ -504,6 +504,12 @@ function Grading() {
                         studentAnswer={a.response ?? ""}
                         maxMarks={Number(q.marks)}
                         assessmentId={selected.assessment_id}
+                        // AI-F4 display fix: a suggestion generated earlier
+                        // (persisted in answers.ai_suggestion) renders on
+                        // mount, so it survives a reload. Advisory only.
+                        {...(a.aiSuggestion ? { initialSuggestion: a.aiSuggestion } : {})}
+                        questionId={q.id}
+                        submissionId={selected.id}
                         onAccept={(v) => {
                           setScores((p) => ({ ...p, [a.id]: String(v.score) }));
                           setFeedbacks((p) => ({ ...p, [a.id]: v.feedback }));
