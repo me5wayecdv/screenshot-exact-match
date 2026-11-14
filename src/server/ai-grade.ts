@@ -312,10 +312,10 @@ export const suggestGrade = createServerFn({ method: "POST" })
     const db = ctxDb(context);
     const session = ctxSession(context);
     let effectiveRequest: AiGradeRequest = request;
-    if (request.answerId) {
+    if (request.answerId || (request.submissionId && request.questionId)) {
       const canonical = await db
         .prepare(
-          "SELECT a.response, a.submission_id, a.question_id, s.assessment_id, " +
+          "SELECT a.id AS answer_id, a.response, a.submission_id, a.question_id, s.assessment_id, " +
             "ass.teacher_id, q.prompt, q.marks, k.correct_answer, " +
             "k.accepted_alternatives, k.rubric, k.explanation " +
             "FROM answers a " +
@@ -323,10 +323,17 @@ export const suggestGrade = createServerFn({ method: "POST" })
             "JOIN assessments ass ON ass.id = s.assessment_id " +
             "JOIN questions q ON q.id = a.question_id " +
             "LEFT JOIN question_keys k ON k.question_id = q.id " +
-            "WHERE a.id = ?",
+            "WHERE " +
+            (request.answerId ? "a.id = ?" : "a.submission_id = ? AND a.question_id = ?") +
+            " LIMIT 1",
         )
-        .bind(request.answerId)
+        .bind(
+          ...(request.answerId
+            ? [request.answerId]
+            : [request.submissionId!, request.questionId!]),
+        )
         .first<{
+          answer_id: string;
           response: string;
           submission_id: string;
           question_id: string;
@@ -378,6 +385,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
       }
       effectiveRequest = {
         ...request,
+        answerId: canonical.answer_id,
         questionPrompt: canonical.prompt,
         correctAnswer: canonical.correct_answer ?? "",
         explanation: canonical.explanation ?? "",
@@ -475,7 +483,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
       },
       result.suggestion,
       usageEvent?.model ?? "unknown",
-      request.answerId ? effectiveRequest.studentAnswer : undefined,
+      effectiveRequest.answerId ? effectiveRequest.studentAnswer : undefined,
     );
     if (effectiveRequest.answerId && !persisted) {
       return {
