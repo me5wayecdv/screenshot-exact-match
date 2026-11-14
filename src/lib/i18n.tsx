@@ -1974,6 +1974,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     en: "The submitted data is incomplete or invalid — check the fields and try again.",
   },
   FORBIDDEN: { ar: "مش مسموح لك تعمل ده.", en: "You're not allowed to do that." },
+  // CQ-F1: placed before NOT_FOUND on purpose — translateError's
+  // message scan matches the first key that is a substring, and
+  // "TAKE_NOT_FOUND" contains "NOT_FOUND", so this entry must win.
+  TAKE_NOT_FOUND: { ar: "الاختبار ده مش موجود.", en: "That assessment was not found." },
   NOT_FOUND: { ar: "الحاجة دي مش موجودة.", en: "That item was not found." },
   INVALID_EMAIL: { ar: "البريد ده مش صحيح.", en: "That email address isn't valid." },
   INVALID_KEY: { ar: "الرابط أو المفتاح ده مش صالح.", en: "That link or key isn't valid." },
@@ -2058,6 +2062,191 @@ const errorMap: Record<string, { ar: string; en: string }> = {
   parent_phone_required: {
     ar: "سجّل رقم هاتف ولي الأمر أولاً من لوحة التحكم قبل بدء الامتحان.",
     en: "Add a parent phone number from your dashboard before starting the exam.",
+  },
+  // CQ-F1: every code thrown/returned in current code that was missing
+  // from this map rendered verbatim in toasts (Batch 5 made server errors
+  // code-only). PUBLISH_NO_STUDENTS is intentionally absent: the publish
+  // handler intercepts it first (assessments.$id.tsx:129).
+  PUBLISH_NO_QUESTIONS: {
+    ar: "مفيش أسئلة في الاختبار — أضف سؤال واحد على الأقل قبل النشر.",
+    en: "Add at least one question before publishing.",
+  },
+  PUBLISH_INCOMPLETE: {
+    ar: "بعض الأسئلة لسه ناقصة — كمّلها قبل النشر.",
+    en: "Some questions are still incomplete — finish them before publishing.",
+  },
+  INVALID_TITLE: {
+    ar: "عنوان الاختبار مش صحيح — اكتب عنوان واضح.",
+    en: "That assessment title isn't valid — write a clear title.",
+  },
+  INVALID_MARKS: {
+    ar: "درجة السؤال لازم تكون أكبر من صفر.",
+    en: "A question's marks must be greater than zero.",
+  },
+  INVALID_QUESTION: {
+    ar: "السؤال ده مش صحيح — راجع بياناته.",
+    en: "That question isn't valid — check its details.",
+  },
+  INVALID_TRANSITION: {
+    ar: "مينفعش تغيّر حالة الاختبار بالشكل ده.",
+    en: "You can't change the assessment status like that.",
+  },
+  SCORE_OUT_OF_RANGE: {
+    ar: "الدرجة اللي دخلتها خارج النطاق المسموح.",
+    en: "That score is outside the allowed range.",
+  },
+  NOT_FULLY_GRADED: {
+    ar: "لازم تخلّص تصحيح كل الأسئلة قبل النشر.",
+    en: "All questions must be graded before release.",
+  },
+  NOT_APPROVED: {
+    ar: "التسليم ده لسه متوافقش عليه.",
+    en: "That submission hasn't been approved yet.",
+  },
+  NOT_READY_FOR_REVIEW: {
+    ar: "التسليم ده لسه مش جاهز للمراجعة.",
+    en: "That submission isn't ready for review yet.",
+  },
+  FEEDBACK_TOO_LONG: {
+    ar: "الملاحظات طويلة أوي — اختصرها شوية.",
+    en: "That feedback is too long — shorten it a little.",
+  },
+  TAKE_NOT_PUBLISHED: {
+    ar: "الاختبار ده لسه متنشرش.",
+    en: "That assessment hasn't been published yet.",
+  },
+  TAKE_NOT_STARTED: {
+    ar: "الاختبار لسه مبدأش — استنى لمعاد البدء.",
+    en: "The assessment hasn't started yet — wait for the start time.",
+  },
+  TAKE_WINDOW_CLOSED: { ar: "معاد الاختبار خلص.", en: "The assessment window has closed." },
+  TAKE_NO_ATTEMPTS_LEFT: {
+    ar: "خلّصت كل محاولاتك في الاختبار ده.",
+    en: "You've used all your attempts for this assessment.",
+  },
+  TAKE_FLUSH_NO_ROW: {
+    ar: "حصلت مشكلة في حفظ إجابتك — حاول تاني.",
+    en: "There was a problem saving your answer — try again.",
+  },
+  TAKE_QUEUE_TIMEOUT: {
+    ar: "الحفظ اتأخر أوي — استنى شوية وحاول تاني.",
+    en: "Saving took too long — wait a little and try again.",
+  },
+  INVALID_EVENT: { ar: "الحدث ده مش صالح.", en: "That event isn't valid." },
+  INVALID_CODE: { ar: "الكود ده مش صحيح.", en: "That code isn't valid." },
+  INVALID_NAME: {
+    ar: "الاسم ده مش صحيح — اكتب اسم واضح.",
+    en: "That name isn't valid — write a clear name.",
+  },
+  NAME_REQUIRED: {
+    ar: "لازم تكتب اسمك الأول قبل ما تنضم.",
+    en: "You need to add your name before joining.",
+  },
+  HAS_SUBMISSIONS: {
+    ar: "في تسليمات للاختبار ده بالفعل.",
+    en: "Submissions for this assessment already exist.",
+  },
+  DB_ERROR: {
+    ar: "حصلت مشكلة في حفظ البيانات — حاول تاني بعد شوية.",
+    en: "There was a problem saving the data — try again in a little while.",
+  },
+  AI_PARSE_FAILED: {
+    ar: "الذكاء الاصطناعي رجّع نتيجة مش مفهومة — حاول تاني.",
+    en: "The AI returned a result that couldn't be understood — try again.",
+  },
+  VALIDATION: {
+    ar: "البيانات مش مكتملة أو مش صحيحة — راجعها وحاول تاني.",
+    en: "The data is incomplete or invalid — check it and try again.",
+  },
+  AI_NOT_CONFIGURED: {
+    ar: "الذكاء الاصطناعي مش مظبوط لسه — كلم المشرف.",
+    en: "AI isn't set up yet — contact the administrator.",
+  },
+  AI_AUTH: {
+    ar: "مفتاح الذكاء الاصطناعي مش صالح — كلم المشرف.",
+    en: "The AI key isn't valid — contact the administrator.",
+  },
+  AI_BAD_REQUEST: {
+    ar: "الطلب اللي اتبعت للذكاء الاصطناعي مش صالح — حاول تاني.",
+    en: "The request sent to the AI wasn't valid — try again.",
+  },
+  AI_RATE_LIMIT: {
+    ar: "وصلت لحد استخدام الذكاء الاصطناعي — استنى شوية وحاول تاني.",
+    en: "You've reached the AI usage limit — wait a little and try again.",
+  },
+  AI_UPSTREAM: {
+    ar: "خدمة الذكاء الاصطناعي مش متاحة دلوقتي — حاول تاني بعد شوية.",
+    en: "The AI service isn't available right now — try again in a little while.",
+  },
+  AI_TIMEOUT: {
+    ar: "طلب الذكاء الاصطناعي خد وقت أطول من اللازم — حاول تاني.",
+    en: "The AI request took too long — try again.",
+  },
+  AI_EMPTY_REPLY: {
+    ar: "الذكاء الاصطناعي مرجّعش نتيجة — حاول تاني.",
+    en: "The AI didn't return a result — try again.",
+  },
+  AI_ERROR: {
+    ar: "الذكاء الاصطناعي رجّع نتيجة مش صالحة — حاول تاني.",
+    en: "The AI returned an unusable result — try again.",
+  },
+  NOT_TEACHER: { ar: "الإجراء ده للمعلم بس.", en: "Only a teacher can do this." },
+  UNAUTHORIZED: {
+    ar: "مش مسموح لك تعمل ده — سجّل دخول بالحساب الصح.",
+    en: "You're not allowed to do that — sign in with the right account.",
+  },
+  TUTOR_NOT_CONFIGURED: {
+    ar: "المساعد الدراسي مش مظبوط لسه — كلم المشرف.",
+    en: "The study tutor isn't set up yet — contact the administrator.",
+  },
+  TUTOR_UPSTREAM: {
+    ar: "خدمة المساعد الدراسي مش متاحة دلوقتي — حاول تاني بعد شوية.",
+    en: "The tutor service isn't available right now — try again in a little while.",
+  },
+  TUTOR_TIMEOUT: {
+    ar: "طلب المساعد الدراسي خد وقت أطول من اللازم — حاول تاني.",
+    en: "The tutor request took too long — try again.",
+  },
+  TUTOR_RATE_LIMIT: {
+    ar: "وصلت لحد استخدام المساعد الدراسي — استنى شوية وحاول تاني.",
+    en: "You've reached the tutor usage limit — wait a little and try again.",
+  },
+  TUTOR_PARSE_FAILED: {
+    ar: "المساعد الدراسي رجّع نتيجة مش مفهومة — حاول تاني.",
+    en: "The tutor returned a result that couldn't be understood — try again.",
+  },
+  VISION_NOT_CONFIGURED: {
+    ar: "قراءة الصور مش مظبوطة لسه — كلم المشرف.",
+    en: "Image reading isn't set up yet — contact the administrator.",
+  },
+  VISION_UPSTREAM: {
+    ar: "خدمة قراءة الصور مش متاحة دلوقتي — حاول تاني بعد شوية.",
+    en: "The image reading service isn't available right now — try again in a little while.",
+  },
+  VISION_TIMEOUT: {
+    ar: "قراءة الصورة خدت وقت أطول من اللازم — حاول تاني.",
+    en: "Reading the image took too long — try again.",
+  },
+  VISION_RATE_LIMIT: {
+    ar: "وصلت لحد قراءة الصور — استنى شوية وحاول تاني.",
+    en: "You've reached the image reading limit — wait a little and try again.",
+  },
+  VISION_PARSE_FAILED: {
+    ar: "مقدرناش نقرا الصورة دي — جرّب صورة أوضح.",
+    en: "We couldn't read that image — try a clearer one.",
+  },
+  VISION_UNSUPPORTED: { ar: "نوع الصورة ده مش مدعوم.", en: "That image type isn't supported." },
+  TAKE_NOT_ASSIGNED: {
+    ar: "الاختبار ده مش مسند ليك.",
+    en: "This assessment isn't assigned to you.",
+  },
+  TAKE_NOT_GROUP_MEMBER: {
+    ar: "لازم تكون عضو في مجموعة الاختبار ده عشان تدخله.",
+    en: "You need to be a member of this assessment's group to take it.",
+  },
+  TAKE_SESSION_ERROR: {
+    ar: "حصلت مشكلة في جلسة الاختبار — حاول تاني.",
+    en: "There was a problem with the exam session — try again.",
   },
 };
 
