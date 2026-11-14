@@ -688,14 +688,21 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       };
     }
     const textConfig = resolveAiConfig();
-    if (!(await consumeAiQuota(db, auth.userId, pages.length * 2))) {
+    const quotaRefundKey = crypto.randomUUID();
+    if (!(await consumeAiQuota(db, auth.userId, pages.length))) {
       return {
         ok: false,
         code: "VISION_RATE_LIMIT",
         message: "AI usage limit reached. Try again later.",
       };
     }
-    const questions = await loadQuestions(db, assessmentId);
+    let questions: QuestionRow[];
+    try {
+      questions = await loadQuestions(db, assessmentId);
+    } catch {
+      await refundAiQuota(db, auth.userId, pages.length, undefined, quotaRefundKey);
+      return { ok: false, code: "VISION_UPSTREAM", message: "Could not load assessment questions." };
+    }
 
     const out: MatchedPage[] = [];
     for (let i = 0; i < pages.length; i++) {
@@ -709,7 +716,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       if (!visionRes.ok) {
         // AI-F5: this page and the rest were never matched, so their
         // units (2 per page) go back; earlier pages stay paid.
-        await refundAiQuota(db, auth.userId, (pages.length - i) * 2);
+        await refundAiQuota(db, auth.userId, pages.length - i, undefined, quotaRefundKey);
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
       }
       // Pilot cost measurement (best-effort, never fails the match result).
@@ -736,7 +743,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
         });
         continue;
       }
-      if (textConfig && questions.length > 0) {
+      if (textConfig && questions.length > 0 && (await consumeAiQuota(db, auth.userId, 1))) {
         const ai = await callTextMatch(
           textConfig.baseUrl,
           textConfig.model,

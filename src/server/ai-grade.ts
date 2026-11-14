@@ -391,6 +391,8 @@ export const suggestGrade = createServerFn({ method: "POST" })
       };
     }
 
+    const quotaRefundKey = crypto.randomUUID();
+
     if (!(await consumeAiQuota(db, auth.userId, 1))) {
       return {
         ok: false,
@@ -429,7 +431,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
     if (!result.ok) {
       // AI-F5: the AI call failed, so the unit consumed above goes back.
       // Best-effort: a failed refund never changes this failure result.
-      await refundAiQuota(db, auth.userId, 1);
+      await refundAiQuota(db, auth.userId, 1, undefined, quotaRefundKey);
       return { ok: false, code: result.error.code, message: result.error.message };
     }
     if (usageEvent) {

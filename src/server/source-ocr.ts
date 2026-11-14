@@ -474,6 +474,8 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
       };
     }
 
+    const quotaRefundKey = crypto.randomUUID();
+
     if (!(await consumeAiQuota(db, auth.userId, imageDataUrls.length))) {
       return {
         ok: false,
@@ -495,7 +497,7 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
       if (!result.ok) {
         // AI-F5: this image and the rest were never OCR'd, so their units
         // go back (images before this one already succeeded and stay paid).
-        await refundAiQuota(db, auth.userId, imageDataUrls.length - i);
+        await refundAiQuota(db, auth.userId, imageDataUrls.length - i, undefined, quotaRefundKey);
         return { ok: false, code: result.code, message: result.message, imageIndex: i };
       }
       await logAiUsageEvent(db, auth.userId, {

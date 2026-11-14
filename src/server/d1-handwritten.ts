@@ -581,6 +581,7 @@ export async function saveHandwrittenGrade(
   // Quota first, fail-closed: 1 unit for the server re-grade. The
   // client's earlier Suggest call already consumed 1 unit, so one
   // Suggest + Save paper costs 2 units in total.
+  const quotaRefundKey = crypto.randomUUID();
   if (!(await consumeAiQuota(db, caller.id, 1))) {
     throw new HandwrittenError("AI_RATE_LIMIT", "AI usage limit reached. Try again later.");
   }
@@ -613,7 +614,7 @@ export async function saveHandwrittenGrade(
   if (!regrade.ok) {
     // The re-grade consumed 1 unit and the AI call failed: refund it
     // (AI-F5). Best-effort — refundAiQuota never throws.
-    await refundAiQuota(db, caller.id, 1);
+    await refundAiQuota(db, caller.id, 1, undefined, quotaRefundKey);
     throw new HandwrittenError(
       regrade.error.code === "AI_NOT_CONFIGURED" ? "AI_NOT_CONFIGURED" : "AI_ERROR",
       regrade.error.message,

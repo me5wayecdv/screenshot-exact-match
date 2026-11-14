@@ -197,6 +197,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
     const aiConfig = resolveAiConfig();
     if (!aiConfig) return fail("AI_NOT_CONFIGURED");
     const quotaUnits = Math.ceil(input.questionCount / 5);
+    const quotaRefundKey = crypto.randomUUID();
     if (!(await consumeAiQuota(db, userId, quotaUnits))) {
       return fail("AI_RATE_LIMIT");
     }
@@ -251,7 +252,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
         }
         // AI-F5: the generation call failed, so the units consumed above
         // go back. Best-effort: a failed refund never changes this result.
-        await refundAiQuota(db, userId, quotaUnits);
+        await refundAiQuota(db, userId, quotaUnits, undefined, quotaRefundKey);
         return fail(
           classifyAiHttpStatus(res.status),
           `HTTP ${res.status}${detail ? ` — ${detail}` : ""}`,
@@ -263,7 +264,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
         (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
       if (!replyText.trim()) {
         // AI-F5: empty reply — no usable result, so the units go back.
-        await refundAiQuota(db, userId, quotaUnits);
+        await refundAiQuota(db, userId, quotaUnits, undefined, quotaRefundKey);
         return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
       }
       // Pilot cost measurement (best-effort, never fails generation):
@@ -279,7 +280,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
     } catch (e) {
       const name = e instanceof Error ? e.name : "";
       // AI-F5: the generation call failed, so the units consumed above go back.
-      await refundAiQuota(db, userId, quotaUnits);
+      await refundAiQuota(db, userId, quotaUnits, undefined, quotaRefundKey);
       if (name === "TimeoutError" || name === "AbortError") return fail("AI_TIMEOUT");
       return fail("AI_UPSTREAM", describeThrown(e));
     }
@@ -296,7 +297,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
       // UI or the logs.
       const pos = e instanceof Error ? / at position (\d+)$/.exec(e.message)?.[1] : undefined;
       // AI-F5: the reply was unusable, so the units consumed above go back.
-      await refundAiQuota(db, userId, quotaUnits);
+      await refundAiQuota(db, userId, quotaUnits, undefined, quotaRefundKey);
       return fail(
         "AI_PARSE_FAILED",
         [

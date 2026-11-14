@@ -87,6 +87,7 @@ export const explainLesson = createServerFn({ method: "POST" })
 
     const config = resolveAiConfig();
     if (!config) return { ok: false, code: "AI_NOT_CONFIGURED" };
+    const quotaRefundKey = crypto.randomUUID();
     if (!(await consumeAiQuota(db, session.userId, 1))) {
       return { ok: false, code: "AI_RATE_LIMIT" };
     }
@@ -117,7 +118,7 @@ export const explainLesson = createServerFn({ method: "POST" })
       if (!response.ok) {
         // AI-F5: the AI call failed, so the unit consumed above goes back.
         // Best-effort: a failed refund never changes this failure result.
-        await refundAiQuota(db, session.userId, 1);
+        await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
         if (response.status === 401 || response.status === 403) {
           return { ok: false, code: "AI_AUTH" };
         }
@@ -132,7 +133,7 @@ export const explainLesson = createServerFn({ method: "POST" })
       const explanation = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
       if (!explanation || explanation.length > MAX_REPLY_CHARS) {
         // AI-F5: empty/oversized reply — no usable result, unit goes back.
-        await refundAiQuota(db, session.userId, 1);
+        await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
         return { ok: false, code: "AI_UPSTREAM" };
       }
 
@@ -155,7 +156,7 @@ export const explainLesson = createServerFn({ method: "POST" })
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
       // AI-F5: the AI call failed, so the unit consumed above goes back.
-      await refundAiQuota(db, session.userId, 1);
+      await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
       return { ok: false, code: timedOut ? "AI_TIMEOUT" : "AI_UPSTREAM" };
     } finally {
       clearTimeout(timeout);
