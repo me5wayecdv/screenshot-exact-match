@@ -572,11 +572,7 @@ async function callTextMatch(
   apiKey: string,
   questions: QuestionRow[],
   answerText: string,
-): Promise<{
-  ok: boolean;
-  index: number | null;
-  confidence: "high" | "medium" | "low";
-}> {
+): Promise<{ ok: boolean; index: number | null; confidence: "high" | "medium" | "low" }> {
   const prompt = buildTextMatchPrompt(questions, answerText);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
@@ -722,7 +718,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       );
       if (!visionRes.ok) {
         // AI-F5: this page and the rest were never matched, so their
-        // units for this and remaining vision calls go back; earlier pages stay paid.
+        // units (2 per page) go back; earlier pages stay paid.
         await refundAiQuota(db, auth.userId, pages.length - i, undefined, quotaRefundKey);
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
       }

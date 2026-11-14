@@ -464,7 +464,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
     // persistAiSuggestion itself never throws, and it no-ops when no
     // ids were supplied (e.g. the handwritten path, which has no
     // answer row).
-    await persistAiSuggestion(
+    const persisted = await persistAiSuggestion(
       db,
       { teacherId: auth.userId, isAdmin: normalizeRole(session.role) === "admin" },
       {
@@ -477,6 +477,13 @@ export const suggestGrade = createServerFn({ method: "POST" })
       usageEvent?.model ?? "unknown",
       request.answerId ? effectiveRequest.studentAnswer : undefined,
     );
+    if (effectiveRequest.answerId && !persisted) {
+      return {
+        ok: false,
+        code: "INVALID_INPUT",
+        message: "The answer changed during grading or the suggestion could not be saved. Retry.",
+      };
+    }
     return { ok: true, suggestion: result.suggestion };
   });
 

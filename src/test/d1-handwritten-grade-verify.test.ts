@@ -367,10 +367,26 @@ describe("saveHandwrittenGrade server verification (AI-F2)", () => {
     const messages = body["messages"] as Array<{ role: string; content: string }>;
     const userContent = messages.find((m) => m.role === "user")?.content ?? "";
     expect(userContent).toContain("the edited answer is 42");
+    expect(userContent).toContain("<correct_answer>\n42\n</correct_answer>");
+    expect(userContent).toContain("<explanation>\n6 x 7 = 42\n</explanation>");
     expect(userContent).not.toContain("stale suggestion");
     const stored = state.grades.get(id);
     expect(stored?.corrected_text).toBe("the edited answer is 42");
     expect(stored?.final_score).toBe(9);
+  });
+
+  it("derives assessment_id from the canonical question when the client omits it", async () => {
+    const state = baseState();
+    const db = fakeDb(state);
+    mockGradeFetch(7);
+    const { id } = await saveHandwrittenGrade(
+      db,
+      TEACHER,
+      gradeInput({ assessmentId: null }),
+    );
+    expect(state.grades.get(id)?.assessment_id).toBe("assess-1");
+    const details = JSON.parse(state.auditDetails[0] ?? "{}") as Record<string, unknown>;
+    expect(details["assessment_id"]).toBe("assess-1");
   });
 
   it("a server re-grade failure refuses the save and stores nothing", async () => {
