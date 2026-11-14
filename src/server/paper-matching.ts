@@ -217,9 +217,9 @@ export function extractMatchReply(rawText: string): {
       if (loose?.[1] !== undefined) {
         const decoded = loose[1]
           .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
-          .replace(/\\n/g, "\n")
+          .replace(/\n/g, "\n")
           .replace(/\\"/g, '"')
-          .replace(/\\\\/g, "\\");
+          .replace(/\\\/g, "\\");
         const stripped = stripLeadingNumberLine(decoded);
         return {
           text: stripped.text,
@@ -554,15 +554,15 @@ export const TEXT_MATCH_SYSTEM_PROMPT = [
 ].join(" ");
 
 export function buildTextMatchPrompt(questions: QuestionRow[], answerText: string): string {
-  const list = questions.map((q, i) => `${i + 1}. ${(q.prompt || "").slice(0, 200)}`).join("\\n");
+  const list = questions.map((q, i) => `${i + 1}. ${(q.prompt || "").slice(0, 200)}`).join("\n");
   const safeAnswer = answerText
     .slice(0, 2000)
-    .replace(/<\\/(question_list|answer_text)>/gi, "< /$1>");
-  const safeList = list.replace(/<\\/(question_list|answer_text)>/gi, "< /$1>");
+    .replace(/<\/(question_list|answer_text)>/gi, "< /$1>");
+  const safeList = list.replace(/<\/(question_list|answer_text)>/gi, "< /$1>");
   return [
-    `<question_list>\\n${safeList}\\n</question_list>`,
-    `<answer_text>\\n${safeAnswer}\\n</answer_text>`,
-  ].join("\\n\\n");
+    `<question_list>\n${safeList}\n</question_list>`,
+    `<answer_text>\n${safeAnswer}\n</answer_text>`,
+  ].join("\n\n");
 }
 
 /** AI content match: which numbered question does this answer belong to? */

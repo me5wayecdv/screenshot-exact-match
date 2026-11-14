@@ -116,7 +116,7 @@ const TYPE_LABEL: Record<GenerateQuestionType, string> = {
 export function buildGeneratePromptMessages(input: GeneratePromptInput): { system: string; user: string } {
   const countLines = (Object.keys(input.counts) as GenerateQuestionType[])
     .map((t) => `- ${TYPE_LABEL[t]}: ${input.counts[t]} سؤال`)
-    .join("\\n");
+    .join("\n");
   const difficultyLine =
     input.difficulty === "mixed"
       ? "مستويات الصعوبة: وزّع الأسئلة على مستويات مختلفة (سهل ومتوسط وصعب) واذكر مستوى كل سؤال في حقل difficulty."
@@ -156,23 +156,23 @@ export function buildGeneratePromptMessages(input: GeneratePromptInput): { syste
     "- written: correct_answer فارغة، وrubric إلزامية: معايير تصحيح كل معيار في سطر مع درجته.",
     "- marks: رقم بين 0.5 و 10، والافتراضي 1 عند عدم التحديد.",
     "- difficulty: مستوى صعوبة السؤال: easy أو medium أو hard فقط.",
-  ].join("\\n");
-  const safe = (value: string) => value.replace(/<\\/(source_text|subject|grade_level)>/gi, "< /$1>");
+  ].join("\n");
+  const safe = (value: string) => value.replace(/<\/(source_text|subject|grade_level)>/gi, "< /$1>");
   const user = [
-    `المادة:\\n<subject>\\n${safe(input.subjectName ?? "")}\\n</subject>`,
-    `الصف الدراسي:\\n<grade_level>\\n${safe(input.gradeLevel)}\\n</grade_level>`,
+    `المادة:\n<subject>\n${safe(input.subjectName ?? "")}\n</subject>`,
+    `الصف الدراسي:\n<grade_level>\n${safe(input.gradeLevel)}\n</grade_level>`,
     "مواصفات الاختبار:",
     countLines,
     difficultyLine,
-    `النص المصدر:\\n<source_text>\\n${safe(input.sourceText)}\\n</source_text>`,
-  ].join("\\n\\n");
+    `النص المصدر:\n<source_text>\n${safe(input.sourceText)}\n</source_text>`,
+  ].join("\n\n");
   return { system, user };
 }
 
 /** Backwards-compatible combined prompt for callers and prompt-shape tests. */
 export function buildGeneratePrompt(input: GeneratePromptInput): string {
   const messages = buildGeneratePromptMessages(input);
-  return `${messages.system}\\n\\n${messages.user}`;
+  return `${messages.system}\n\n${messages.user}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ export function sanitizeModelJson(text: string): string {
           out += "\\t";
           break;
         case 0x0a:
-          out += "\\n";
+          out += "\n";
           break;
         case 0x0c:
           out += "\\f";
