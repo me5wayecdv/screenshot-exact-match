@@ -157,25 +157,31 @@ export async function refundAiQuota(
       units < 1 ||
       units > QUOTA_MAX_UNITS_PER_CALL ||
       !db.batch
-    ) return false;
+    ) {
+      return false;
+    }
     const minute = minuteOf(nowIso);
     const day = dayOf(nowIso);
     const claimToken = crypto.randomUUID();
     const cutoff = new Date(Date.parse(nowIso) - 30 * 24 * 60 * 60 * 1000).toISOString();
     const results = (await db.batch([
       db.prepare("DELETE FROM ai_quota_refunds WHERE created_at < ?").bind(cutoff),
-      db.prepare(
-        "INSERT OR IGNORE INTO ai_quota_refunds " +
-          "(refund_key, claim_token, user_id, units, created_at) VALUES (?, ?, ?, ?, ?)",
-      ).bind(idempotencyKey, claimToken, userId, units, nowIso),
-      db.prepare(
-        "UPDATE ai_rate_limits SET " +
-          "minute_units = CASE WHEN minute_started_at = ? THEN MAX(0, minute_units - ?) ELSE minute_units END, " +
-          "day_units = CASE WHEN day_started_on = ? THEN MAX(0, day_units - ?) ELSE day_units END, " +
-          "updated_at = ? " +
-          "WHERE user_id = ? AND EXISTS (" +
-          "SELECT 1 FROM ai_quota_refunds WHERE refund_key = ? AND claim_token = ? AND user_id = ?)",
-      ).bind(minute, units, day, units, nowIso, userId, idempotencyKey, claimToken, userId),
+      db
+        .prepare(
+          "INSERT OR IGNORE INTO ai_quota_refunds " +
+            "(refund_key, claim_token, user_id, units, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(idempotencyKey, claimToken, userId, units, nowIso),
+      db
+        .prepare(
+          "UPDATE ai_rate_limits SET " +
+            "minute_units = CASE WHEN minute_started_at = ? THEN MAX(0, minute_units - ?) ELSE minute_units END, " +
+            "day_units = CASE WHEN day_started_on = ? THEN MAX(0, day_units - ?) ELSE day_units END, " +
+            "updated_at = ? " +
+            "WHERE user_id = ? AND EXISTS (" +
+            "SELECT 1 FROM ai_quota_refunds WHERE refund_key = ? AND claim_token = ? AND user_id = ?)",
+        )
+        .bind(minute, units, day, units, nowIso, userId, idempotencyKey, claimToken, userId),
     ])) as unknown[];
     return runChanges(results[2]) === 1;
   } catch {

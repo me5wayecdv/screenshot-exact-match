@@ -42,7 +42,14 @@ function truncate(value: string): string {
  * wrapped in one of these, so an instruction smuggled inside a field
  * cannot masquerade as a grading instruction.
  */
-const DELIMITER_TAGS = ["question", "correct_answer", "rubric", "accepted_alternatives", "explanation", "student_answer"] as const;
+const DELIMITER_TAGS = [
+  "question",
+  "correct_answer",
+  "rubric",
+  "accepted_alternatives",
+  "explanation",
+  "student_answer",
+] as const;
 
 /**
  * Neutralise a fake closing delimiter inside untrusted content: a

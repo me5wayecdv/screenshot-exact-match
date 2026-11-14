@@ -129,7 +129,9 @@ describe("refundAiQuota (AI-F5)", () => {
   it("rejects invalid units without touching the database", async () => {
     const { d1 } = freshDb();
     for (const units of [0, -1, 1.5, 21, Number.NaN]) {
-      await expect(refundAiQuota(d1, "teacher-1", units, NOW, "invalid-" + String(units))).resolves.toBe(false);
+      await expect(
+        refundAiQuota(d1, "teacher-1", units, NOW, "invalid-" + String(units)),
+      ).resolves.toBe(false);
     }
     expect(await getAiQuotaUsage(d1, "teacher-1")).toBeNull();
   });

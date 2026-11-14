@@ -374,7 +374,11 @@ export const askTutor = createServerFn({ method: "POST" })
         question = await loadReleasedQuestion(db, userId, questionId);
       } catch {
         await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
-        return { ok: false, code: "TUTOR_UPSTREAM", message: "Could not load the released question." };
+        return {
+          ok: false,
+          code: "TUTOR_UPSTREAM",
+          message: "Could not load the released question.",
+        };
       }
       if (!question) {
         // AI-F5: the flow aborted before any AI call, so the unit goes back.
@@ -458,7 +462,11 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
       question = await loadReleasedQuestion(db, userId, questionId);
     } catch {
       await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
-      return { ok: false, code: "TUTOR_UPSTREAM", message: "Could not load the released question." };
+      return {
+        ok: false,
+        code: "TUTOR_UPSTREAM",
+        message: "Could not load the released question.",
+      };
     }
     if (!question) {
       // AI-F5: the flow aborted before any AI call, so the unit goes back.
@@ -525,7 +533,11 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
       hasReleased = await hasReleasedSubmission(db, userId, assessmentId);
     } catch {
       await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
-      return { ok: false, code: "TUTOR_UPSTREAM", message: "Could not verify the released result." };
+      return {
+        ok: false,
+        code: "TUTOR_UPSTREAM",
+        message: "Could not verify the released result.",
+      };
     }
     if (!hasReleased) {
       // AI-F5: the flow aborted before any AI call, so the unit goes back.

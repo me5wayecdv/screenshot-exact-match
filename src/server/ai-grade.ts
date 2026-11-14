@@ -343,19 +343,29 @@ export const suggestGrade = createServerFn({ method: "POST" })
         return { ok: false, code: "UNAUTHORIZED", message: "The answer could not be verified." };
       }
       if (normalizeRole(session.role) !== "admin" && canonical.teacher_id !== session.userId) {
-        return { ok: false, code: "UNAUTHORIZED", message: "This answer does not belong to the caller." };
+        return {
+          ok: false,
+          code: "UNAUTHORIZED",
+          message: "This answer does not belong to the caller.",
+        };
       }
       if (
         (request.submissionId && request.submissionId !== canonical.submission_id) ||
         (request.questionId && request.questionId !== canonical.question_id) ||
         (request.assessmentId && request.assessmentId !== canonical.assessment_id)
       ) {
-        return { ok: false, code: "INVALID_INPUT", message: "The answer identifiers do not match." };
+        return {
+          ok: false,
+          code: "INVALID_INPUT",
+          message: "The answer identifiers do not match.",
+        };
       }
       let alternatives: string[] = [];
       try {
         const parsed: unknown = JSON.parse(canonical.accepted_alternatives ?? "[]");
-        if (Array.isArray(parsed)) alternatives = parsed.filter((v): v is string => typeof v === "string");
+        if (Array.isArray(parsed)) {
+          alternatives = parsed.filter((v): v is string => typeof v === "string");
+        }
       } catch {
         alternatives = [];
       }

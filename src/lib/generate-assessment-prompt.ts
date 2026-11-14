@@ -113,7 +113,9 @@ const TYPE_LABEL: Record<GenerateQuestionType, string> = {
  * the schema below, in the same language as the source text, and to draw
  * questions ONLY from the source text (no invented facts from outside it).
  */
-export function buildGeneratePromptMessages(input: GeneratePromptInput): { system: string; user: string } {
+export function buildGeneratePromptMessages(
+  input: GeneratePromptInput,
+): { system: string; user: string } {
   const countLines = (Object.keys(input.counts) as GenerateQuestionType[])
     .map((t) => `- ${TYPE_LABEL[t]}: ${input.counts[t]} سؤال`)
     .join("\n");
@@ -157,7 +159,8 @@ export function buildGeneratePromptMessages(input: GeneratePromptInput): { syste
     "- marks: رقم بين 0.5 و 10، والافتراضي 1 عند عدم التحديد.",
     "- difficulty: مستوى صعوبة السؤال: easy أو medium أو hard فقط.",
   ].join("\n");
-  const safe = (value: string) => value.replace(/<\/(source_text|subject|grade_level)>/gi, "< /$1>");
+  const safe = (value: string) =>
+    value.replace(/<\/(source_text|subject|grade_level)>/gi, "< /$1>");
   const user = [
     `المادة:\n<subject>\n${safe(input.subjectName ?? "")}\n</subject>`,
     `الصف الدراسي:\n<grade_level>\n${safe(input.gradeLevel)}\n</grade_level>`,

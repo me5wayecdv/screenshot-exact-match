@@ -572,7 +572,11 @@ async function callTextMatch(
   apiKey: string,
   questions: QuestionRow[],
   answerText: string,
-): Promise<{ index: number | null; confidence: "high" | "medium" | "low" }> {
+): Promise<{
+  ok: boolean;
+  index: number | null;
+  confidence: "high" | "medium" | "low";
+}> {
   const prompt = buildTextMatchPrompt(questions, answerText);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60_000);
@@ -593,14 +597,16 @@ async function callTextMatch(
         ],
       }),
     });
-    if (!res.ok) return { index: null, confidence: "low" };
+    if (!res.ok) return { ok: false, index: null, confidence: "low" };
     const json = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
     };
     const raw = json.choices?.[0]?.message?.content ?? "";
     const start = raw.indexOf("{");
     const end = raw.lastIndexOf("}");
-    if (start === -1 || end === -1 || end <= start) return { index: null, confidence: "low" };
+    if (start === -1 || end === -1 || end <= start) {
+      return { ok: false, index: null, confidence: "low" };
+    }
     const parsed = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
     const idx =
       typeof parsed["question_index"] === "number" && Number.isInteger(parsed["question_index"])
@@ -609,14 +615,15 @@ async function callTextMatch(
     const conf = parsed["confidence"];
     const confidence: "high" | "medium" | "low" =
       conf === "high" || conf === "medium" || conf === "low" ? conf : "low";
-    if (idx === null || idx < 1 || idx > questions.length) {
-      return { index: null, confidence: "low" };
+    if (idx === null) return { ok: true, index: null, confidence };
+    if (idx < 1 || idx > questions.length) {
+      return { ok: false, index: null, confidence: "low" };
     }
-    return { index: idx - 1, confidence };
+    return { ok: true, index: idx - 1, confidence };
   } catch {
     // Text-match failure is NOT fatal: the page falls back to "none"
     // and the teacher picks manually. Only vision failures stop the batch.
-    return { index: null, confidence: "low" };
+    return { ok: false, index: null, confidence: "low" };
   } finally {
     clearTimeout(timeout);
   }
@@ -715,7 +722,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       );
       if (!visionRes.ok) {
         // AI-F5: this page and the rest were never matched, so their
-        // units (2 per page) go back; earlier pages stay paid.
+        // units for this and remaining vision calls go back; earlier pages stay paid.
         await refundAiQuota(db, auth.userId, pages.length - i, undefined, quotaRefundKey);
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
       }
@@ -743,25 +750,30 @@ export const matchPaperPages = createServerFn({ method: "POST" })
         });
         continue;
       }
-      if (textConfig && questions.length > 0 && (await consumeAiQuota(db, auth.userId, 1))) {
-        const ai = await callTextMatch(
-          textConfig.baseUrl,
-          textConfig.model,
-          textConfig.apiKey,
-          questions,
-          visionRes.text,
-        );
-        if (ai.index !== null) {
-          out.push({
-            text: visionRes.text,
-            imagePath: page.imagePath,
-            questionId: questions[ai.index]!.id,
-            questionNumber: null,
-            confidence: ai.confidence,
-            method: "ai",
-            model: visionRes.model,
-          });
-          continue;
+      if (textConfig && questions.length > 0) {
+        const textMatchRefundKey = crypto.randomUUID();
+        if (await consumeAiQuota(db, auth.userId, 1)) {
+          const ai = await callTextMatch(
+            textConfig.baseUrl,
+            textConfig.model,
+            textConfig.apiKey,
+            questions,
+            visionRes.text,
+          );
+          if (!ai.ok) {
+            await refundAiQuota(db, auth.userId, 1, undefined, textMatchRefundKey);
+          } else if (ai.index !== null) {
+            out.push({
+              text: visionRes.text,
+              imagePath: page.imagePath,
+              questionId: questions[ai.index]!.id,
+              questionNumber: null,
+              confidence: ai.confidence,
+              method: "ai",
+              model: visionRes.model,
+            });
+            continue;
+          }
         }
       }
       out.push({

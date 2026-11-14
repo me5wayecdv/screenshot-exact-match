@@ -231,6 +231,11 @@ export const generateAssessment = createServerFn({ method: "POST" })
           temperature: 0.3,
           max_tokens: AI_MAX_TOKENS,
           messages: [
+            {
+              role: "system",
+              content:
+                "You generate assessments from curriculum text. Reply with JSON only, no markdown fences, no extra text.",
+            },
             { role: "system", content: prompt.system },
             { role: "user", content: prompt.user },
           ],
