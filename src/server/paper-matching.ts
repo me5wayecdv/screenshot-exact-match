@@ -219,7 +219,7 @@ export function extractMatchReply(rawText: string): {
           .replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
           .replace(/\n/g, "\n")
           .replace(/\\"/g, '"')
-          .replace(/\\\/g, "\\");
+          .replace(/\\\\/g, "\\");
         const stripped = stripLeadingNumberLine(decoded);
         return {
           text: stripped.text,
