@@ -379,11 +379,7 @@ describe("saveHandwrittenGrade server verification (AI-F2)", () => {
     const state = baseState();
     const db = fakeDb(state);
     mockGradeFetch(7);
-    const { id } = await saveHandwrittenGrade(
-      db,
-      TEACHER,
-      gradeInput({ assessmentId: null }),
-    );
+    const { id } = await saveHandwrittenGrade(db, TEACHER, gradeInput({ assessmentId: null }));
     expect(state.grades.get(id)?.assessment_id).toBe("assess-1");
     const details = JSON.parse(state.auditDetails[0] ?? "{}") as Record<string, unknown>;
     expect(details["assessment_id"]).toBe("assess-1");

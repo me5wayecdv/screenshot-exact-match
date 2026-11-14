@@ -328,9 +328,7 @@ export const suggestGrade = createServerFn({ method: "POST" })
             " LIMIT 1",
         )
         .bind(
-          ...(request.answerId
-            ? [request.answerId]
-            : [request.submissionId!, request.questionId!]),
+          ...(request.answerId ? [request.answerId] : [request.submissionId!, request.questionId!]),
         )
         .first<{
           answer_id: string;

@@ -705,7 +705,11 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       questions = await loadQuestions(db, assessmentId);
     } catch {
       await refundAiQuota(db, auth.userId, pages.length, undefined, quotaRefundKey);
-      return { ok: false, code: "VISION_UPSTREAM", message: "Could not load assessment questions." };
+      return {
+        ok: false,
+        code: "VISION_UPSTREAM",
+        message: "Could not load assessment questions.",
+      };
     }
 
     const out: MatchedPage[] = [];
