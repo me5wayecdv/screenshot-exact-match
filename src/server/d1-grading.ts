@@ -74,7 +74,62 @@ export type GradingAnswer = {
   final_score: number | null;
   feedback: string;
   review_status: string;
+  /**
+   * The AI suggestion persisted for this answer (answers.ai_suggestion),
+   * parsed + validated server-side — or null when none was ever generated
+   * or the stored JSON is unusable. AI-F4 display fix: the grading page
+   * shows this after a reload instead of only the generate button. It is
+   * advisory only (the teacher still has the last word) and is only ever
+   * returned to the owning teacher through getGradingDetail.
+   */
+  aiSuggestion: PersistedAiSuggestion | null;
 };
+
+/** A parsed answers.ai_suggestion JSON payload. */
+export type PersistedAiSuggestion = {
+  suggestedScore: number;
+  feedback: string;
+  confidence: "high" | "medium" | "low";
+  model?: string;
+};
+
+const AI_CONFIDENCES = new Set(["high", "medium", "low"]);
+
+/**
+ * parseAiSuggestion — defensive parse of a stored answers.ai_suggestion
+ * JSON string. Returns null for anything unusable (missing, corrupt JSON,
+ * non-finite or negative score, score above the question's marks, unknown
+ * confidence) so a bad row can never break the grading page or surface a
+ * score the teacher did not ask for. Never throws.
+ */
+export function parseAiSuggestion(
+  raw: string | null | undefined,
+  maxMarks: number,
+): PersistedAiSuggestion | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const d = parsed as Record<string, unknown>;
+  const score = typeof d["suggested_score"] === "number" ? d["suggested_score"] : Number.NaN;
+  if (!Number.isFinite(score) || score < 0) return null;
+  const max = Number(maxMarks);
+  if (Number.isFinite(max) && score > max) return null;
+  const confidence = d["confidence"];
+  if (typeof confidence !== "string" || !AI_CONFIDENCES.has(confidence)) return null;
+  const feedback = typeof d["feedback"] === "string" ? d["feedback"] : "";
+  const model = typeof d["model"] === "string" ? d["model"] : undefined;
+  return {
+    suggestedScore: score,
+    feedback,
+    confidence: confidence as "high" | "medium" | "low",
+    ...(model ? { model } : {}),
+  };
+}
 
 export type GradingDetail = {
   questions: GradingQuestion[];
@@ -222,7 +277,7 @@ export async function getGradingDetail(
     db
       .prepare("SELECT * FROM answers WHERE submission_id = ?")
       .bind(submissionId)
-      .all<GradingAnswer>(),
+      .all<GradingAnswer & { ai_suggestion: string | null }>(),
   ]);
   return {
     questions: (questionsRes.results ?? []).map((q) => ({
@@ -244,7 +299,19 @@ export async function getGradingDetail(
               explanation: q.explanation ?? "",
             },
     })),
-    answers: answersRes.results ?? [],
+    // The raw ai_suggestion JSON string never leaves the server: each
+    // answer carries the parsed, validated suggestion (or null).
+    answers: (answersRes.results ?? []).map((a) => ({
+      id: a.id,
+      question_id: a.question_id,
+      response: a.response,
+      max_marks: a.max_marks,
+      auto_score: a.auto_score,
+      final_score: a.final_score,
+      feedback: a.feedback,
+      review_status: a.review_status,
+      aiSuggestion: parseAiSuggestion(a.ai_suggestion, a.max_marks),
+    })),
   };
 }
 
