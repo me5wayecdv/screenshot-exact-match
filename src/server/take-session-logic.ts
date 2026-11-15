@@ -167,6 +167,9 @@ export interface ExamConfigStore {
 export type TakeErrorResponse = { error: string; status: 400 | 500 };
 
 export function classifyTakeError(error: unknown): TakeErrorResponse {
+  if (error instanceof Error && error.message === "TAKE_SESSION_ERROR") {
+    return { error: "TAKE_SESSION_ERROR", status: 500 };
+  }
   if (error instanceof Error && /^TAKE_/.test(error.message)) {
     return { error: error.message, status: 400 };
   }
