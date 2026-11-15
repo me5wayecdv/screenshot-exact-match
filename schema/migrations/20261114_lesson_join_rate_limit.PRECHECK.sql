@@ -1,5 +1,5 @@
 -- Read-only precheck for the lesson join rate-limit migration.
--- An empty result for either query means the corresponding object is absent.
+-- Each query returns PRESENT or ABSENT for the named schema object.
 SELECT
   CASE WHEN EXISTS (
     SELECT 1 FROM sqlite_master

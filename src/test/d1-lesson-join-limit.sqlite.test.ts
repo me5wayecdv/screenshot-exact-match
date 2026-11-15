@@ -41,6 +41,8 @@ describe("lesson join limiter against SQLite (D1-compatible SQL)", () => {
     "utf8",
   );
   sqlite.exec(migration);
+  // D1 migrations may be retried operationally; IF NOT EXISTS must make this safe.
+  sqlite.exec(migration);
   const db = sqliteD1(sqlite);
 
   afterEach(() => {
@@ -58,6 +60,10 @@ describe("lesson join limiter against SQLite (D1-compatible SQL)", () => {
       .prepare("SELECT attempts FROM lesson_join_rate_limits WHERE student_id = ?")
       .get("student-1") as { attempts: number };
     expect(row.attempts).toBe(LESSON_JOIN_MAX_ATTEMPTS);
+    const index = sqlite
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .get("lesson_join_rate_limits_updated_idx") as { name: string } | undefined;
+    expect(index?.name).toBe("lesson_join_rate_limits_updated_idx");
   });
 
   it("resets the window after fifteen minutes and isolates student accounts", async () => {
