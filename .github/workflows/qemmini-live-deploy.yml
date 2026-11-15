@@ -8,6 +8,10 @@ name: Qemmini Live Deploy
 on:
   workflow_dispatch:
 
+concurrency:
+  group: qemmini-live-deploy
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -52,6 +56,11 @@ jobs:
       # Phase 4: no queue-create step — the take-writes Queue is gone.
       # `wrangler deploy` applies the TakeSession DO migration (v1)
       # from wrangler.jsonc automatically.
+      - name: Ensure dedicated paper preview signing key (preserve existing)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node scripts/ensure-grade-preview-key.mjs qemmini
       - name: Deploy to Cloudflare Workers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
