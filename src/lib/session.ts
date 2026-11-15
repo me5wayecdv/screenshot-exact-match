@@ -11,20 +11,15 @@ export type Me = {
 
 /**
  * D1 session lookup (Phase 2): the session is resolved server-side
- * from the HttpOnly cookie by getMeD1. A failed lookup means "no
- * valid session" and the caller redirects to /auth; it must never
+ * from the HttpOnly cookie by getMeD1. Failed lookups remain errors
+ * so the shell can offer recovery. It must never
  * fall back to any client-side session store.
  */
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
-    queryFn: async (): Promise<Me | null> => {
-      try {
-        return await getMeD1({});
-      } catch {
-        return null;
-      }
-    },
+    queryFn: async (): Promise<Me> => getMeD1({}),
+    retry: 1,
     staleTime: 60_000,
   });
 }
