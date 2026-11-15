@@ -189,7 +189,6 @@ function Landing() {
             </div>
           </div>
         </section>
-      </main>
 
       {/* Features */}
       <section className="border-t" style={{ borderColor: LINE, background: PANEL }}>
@@ -222,6 +221,63 @@ function Landing() {
           </div>
         </div>
       </section>
+
+      <section id="how-it-works" className="border-t" style={{ borderColor: LINE }}>
+        <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
+          <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>من البداية للنتيجة</p>
+          <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">ابدأ بامتحانك. وسيب آخر قرار ليك.</h2>
+          <div className="mt-8 grid gap-7 md:grid-cols-3 md:gap-8">
+            {[
+              { n: "٠١", title: "جهز الامتحان", body: "ارفع ملف الدرس أو اكتب الأسئلة، وراجعها قبل النشر." },
+              { n: "٠٢", title: "شارك مع طلابك", body: "ابعت كود الانضمام، وحدد موعد الامتحان وتابع التسليمات." },
+              { n: "٠٣", title: "راجع واعتمد", body: "راجع الدرجة المقترحة والدليل، وعدل قبل ما تنشر النتيجة." },
+            ].map(({ n, title, body }) => (
+              <div key={n} className="border-t pt-4" style={{ borderColor: LINE }}>
+                <span className="font-display text-3xl font-bold" style={{ color: PINE }}>{n}</span>
+                <h3 className="mt-4 font-bold">{title}</h3>
+                <p className="mt-2 max-w-sm text-sm leading-7" style={{ color: MUTED }}>{body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="questions" className="border-t" style={{ borderColor: LINE, background: PANEL }}>
+        <div className="mx-auto grid max-w-6xl gap-7 px-5 py-10 md:grid-cols-[0.8fr_1.2fr] md:gap-16 md:px-8 md:py-14">
+          <div>
+            <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>قبل ما تبدأ</p>
+            <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">أسئلة سريعة</h2>
+            <p className="mt-4 max-w-xs text-sm leading-7" style={{ color: MUTED }}>المساعد يقترح. وإنت تراجع وتقرر.</p>
+          </div>
+          <div className="divide-y" style={{ borderColor: LINE }}>
+            {[
+              { q: "الدرجة بتوصل للطالب على طول؟", a: "لأ. الدرجة والملاحظات بتظهر بعد ما تراجعها وتعتمد نشرها." },
+              { q: "أقدر أعدل اقتراح التصحيح؟", a: "أيوه. تقدر تعدل الدرجة والملاحظات قبل الاعتماد." },
+              { q: "أبدأ من ورقة ولا لازم أكتب كل حاجة؟", a: "تقدر ترفع PDF أو Word أو صورة، أو تكتب الأسئلة بنفسك." },
+            ].map(({ q, a }) => (
+              <div key={q} className="py-5 first:pt-0 last:pb-0" style={{ borderColor: LINE }}>
+                <h3 className="text-[0.95rem] font-bold">{q}</h3>
+                <p className="mt-2 text-sm leading-7" style={{ color: MUTED }}>{a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t" style={{ borderColor: LINE }}>
+        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-5 py-10 md:flex-row md:items-center md:px-8 md:py-14">
+          <div>
+            <h2 className="font-display text-2xl font-bold md:text-3xl">جاهز تبدأ أول امتحان؟</h2>
+            <p className="mt-3 text-sm leading-7" style={{ color: MUTED }}>من تجهيز الأسئلة لمراجعة النتيجة، في مكان واحد.</p>
+          </div>
+          <Link to="/auth" className="inline-flex h-12 shrink-0 items-center gap-3 rounded-xl px-6 text-sm font-bold text-white hover:opacity-90" style={{ background: PINE }}>
+            إنشاء حساب
+            <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+          </Link>
+        </div>
+      </section>
+
+      </main>
 
       <footer className="border-t" style={{ borderColor: LINE }}>
         <div
