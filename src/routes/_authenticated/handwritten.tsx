@@ -12,6 +12,7 @@ import {
   listHwQuestionsD1,
   listHwStudentsD1,
   saveHwGradeD1,
+  previewHwGradeD1,
   uploadHwPaperD1,
 } from "@/server/d1-handwritten";
 import { useI18n, translateError, formatDate } from "@/lib/i18n";
@@ -27,7 +28,7 @@ import { matchPaperPages } from "@/server/paper-matching";
 import { countUncertainSpans, parseUncertainSpans } from "@/lib/uncertain-text";
 import { groupSimilarAnswers } from "@/lib/similar-answers";
 import { matchProgress, nextUngradedMatch, pendingMatchItems } from "@/lib/paper-match";
-import { suggestGrade, type AiGradeSuggestion as ServerSuggestion } from "@/server/ai-grade";
+import type { AiGradeSuggestion as ServerSuggestion } from "@/server/ai-grade";
 
 // Route file convention (same as assessments.generate.tsx): this file
 // maps to /handwritten. routeTree.gen.ts is auto-generated — do not edit
@@ -48,23 +49,10 @@ import { suggestGrade, type AiGradeSuggestion as ServerSuggestion } from "@/serv
 //    page after each save, retry-only-unmatched re-runs, and per-page
 //    removal (photo deleted best-effort). Re-using a graded page
 //    creates a second history row; delete the wrong row from history.
-//  - PLATFORM RULE: every uploaded photo is persisted server-side.
-//    The paper is uploaded on select to the private Supabase Storage
-//    bucket 'handwritten-papers' (path {teacher_id}/{uuid}.jpg), and the
-//    saved grade row stores that image_path. History re-opens papers
-//    via time-limited signed URLs — never public links, never
-//    browser-only memory.
-//  - OCR is approximate, especially for Arabic handwriting. The extracted
-//    text is ALWAYS editable, and nothing is graded until the teacher
-//    confirms the final score. The AI suggestion is advisory only.
-//  - Grading reuses the existing suggestGrade server function with the
-//    corrected text as the student answer — there is no second grading
-//    path. USER-DIRECTED EXCEPTION to the teacher-final-word rule that
-//    applies on /grading: for handwritten papers the AI's score IS the
-//    final score, adopted automatically on save. The teacher's control
-//    point is reviewing and correcting the extracted text BEFORE
-//    grading, not approving the score afterwards. (A wrong record can
-//    be deleted from history and re-graded.)
+//  - Uploaded papers stay in the teacher's private R2 namespace.
+//  - OCR text stays editable. Editing text clears the preview.
+//  - Preview uses canonical server criteria. Save records that exact
+//    reviewed preview without making a second model call.
 
 // D1 question shape (keys included only for the owning teacher).
 type Q = {
@@ -303,7 +291,9 @@ function Handwritten() {
   /** Teacher-reviewed text — this is what gets graded and saved. */
   const [correctedText, setCorrectedText] = useState("");
   const [ocrModel, setOcrModel] = useState("");
-  const [suggestion, setSuggestion] = useState<ServerSuggestion | null>(null);
+  const [suggestion, setSuggestion] = useState<(ServerSuggestion & { previewId: string }) | null>(
+    null,
+  );
   /** Optional teacher note attached to the saved grade (not the score). */
   const [teacherFeedback, setTeacherFeedback] = useState("");
   const [visionConfigured, setVisionConfigured] = useState<boolean | null>(null);
@@ -833,30 +823,26 @@ function Handwritten() {
     }
     setBusySuggest(true);
     try {
-      const result = await suggestGrade({
+      const result = await previewHwGradeD1({
         data: {
+          assessmentId: assessmentId || null,
+          questionId: questionId || null,
+          studentId: studentId || null,
+          studentName: studentName.trim(),
+          imagePath: imagePath || null,
+          extractedText,
+          correctedText: correctedText.trim(),
+          aiSuggestedScore: null,
+          aiFeedback: null,
+          aiModel: null,
           questionPrompt: questionPrompt.trim(),
           rubric,
           acceptedAlternatives: alternatives,
-          studentAnswer: correctedText.trim(),
           maxMarks,
-          assessmentId: assessmentId || undefined,
+          teacherFeedback: teacherFeedback.trim(),
         },
       });
-      if (!result.ok) {
-        toast.error(
-          result.code === "AI_NOT_CONFIGURED"
-            ? t("hwOcrNotConfigured")
-            : result.code === "UNAUTHORIZED"
-              ? t("aiGradeUnauthorized")
-              : t("aiGradeFailed"),
-        );
-        return;
-      }
-      // Preview only: the server re-grades the corrected text
-      // against the question's keys on save, so the stored final
-      // score is the server's fresh suggestion, not this one.
-      setSuggestion(result.suggestion);
+      setSuggestion({ ...result.suggestion, previewId: result.previewId });
     } catch (err) {
       toast.error(translateError(err, lang));
     } finally {
@@ -880,14 +866,8 @@ function Handwritten() {
     }
     setBusySave(true);
     try {
-      // D1: the server re-grades the corrected text and stores
-      // its own fresh suggestion as the final score (the AI grade
-      // is FINAL on save); a client-sent score can never become
-      // final. The paper key is re-validated against the teacher.
-      // An ad-hoc paper (no linked question) sends the
-      // teacher-supplied prompt/rubric for the server re-grade; a
-      // save with neither a linked question nor ad-hoc criteria —
-      // or with the re-grade failing — is refused.
+      // The server verifies the signed reviewed preview and current canonical
+      // criteria. It never trusts the client score or makes a second AI call.
       await saveHwGradeD1({
         data: {
           assessmentId: assessmentId || null,
@@ -897,6 +877,7 @@ function Handwritten() {
           imagePath: imagePath || null,
           extractedText,
           correctedText: correctedText.trim(),
+          previewId: suggestion.previewId,
           aiSuggestedScore: suggestion.suggestedScore,
           aiFeedback: suggestion.feedback,
           aiModel: ocrModel || null,
