@@ -359,7 +359,8 @@ export const askTutor = createServerFn({ method: "POST" })
       return { ok: false, code: "UNAUTHORIZED", message: "Only students can use the tutor." };
     }
     const quotaRefundKey = crypto.randomUUID();
-    if (!(await consumeAiQuota(db, userId, 1))) {
+    const quotaConsumedAt = new Date().toISOString();
+    if (!(await consumeAiQuota(db, userId, 1, quotaConsumedAt))) {
       return {
         ok: false,
         code: "TUTOR_RATE_LIMIT",
@@ -373,7 +374,7 @@ export const askTutor = createServerFn({ method: "POST" })
       try {
         question = await loadReleasedQuestion(db, userId, questionId);
       } catch {
-        await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+        await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
         return {
           ok: false,
           code: "TUTOR_UPSTREAM",
@@ -382,7 +383,7 @@ export const askTutor = createServerFn({ method: "POST" })
       }
       if (!question) {
         // AI-F5: the flow aborted before any AI call, so the unit goes back.
-        await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+        await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
         return {
           ok: false,
           code: "UNAUTHORIZED",
@@ -394,7 +395,7 @@ export const askTutor = createServerFn({ method: "POST" })
       try {
         score = await loadLatestOwnScore(db, userId, questionId);
       } catch {
-        await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+        await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
         return { ok: false, code: "TUTOR_UPSTREAM", message: "Could not load the latest score." };
       }
       const ctx: TutorQuestionContext = {
@@ -426,7 +427,7 @@ export const askTutor = createServerFn({ method: "POST" })
       usageLogger(db, userId),
     );
     // AI-F5: the AI call failed, so the unit consumed above goes back.
-    if (!chatResult.ok) await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+    if (!chatResult.ok) await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
     return chatResult;
   });
 
@@ -450,7 +451,8 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
       return { ok: false, code: "UNAUTHORIZED", message: "Only students can use the tutor." };
     }
     const quotaRefundKey = crypto.randomUUID();
-    if (!(await consumeAiQuota(db, userId, 1))) {
+    const quotaConsumedAt = new Date().toISOString();
+    if (!(await consumeAiQuota(db, userId, 1, quotaConsumedAt))) {
       return {
         ok: false,
         code: "TUTOR_RATE_LIMIT",
@@ -461,7 +463,7 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
     try {
       question = await loadReleasedQuestion(db, userId, questionId);
     } catch {
-      await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
       return {
         ok: false,
         code: "TUTOR_UPSTREAM",
@@ -470,7 +472,7 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
     }
     if (!question) {
       // AI-F5: the flow aborted before any AI call, so the unit goes back.
-      await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
       return {
         ok: false,
         code: "UNAUTHORIZED",
@@ -489,7 +491,7 @@ export const tutorPracticeFeedback = createServerFn({ method: "POST" })
       usageLogger(db, userId),
     );
     // AI-F5: the AI call failed, so the unit consumed above goes back.
-    if (!chatResult.ok) await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+    if (!chatResult.ok) await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
     return chatResult;
   });
 
@@ -521,7 +523,8 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
       return { ok: false, code: "UNAUTHORIZED", message: "Only students can use the tutor." };
     }
     const quotaRefundKey = crypto.randomUUID();
-    if (!(await consumeAiQuota(db, userId, 1))) {
+    const quotaConsumedAt = new Date().toISOString();
+    if (!(await consumeAiQuota(db, userId, 1, quotaConsumedAt))) {
       return {
         ok: false,
         code: "TUTOR_RATE_LIMIT",
@@ -532,7 +535,7 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
     try {
       hasReleased = await hasReleasedSubmission(db, userId, assessmentId);
     } catch {
-      await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
       return {
         ok: false,
         code: "TUTOR_UPSTREAM",
@@ -541,7 +544,7 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
     }
     if (!hasReleased) {
       // AI-F5: the flow aborted before any AI call, so the unit goes back.
-      await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
       return {
         ok: false,
         code: "UNAUTHORIZED",
@@ -558,13 +561,13 @@ export const tutorStudyTips = createServerFn({ method: "POST" })
     );
     if (!result.ok) {
       // AI-F5: the AI call failed, so the unit consumed above goes back.
-      await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
       return result;
     }
     const tips = extractTips(result.reply);
     if (!tips) {
       // AI-F5: the reply was unusable, so the unit consumed above goes back.
-      await refundAiQuota(db, userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, userId, 1, quotaConsumedAt, quotaRefundKey);
       return { ok: false, code: "TUTOR_PARSE_FAILED", message: "Could not parse study tips." };
     }
     return { ok: true, tips, model: result.model };
