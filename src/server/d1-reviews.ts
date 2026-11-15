@@ -122,7 +122,10 @@ export async function listReviewRequests(db: D1Database, caller: Caller): Promis
     )
     .bind(caller.id)
     .all<ReviewRow>();
-  return results ?? [];
+  return (results ?? []).map((r) => ({
+    ...r,
+    status: r.status === "pending" ? "open" : r.status,
+  }));
 }
 
 function inPlaceholders(ids: string[]): string {
@@ -148,53 +151,80 @@ export async function getReviewMaps(
   input: { submissionIds: string[]; studentIds: string[]; questionIds: string[] },
 ): Promise<ReviewMaps> {
   const role = normalizeRole(caller.role);
+  if (role !== "student" && !isTeacherCaller(caller)) {
+    throw new ReviewError("FORBIDDEN");
+  }
   const empty: ReviewMaps = {
     submissionToAssessment: {},
     assessmentTitles: {},
     names: {},
     questionPrompts: {},
   };
-  if (input.submissionIds.length === 0) return empty;
-  const vis = await db
-    .prepare(
-      "SELECT s.id AS id, s.assessment_id AS assessment_id FROM submissions s " +
-        "JOIN assessments a ON a.id = s.assessment_id " +
-        `WHERE s.id IN (${inPlaceholders(input.submissionIds)}) ` +
-        (role === "student" ? "AND s.student_id = ?" : "AND a.teacher_id = ?"),
-    )
-    .bind(...input.submissionIds, caller.id)
-    .all<{ id: string; assessment_id: string }>();
-  const visible = vis.results ?? [];
+  const uniqueSubIds = [...new Set(input.submissionIds.filter((id) => id.length > 0))];
+  if (uniqueSubIds.length === 0) return empty;
+  const visible: { id: string; assessment_id: string; student_id?: string }[] = [];
+  for (let offset = 0; offset < uniqueSubIds.length; offset += 99) {
+    const chunk = uniqueSubIds.slice(offset, offset + 99);
+    const vis = await db
+      .prepare(
+        "SELECT s.id AS id, s.assessment_id AS assessment_id, s.student_id AS student_id FROM submissions s " +
+          "JOIN assessments a ON a.id = s.assessment_id " +
+          `WHERE s.id IN (${inPlaceholders(chunk)}) ` +
+          (role === "student" ? "AND s.student_id = ?" : "AND a.teacher_id = ?"),
+      )
+      .bind(...chunk, caller.id)
+      .all<{ id: string; assessment_id: string; student_id?: string }>();
+    visible.push(...(vis.results ?? []));
+  }
   const submissionToAssessment: Record<string, string> = {};
   for (const s of visible) submissionToAssessment[s.id] = s.assessment_id;
   const assessmentIds = [...new Set(visible.map((s) => s.assessment_id))];
   const assessmentTitles: Record<string, string> = {};
   if (assessmentIds.length > 0) {
-    const { results } = await db
-      .prepare(`SELECT id, title FROM assessments WHERE id IN (${inPlaceholders(assessmentIds)})`)
-      .bind(...assessmentIds)
-      .all<{ id: string; title: string }>();
-    for (const a of results ?? []) assessmentTitles[a.id] = a.title;
+    for (let offset = 0; offset < assessmentIds.length; offset += 100) {
+      const chunk = assessmentIds.slice(offset, offset + 100);
+      const { results } = await db
+        .prepare(`SELECT id, title FROM assessments WHERE id IN (${inPlaceholders(chunk)})`)
+        .bind(...chunk)
+        .all<{ id: string; title: string }>();
+      for (const a of results ?? []) assessmentTitles[a.id] = a.title;
+    }
   }
   const names: Record<string, string> = {};
-  const nameIds = role === "student" ? [caller.id] : input.studentIds.filter((id) => id.length > 0);
+  const visibleStudentIds = new Set(
+    visible.map((s) => s.student_id).filter((id): id is string => typeof id === "string"),
+  );
+  const nameIds =
+    role === "student"
+      ? [caller.id]
+      : [...new Set(input.studentIds.filter((id) => id.length > 0 && visibleStudentIds.has(id)))];
   if (nameIds.length > 0) {
-    const { results } = await db
-      .prepare(`SELECT id, full_name FROM profiles WHERE id IN (${inPlaceholders(nameIds)})`)
-      .bind(...nameIds)
-      .all<{ id: string; full_name: string | null }>();
-    for (const p of results ?? []) names[p.id] = p.full_name || "—";
+    for (let offset = 0; offset < nameIds.length; offset += 100) {
+      const chunk = nameIds.slice(offset, offset + 100);
+      const { results } = await db
+        .prepare(`SELECT id, full_name FROM profiles WHERE id IN (${inPlaceholders(chunk)})`)
+        .bind(...chunk)
+        .all<{ id: string; full_name: string | null }>();
+      for (const p of results ?? []) names[p.id] = p.full_name || "—";
+    }
   }
   const questionPrompts: Record<string, string> = {};
-  if (input.questionIds.length > 0 && assessmentIds.length > 0) {
-    const { results } = await db
-      .prepare(
-        `SELECT id, prompt FROM questions WHERE id IN (${inPlaceholders(input.questionIds)}) ` +
-          `AND assessment_id IN (${inPlaceholders(assessmentIds)})`,
-      )
-      .bind(...input.questionIds, ...assessmentIds)
-      .all<{ id: string; prompt: string }>();
-    for (const q of results ?? []) questionPrompts[q.id] = q.prompt;
+  const uniqueQuestionIds = [...new Set(input.questionIds.filter((id) => id.length > 0))];
+  if (uniqueQuestionIds.length > 0 && assessmentIds.length > 0) {
+    for (let qOffset = 0; qOffset < uniqueQuestionIds.length; qOffset += 50) {
+      const qChunk = uniqueQuestionIds.slice(qOffset, qOffset + 50);
+      for (let aOffset = 0; aOffset < assessmentIds.length; aOffset += 50) {
+        const aChunk = assessmentIds.slice(aOffset, aOffset + 50);
+        const { results } = await db
+          .prepare(
+            `SELECT id, prompt FROM questions WHERE id IN (${inPlaceholders(qChunk)}) ` +
+              `AND assessment_id IN (${inPlaceholders(aChunk)})`,
+          )
+          .bind(...qChunk, ...aChunk)
+          .all<{ id: string; prompt: string }>();
+        for (const q of results ?? []) questionPrompts[q.id] = q.prompt;
+      }
+    }
   }
   return { submissionToAssessment, assessmentTitles, names, questionPrompts };
 }
@@ -207,7 +237,8 @@ export async function submitReviewRequest(
   if (normalizeRole(caller.role) !== "student") {
     throw new ReviewError("FORBIDDEN");
   }
-  if (!input.message.trim()) throw new ReviewError("INVALID_INPUT");
+  const trimmedMessage = (input.message ?? "").trim();
+  if (!trimmedMessage || trimmedMessage.length > 5000) throw new ReviewError("INVALID_INPUT");
   const sub = await db
     .prepare("SELECT assessment_id, student_id, status FROM submissions WHERE id = ?")
     .bind(input.submissionId)
@@ -241,7 +272,7 @@ export async function submitReviewRequest(
     .prepare(
       "INSERT INTO grade_review_requests " +
         "(id, submission_id, question_id, student_id, teacher_id, message, status, teacher_response) " +
-        "VALUES (?, ?, ?, ?, ?, ?, 'pending', '')",
+        "VALUES (?, ?, ?, ?, ?, ?, 'open', '')",
     )
     .bind(
       id,
@@ -249,7 +280,7 @@ export async function submitReviewRequest(
       input.questionId,
       caller.id,
       assessment.teacher_id,
-      input.message.trim(),
+      trimmedMessage,
     )
     .run();
   return { id };
@@ -264,7 +295,7 @@ export async function resolveReviewRequest(
   if (!isTeacherCaller(caller)) {
     throw new ReviewError("FORBIDDEN");
   }
-  if (response.length > 5000) return false;
+  if ((response ?? "").length > 5000) return false;
   const row = await db
     .prepare("SELECT teacher_id FROM grade_review_requests WHERE id = ?")
     .bind(requestId)
@@ -275,7 +306,7 @@ export async function resolveReviewRequest(
       "UPDATE grade_review_requests SET status = 'resolved', teacher_response = ?, " +
         "resolved_at = ? WHERE id = ?",
     )
-    .bind(response, new Date().toISOString(), requestId)
+    .bind(response ?? "", new Date().toISOString(), requestId)
     .run();
   return true;
 }

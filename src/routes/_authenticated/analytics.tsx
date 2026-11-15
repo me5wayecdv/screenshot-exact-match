@@ -114,6 +114,7 @@ function Analytics() {
     if (assessments.length > 0 && !assessments.some((assessment) => assessment.id === selectedId)) {
       setSelectedId(assessments[0]!.id);
       setStudentPage(0);
+      setGroupPage(0);
     }
   }, [selectedId, assessments]);
 
@@ -236,7 +237,7 @@ function Analytics() {
         data: {
           assessmentId: selected.id,
           questionIds: missed.map((m) => m.questionId),
-          title: `${t("anPracticeTitle")}: ${selected.title}`,
+          title: `${t("anPracticeTitle")}: ${selected.title}`.slice(0, 200),
         },
       });
       toast.success(t("anPracticeCreated"));
@@ -359,10 +360,14 @@ function Analytics() {
                   hasNext={assessmentsQuery.data.hasNext}
                   onPrevious={() => {
                     setSelectedId("");
+                    setStudentPage(0);
+                    setGroupPage(0);
                     setAssessmentPage((current) => Math.max(0, current - 1));
                   }}
                   onNext={() => {
                     setSelectedId("");
+                    setStudentPage(0);
+                    setGroupPage(0);
                     setAssessmentPage((current) => current + 1);
                   }}
                 />

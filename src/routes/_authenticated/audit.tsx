@@ -26,10 +26,10 @@ function AuditPage() {
     // D1, actor-only (old "actor reads own audit" policy, verbatim):
     // the server filters actor_id = session user for every role.
     queryFn: async () => {
-      if (!me) return [];
+      if (!me || me.role === "student") return [];
       return (await listAuditLogD1({ data: {} })) as AuditRow[];
     },
-    enabled: !!me,
+    enabled: !!me && me.role !== "student",
   });
 
   if (!me) return null;

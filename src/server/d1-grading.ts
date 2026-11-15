@@ -118,7 +118,7 @@ export function parseAiSuggestion(
   const score = typeof d["suggested_score"] === "number" ? d["suggested_score"] : Number.NaN;
   if (!Number.isFinite(score) || score < 0) return null;
   const max = Number(maxMarks);
-  if (Number.isFinite(max) && score > max) return null;
+  if (!Number.isFinite(max) || max <= 0 || score > max) return null;
   const confidence = d["confidence"];
   if (typeof confidence !== "string" || !AI_CONFIDENCES.has(confidence)) return null;
   const feedback = typeof d["feedback"] === "string" ? d["feedback"] : "";
@@ -184,7 +184,10 @@ export function autoScoreFor(
   if (!key) return null;
   const marks = Number(question.marks);
   if (question.type === "mcq" || question.type === "true_false") {
-    return (answerText ?? "").trim() === (key.correct_answer ?? "").trim() ? marks : 0;
+    const ans = (answerText ?? "").trim();
+    const expected = (key.correct_answer ?? "").trim();
+    if (!ans || !expected) return 0;
+    return ans === expected ? marks : 0;
   }
   if (question.type === "short_answer") {
     const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
@@ -279,6 +282,7 @@ export async function getGradingDetail(
       .bind(submissionId)
       .all<GradingAnswer & { ai_suggestion: string | null }>(),
   ]);
+  const marksByQuestion = new Map((questionsRes.results ?? []).map((q) => [q.id, Number(q.marks)]));
   return {
     questions: (questionsRes.results ?? []).map((q) => ({
       id: q.id,
@@ -310,7 +314,10 @@ export async function getGradingDetail(
       final_score: a.final_score,
       feedback: a.feedback,
       review_status: a.review_status,
-      aiSuggestion: parseAiSuggestion(a.ai_suggestion, a.max_marks),
+      aiSuggestion: parseAiSuggestion(
+        a.ai_suggestion,
+        marksByQuestion.get(a.question_id) ?? a.max_marks,
+      ),
     })),
   };
 }
@@ -324,11 +331,12 @@ export async function setAutoScores(
   const submission = await ownSubmission(db, teacherId, submissionId);
   if (submission.status === "released") return;
   for (const { answerId, score } of scores) {
+    if (!Number.isFinite(score) || score < 0) continue;
     const answer = await db
       .prepare("SELECT auto_score FROM answers WHERE id = ? AND submission_id = ?")
       .bind(answerId, submissionId)
       .first<{ auto_score: number | null }>();
-    if (!answer || Number(answer.auto_score) === score) continue;
+    if (!answer || (answer.auto_score !== null && Number(answer.auto_score) === score)) continue;
     await db
       .prepare("UPDATE answers SET auto_score = ? WHERE id = ? AND submission_id = ?")
       .bind(score, answerId, submissionId)
@@ -356,6 +364,9 @@ export async function reviewAnswer(
   if (submission.status !== "awaiting_review" && submission.status !== "approved") {
     throw new Error("NOT_READY_FOR_REVIEW");
   }
+  if (decision !== "approve" && decision !== "reject") {
+    throw new Error("INVALID_DECISION");
+  }
   if ((feedback ?? "").length > 5000) throw new Error("FEEDBACK_TOO_LONG");
   // Canonical marks come from the question, never the answer row.
   const question = await db
@@ -363,7 +374,10 @@ export async function reviewAnswer(
     .bind(answer.question_id, submission.assessment_id)
     .first<{ marks: number }>();
   if (!question) throw notFound();
-  if (decision === "approve" && (score === null || score < 0 || score > question.marks)) {
+  if (
+    decision === "approve" &&
+    (score === null || !Number.isFinite(score) || score < 0 || score > question.marks)
+  ) {
     throw new Error("SCORE_OUT_OF_RANGE");
   }
   await db

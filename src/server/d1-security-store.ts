@@ -203,9 +203,9 @@ export async function consumePasswordResetAtomic(
       .bind(input.atIso, input.userId, input.tokenId, input.userId, input.atIso),
     db
       .prepare(
-        "UPDATE password_reset_tokens SET used_at = ? WHERE id = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?",
+        "UPDATE password_reset_tokens SET used_at = ? WHERE id = ? AND user_id = ? AND used_at IS NULL AND expires_at > ? AND EXISTS (SELECT 1 FROM auth_users WHERE id = ?)",
       )
-      .bind(input.atIso, input.tokenId, input.userId, input.atIso),
+      .bind(input.atIso, input.tokenId, input.userId, input.atIso, input.userId),
   ])) as Array<{ meta?: { changes?: number } }>;
-  return results[2]?.meta?.changes === 1;
+  return results[0]?.meta?.changes === 1 && results[2]?.meta?.changes === 1;
 }

@@ -151,6 +151,8 @@ export async function getAnalyticsDetail(
 ): Promise<AnalyticsDetail> {
   requireTeacher(caller);
   await assertOwnsAssessment(db, caller, assessmentId);
+  const safeStudentPage = Math.max(0, Math.floor(studentPage) || 0);
+  const safeGroupPage = Math.max(0, Math.floor(groupPage) || 0);
   const [questionsRes, aggRes, studentsRes, groupsRes] = await Promise.all([
     db
       .prepare(
@@ -185,7 +187,7 @@ export async function getAnalyticsDetail(
           "AND s.final_score IS NOT NULL AND s.total_possible > 0 " +
           "GROUP BY s.student_id, p.full_name ORDER BY p.full_name, s.student_id LIMIT 51 OFFSET ?",
       )
-      .bind(caller.id, assessmentId, Math.max(0, studentPage) * 50)
+      .bind(caller.id, assessmentId, safeStudentPage * 50)
       .all<{
         student_id: string;
         full_name: string | null;
@@ -203,7 +205,7 @@ export async function getAnalyticsDetail(
           "(SELECT 1 FROM assessments a WHERE a.id = ? AND a.teacher_id = ?) " +
           "GROUP BY l.id ORDER BY l.created_at DESC, l.id DESC LIMIT 51 OFFSET ?",
       )
-      .bind(assessmentId, caller.id, assessmentId, caller.id, Math.max(0, groupPage) * 50)
+      .bind(assessmentId, caller.id, assessmentId, caller.id, safeGroupPage * 50)
       .all<{ group_id: string; name: string; students: number; avg_pct: number | null }>(),
   ]);
   const questions: AnalyticsQuestion[] = (questionsRes.results ?? []).map((q) => {
@@ -224,7 +226,7 @@ export async function getAnalyticsDetail(
       questionId: q.id,
       answered: a?.answered ?? 0,
       graded,
-      avgPct: graded > 0 ? (a?.pct_sum ?? 0) / graded : null,
+      avgPct: graded > 0 && q.marks > 0 ? (a?.pct_sum ?? 0) / graded : null,
       fullCreditPct: graded > 0 ? (100 * (a?.full_count ?? 0)) / graded : null,
     };
   });
@@ -288,6 +290,7 @@ export async function listAnalyticsStudentPage(
 ): Promise<StudentStat[]> {
   requireTeacher(caller);
   await assertOwnsAssessment(db, caller, assessmentId);
+  const safeOffset = Math.max(0, Math.floor(offset) || 0);
   const { results } = await db
     .prepare(
       "SELECT s.student_id AS student_id, p.full_name AS full_name, COUNT(*) AS released, " +
@@ -298,7 +301,7 @@ export async function listAnalyticsStudentPage(
         "AND s.final_score IS NOT NULL AND s.total_possible > 0 " +
         "GROUP BY s.student_id, p.full_name ORDER BY p.full_name, s.student_id LIMIT 51 OFFSET ?",
     )
-    .bind(caller.id, assessmentId, Math.max(0, offset))
+    .bind(caller.id, assessmentId, safeOffset)
     .all<{
       student_id: string;
       full_name: string | null;

@@ -1,5 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, BadgeCheck, CalendarClock, Eye, FileText, KeyRound, ListChecks, PencilLine, ScanLine, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  CalendarClock,
+  Eye,
+  FileText,
+  KeyRound,
+  ListChecks,
+  PencilLine,
+  ScanLine,
+  Sparkles,
+} from "lucide-react";
 import { Brand } from "@/components/Brand";
 
 export const Route = createFileRoute("/")({
@@ -8,7 +19,8 @@ export const Route = createFileRoute("/")({
       { title: "قيمني — مساعد الذكاء الاصطناعي للمدرس" },
       {
         name: "description",
-        content: "قيمني يقترح تصحيح الامتحانات بالذكاء الاصطناعي، والمدرس يعتمد قبل ما أي درجة توصل للطالب.",
+        content:
+          "قيمني يقترح تصحيح الامتحانات بالذكاء الاصطناعي، والمدرس يعتمد قبل ما أي درجة توصل للطالب.",
       },
       { property: "og:title", content: "قيمني — مساعد الذكاء الاصطناعي للمدرس" },
       { property: "og:description", content: "مساعدك الذكي في التدريس" },
@@ -190,93 +202,137 @@ function Landing() {
           </div>
         </section>
 
-      {/* Features */}
-      <section className="border-t" style={{ borderColor: LINE, background: PANEL }}>
-        <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
-          <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
-            المميزات
-          </p>
-          <h2 className="mt-3 font-display text-2xl font-bold leading-snug md:text-3xl">
-            كل خطوات التقييم، من الملف للدرجة المعتمدة
-          </h2>
-          <div className="mt-7 grid gap-3 sm:grid-cols-2 md:mt-8 md:gap-4 lg:grid-cols-3">
-            {FEATURES.map(({ icon: Icon, title, body }) => (
-              <div
-                key={title}
-                className="rounded-xl border p-4 md:p-5"
-                style={{ borderColor: LINE, background: PAPER }}
-              >
-                <span
-                  className="grid size-10 place-items-center rounded-lg"
-                  style={{ background: TINT, color: PINE }}
+        {/* Features */}
+        <section className="border-t" style={{ borderColor: LINE, background: PANEL }}>
+          <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
+            <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
+              المميزات
+            </p>
+            <h2 className="mt-3 font-display text-2xl font-bold leading-snug md:text-3xl">
+              كل خطوات التقييم، من الملف للدرجة المعتمدة
+            </h2>
+            <div className="mt-7 grid gap-3 sm:grid-cols-2 md:mt-8 md:gap-4 lg:grid-cols-3">
+              {FEATURES.map(({ icon: Icon, title, body }) => (
+                <div
+                  key={title}
+                  className="rounded-xl border p-4 md:p-5"
+                  style={{ borderColor: LINE, background: PAPER }}
                 >
-                  <Icon className="size-5" aria-hidden />
-                </span>
-                <h3 className="mt-4 text-[1rem] font-bold">{title}</h3>
-                <p className="mt-1.5 text-[0.85rem] leading-6" style={{ color: MUTED }}>
-                  {body}
-                </p>
-              </div>
-            ))}
+                  <span
+                    className="grid size-10 place-items-center rounded-lg"
+                    style={{ background: TINT, color: PINE }}
+                  >
+                    <Icon className="size-5" aria-hidden />
+                  </span>
+                  <h3 className="mt-4 text-[1rem] font-bold">{title}</h3>
+                  <p className="mt-1.5 text-[0.85rem] leading-6" style={{ color: MUTED }}>
+                    {body}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="how-it-works" className="border-t" style={{ borderColor: LINE }}>
-        <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
-          <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>من البداية للنتيجة</p>
-          <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">ابدأ بامتحانك. وسيب آخر قرار ليك.</h2>
-          <div className="mt-8 grid gap-7 md:grid-cols-3 md:gap-8">
-            {[
-              { n: "٠١", title: "جهز الامتحان", body: "ارفع ملف الدرس أو اكتب الأسئلة، وراجعها قبل النشر." },
-              { n: "٠٢", title: "شارك مع طلابك", body: "ابعت كود الانضمام، وحدد موعد الامتحان وتابع التسليمات." },
-              { n: "٠٣", title: "راجع واعتمد", body: "راجع الدرجة المقترحة والدليل، وعدل قبل ما تنشر النتيجة." },
-            ].map(({ n, title, body }) => (
-              <div key={n} className="border-t pt-4" style={{ borderColor: LINE }}>
-                <span className="font-display text-3xl font-bold" style={{ color: PINE }}>{n}</span>
-                <h3 className="mt-4 font-bold">{title}</h3>
-                <p className="mt-2 max-w-sm text-sm leading-7" style={{ color: MUTED }}>{body}</p>
-              </div>
-            ))}
+        <section id="how-it-works" className="border-t" style={{ borderColor: LINE }}>
+          <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
+            <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
+              من البداية للنتيجة
+            </p>
+            <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">
+              ابدأ بامتحانك. وسيب آخر قرار ليك.
+            </h2>
+            <div className="mt-8 grid gap-7 md:grid-cols-3 md:gap-8">
+              {[
+                {
+                  n: "٠١",
+                  title: "جهز الامتحان",
+                  body: "ارفع ملف الدرس أو اكتب الأسئلة، وراجعها قبل النشر.",
+                },
+                {
+                  n: "٠٢",
+                  title: "شارك مع طلابك",
+                  body: "ابعت كود الانضمام، وحدد موعد الامتحان وتابع التسليمات.",
+                },
+                {
+                  n: "٠٣",
+                  title: "راجع واعتمد",
+                  body: "راجع الدرجة المقترحة والدليل، وعدل قبل ما تنشر النتيجة.",
+                },
+              ].map(({ n, title, body }) => (
+                <div key={n} className="border-t pt-4" style={{ borderColor: LINE }}>
+                  <span className="font-display text-3xl font-bold" style={{ color: PINE }}>
+                    {n}
+                  </span>
+                  <h3 className="mt-4 font-bold">{title}</h3>
+                  <p className="mt-2 max-w-sm text-sm leading-7" style={{ color: MUTED }}>
+                    {body}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section id="questions" className="border-t" style={{ borderColor: LINE, background: PANEL }}>
-        <div className="mx-auto grid max-w-6xl gap-7 px-5 py-10 md:grid-cols-[0.8fr_1.2fr] md:gap-16 md:px-8 md:py-14">
-          <div>
-            <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>قبل ما تبدأ</p>
-            <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">أسئلة سريعة</h2>
-            <p className="mt-4 max-w-xs text-sm leading-7" style={{ color: MUTED }}>المساعد يقترح. وإنت تراجع وتقرر.</p>
+        <section
+          id="questions"
+          className="border-t"
+          style={{ borderColor: LINE, background: PANEL }}
+        >
+          <div className="mx-auto grid max-w-6xl gap-7 px-5 py-10 md:grid-cols-[0.8fr_1.2fr] md:gap-16 md:px-8 md:py-14">
+            <div>
+              <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
+                قبل ما تبدأ
+              </p>
+              <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">أسئلة سريعة</h2>
+              <p className="mt-4 max-w-xs text-sm leading-7" style={{ color: MUTED }}>
+                المساعد يقترح. وإنت تراجع وتقرر.
+              </p>
+            </div>
+            <div className="divide-y" style={{ borderColor: LINE }}>
+              {[
+                {
+                  q: "الدرجة بتوصل للطالب على طول؟",
+                  a: "لأ. الدرجة والملاحظات بتظهر بعد ما تراجعها وتعتمد نشرها.",
+                },
+                {
+                  q: "أقدر أعدل اقتراح التصحيح؟",
+                  a: "أيوه. تقدر تعدل الدرجة والملاحظات قبل الاعتماد.",
+                },
+                {
+                  q: "أبدأ من ورقة ولا لازم أكتب كل حاجة؟",
+                  a: "تقدر ترفع PDF أو Word أو صورة، أو تكتب الأسئلة بنفسك.",
+                },
+              ].map(({ q, a }) => (
+                <div key={q} className="py-5 first:pt-0 last:pb-0" style={{ borderColor: LINE }}>
+                  <h3 className="text-[0.95rem] font-bold">{q}</h3>
+                  <p className="mt-2 text-sm leading-7" style={{ color: MUTED }}>
+                    {a}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="divide-y" style={{ borderColor: LINE }}>
-            {[
-              { q: "الدرجة بتوصل للطالب على طول؟", a: "لأ. الدرجة والملاحظات بتظهر بعد ما تراجعها وتعتمد نشرها." },
-              { q: "أقدر أعدل اقتراح التصحيح؟", a: "أيوه. تقدر تعدل الدرجة والملاحظات قبل الاعتماد." },
-              { q: "أبدأ من ورقة ولا لازم أكتب كل حاجة؟", a: "تقدر ترفع PDF أو Word أو صورة، أو تكتب الأسئلة بنفسك." },
-            ].map(({ q, a }) => (
-              <div key={q} className="py-5 first:pt-0 last:pb-0" style={{ borderColor: LINE }}>
-                <h3 className="text-[0.95rem] font-bold">{q}</h3>
-                <p className="mt-2 text-sm leading-7" style={{ color: MUTED }}>{a}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="border-t" style={{ borderColor: LINE }}>
-        <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-5 py-10 md:flex-row md:items-center md:px-8 md:py-14">
-          <div>
-            <h2 className="font-display text-2xl font-bold md:text-3xl">جاهز تبدأ أول امتحان؟</h2>
-            <p className="mt-3 text-sm leading-7" style={{ color: MUTED }}>من تجهيز الأسئلة لمراجعة النتيجة، في مكان واحد.</p>
+        <section className="border-t" style={{ borderColor: LINE }}>
+          <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-5 py-10 md:flex-row md:items-center md:px-8 md:py-14">
+            <div>
+              <h2 className="font-display text-2xl font-bold md:text-3xl">جاهز تبدأ أول امتحان؟</h2>
+              <p className="mt-3 text-sm leading-7" style={{ color: MUTED }}>
+                من تجهيز الأسئلة لمراجعة النتيجة، في مكان واحد.
+              </p>
+            </div>
+            <Link
+              to="/auth"
+              className="inline-flex h-12 shrink-0 items-center gap-3 rounded-xl px-6 text-sm font-bold text-white hover:opacity-90"
+              style={{ background: PINE }}
+            >
+              إنشاء حساب
+              <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+            </Link>
           </div>
-          <Link to="/auth" className="inline-flex h-12 shrink-0 items-center gap-3 rounded-xl px-6 text-sm font-bold text-white hover:opacity-90" style={{ background: PINE }}>
-            إنشاء حساب
-            <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-          </Link>
-        </div>
-      </section>
-
+        </section>
       </main>
 
       <footer className="border-t" style={{ borderColor: LINE }}>

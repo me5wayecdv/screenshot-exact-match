@@ -170,10 +170,12 @@ export async function finishWhatsappSend(
       ? db
           .prepare(
             "UPDATE whatsapp_send_claims SET completed = 1, claimed_at = ? " +
-              "WHERE submission_id = ?",
+              "WHERE submission_id = ? AND completed = 0",
           )
           .bind(nowIso, submissionId)
-      : db.prepare("DELETE FROM whatsapp_send_claims WHERE submission_id = ?").bind(submissionId);
+      : db
+          .prepare("DELETE FROM whatsapp_send_claims WHERE submission_id = ? AND completed = 0")
+          .bind(submissionId);
   if (db.batch) await db.batch([audit, release]);
   else {
     await audit.run();

@@ -141,8 +141,9 @@ function Grading() {
 
   // Initialise the edit form from saved teacher scores/feedback whenever a
   // different submission's detail loads.
+  const selectedSubmissionId = selected?.id;
   useEffect(() => {
-    if (!detail || !selected) return;
+    if (!detail || !selectedSubmissionId) return;
     const s: Record<string, string> = {};
     const f: Record<string, string> = {};
     for (const a of detail.answers) {
@@ -151,7 +152,7 @@ function Grading() {
     }
     setScores(s);
     setFeedbacks(f);
-  }, [detail, selected?.id]);
+  }, [detail, selectedSubmissionId]);
 
   // Auto-grade objective answers on first open of a submission: persist
   // auto_score only where the stored value differs from the computed one,

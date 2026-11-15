@@ -92,12 +92,9 @@ export function createD1AuthStore(db: D1Database): AuthStore {
         .bind(userId)
         .first<{ role: string }>();
       const role = row?.role;
-      return role === "school_teacher" ||
-        role === "tutor" ||
-        role === "student" ||
-        role === "admin" ||
-        role === "teacher"
-        ? (role as Role)
+      if (role === "teacher") return "school_teacher";
+      return role === "school_teacher" || role === "tutor" || role === "student" || role === "admin"
+        ? role
         : null;
     },
 

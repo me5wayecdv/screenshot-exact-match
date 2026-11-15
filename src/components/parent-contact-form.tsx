@@ -18,7 +18,7 @@
  *
  * No new route. No token anywhere in this file.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { updateParentContactD1 } from "@/server/d1-report";
 import { useI18n, translateError } from "@/lib/i18n";
@@ -45,6 +45,13 @@ export function ParentContactForm({
   const [busy, setBusy] = useState(false);
   const [formatError, setFormatError] = useState(false);
   const [requiredError, setRequiredError] = useState(false);
+
+  useEffect(() => {
+    setPhone(initialPhone ?? "");
+    setConsent(initialConsent);
+    setFormatError(false);
+    setRequiredError(false);
+  }, [studentId, initialPhone, initialConsent]);
 
   async function save() {
     const cleaned = normalizePhoneInput(phone);
@@ -73,6 +80,7 @@ export function ParentContactForm({
       setBusy(false);
       return void toast.error(translateError(error, lang));
     }
+    setPhone(cleaned);
     setBusy(false);
     toast.success(t("save"));
     onSaved?.();

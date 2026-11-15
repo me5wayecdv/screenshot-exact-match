@@ -49,11 +49,21 @@ export type AssessmentInput = {
 };
 
 export function effectiveScore(a: AnswerInput): number | null {
-  return a.final_score ?? a.auto_score;
+  const raw = a.final_score ?? a.auto_score;
+  if (raw === null || raw === undefined) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
 }
 
 export function isReleased(s: SubmissionInput): boolean {
-  return s.status === "released" && s.final_score !== null && Number(s.total_possible) > 0;
+  return (
+    s.status === "released" &&
+    s.final_score !== null &&
+    s.final_score !== undefined &&
+    Number.isFinite(Number(s.final_score)) &&
+    Number.isFinite(Number(s.total_possible)) &&
+    Number(s.total_possible) > 0
+  );
 }
 
 export function releasedPct(s: SubmissionInput): number | null {
@@ -62,7 +72,7 @@ export function releasedPct(s: SubmissionInput): number | null {
 }
 
 export function formatPct(value: number | null, lang: "ar" | "en"): string {
-  if (value === null) return "—";
+  if (value === null || !Number.isFinite(value)) return "—";
   return (
     new Intl.NumberFormat(lang === "ar" ? "ar-EG" : "en-GB", {
       maximumFractionDigits: 1,
@@ -254,7 +264,7 @@ export function toCsv(rows: (string | number | null)[][], headers: string[]): st
   const esc = (v: string | number | null): string => {
     if (v === null || v === undefined) return "";
     const s = String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return "\uFEFF" + [headers, ...rows].map((r) => r.map(esc).join(",")).join("\n");
 }

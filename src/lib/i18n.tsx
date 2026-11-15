@@ -407,8 +407,10 @@ const dict = {
       "الامتحان ده معيّن لمجموعة محددة من طلابك، وفيه طلاب تانيين مش معيّنين. لو المفروض كل طلابك يشوفوه (بما فيهم اللي انضموا بعد النشر) اضغط الزرار ده.",
     audienceMakeEveryone: "خلّي الجمهور: كل طلابي",
     audienceEveryoneNow: "بقى متاح لكل طلابك ({count}) — وأي طالب ينضم بعد كده هيتعيّن تلقائيًا.",
-    publishReachUnknown: "تم النشر، لكن تعذّر تأكيد عدد الطلاب الذين سيشاهدونه — حدّث الصفحة للتأكد.",
-    publishReachZero: "تم النشر لكن مفيش أي طالب معيّن للامتحان — اضغط «خلّي الجمهور: كل طلابي» هنا.",
+    publishReachUnknown:
+      "تم النشر، لكن تعذّر تأكيد عدد الطلاب الذين سيشاهدونه — حدّث الصفحة للتأكد.",
+    publishReachZero:
+      "تم النشر لكن مفيش أي طالب معيّن للامتحان — اضغط «خلّي الجمهور: كل طلابي» هنا.",
     notFound: "غير موجود",
     summaryActive: "اختبارات منشورة",
     summaryPending: "بانتظار التصحيح",
@@ -867,7 +869,8 @@ const dict = {
     genDiffMedium: "متوسط",
     genDiffHard: "صعب",
     genUploadDoc: "ارفع ملف PDF أو Word",
-    genUploadDocHint: "الملف يُحفظ على الخادم أولاً ثم يُستخرج نصه إلى خانة النص (حتى 10 ميجابايت).",
+    genUploadDocHint:
+      "الملف يُحفظ على الخادم أولاً ثم يُستخرج نصه إلى خانة النص (حتى 10 ميجابايت).",
     genUploadImages: "أو ارفع صور صفحات المنهج",
     genUploadImagesHint: "حتى 5 صور؛ يُستخرج النص منها بالذكاء الاصطناعي إلى خانة النص.",
     genOcrLayout: "طريقة قراءة الصورة",
@@ -2341,4 +2344,4 @@ export function formatDate(d: string | null | undefined, lang: Lang) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(d));
-    }
+}

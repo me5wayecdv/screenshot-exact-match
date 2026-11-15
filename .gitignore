@@ -20,6 +20,9 @@ dist-ssr
 .wrangler/
 .dev.vars
 
+# Tooling caches
+.opencode/cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

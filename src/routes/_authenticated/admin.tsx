@@ -35,7 +35,7 @@ type ActivityT = ReturnType<typeof useI18n>["t"];
 // The server whitelists details to these keys before they reach us:
 // target_label, exam_label, group_label, decision, to.
 function activityLabel(row: SiteActivityRow, t: ActivityT, lang: "ar" | "en"): string {
-  const details = typeof row.details === "object" ? row.details : {};
+  const details = row.details && typeof row.details === "object" ? row.details : {};
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   const ar = lang === "ar";
   switch (row.action) {
@@ -99,7 +99,7 @@ function activityLabel(row: SiteActivityRow, t: ActivityT, lang: "ar" | "en"): s
 // resolved account name, then the raw entity id as a last resort,
 // plus exam/group qualifiers when the writer stored them.
 function activityTarget(row: SiteActivityRow): string {
-  const details = typeof row.details === "object" ? row.details : {};
+  const details = row.details && typeof row.details === "object" ? row.details : {};
   const str = (v: unknown) => (typeof v === "string" ? v : "");
   const base = str(details["target_label"]) || row.targetName || row.entityId || "";
   const examLabel = str(details["exam_label"]);
@@ -210,6 +210,7 @@ function Admin() {
   // the replay source, this panel is the visible surface.
   const { data: failures } = useQuery({
     queryKey: ["admin-take-failures"],
+    enabled: me?.role === "admin",
     queryFn: async () =>
       (await listTakeWriteFailuresD1({ data: undefined })) as TakeWriteFailureRow[],
     refetchOnWindowFocus: false,
@@ -244,6 +245,7 @@ function Admin() {
       setTempPassword({ email, value: result.temporaryPassword });
       toast.success(t("passwordResetDone"));
       refreshAccounts();
+      refreshPasswordless();
     } catch (err) {
       toast.error(translateError(err, lang));
     } finally {
@@ -309,7 +311,7 @@ function Admin() {
           <>
             <Button
               size="sm"
-              disabled={deciding === `${a.id}:approved`}
+              disabled={deciding === `${a.id}:approved` || deciding === `${a.id}:rejected`}
               onClick={() => void decide(a.id, "approved")}
             >
               {t("approveAccount")}
@@ -317,7 +319,7 @@ function Admin() {
             <Button
               size="sm"
               variant="outline"
-              disabled={deciding === `${a.id}:rejected`}
+              disabled={deciding === `${a.id}:approved` || deciding === `${a.id}:rejected`}
               onClick={() => void decide(a.id, "rejected")}
             >
               {t("rejectAccount")}

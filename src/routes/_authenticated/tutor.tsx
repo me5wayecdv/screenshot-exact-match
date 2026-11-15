@@ -33,6 +33,19 @@ import { getTutorDetailD1, listTutorAssessmentsD1, listTutorReleasedD1 } from "@
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 
+export function parseTutorQuestionOptions(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === "string");
+  if (typeof raw === "string" && raw.trim().startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export const Route = createFileRoute("/_authenticated/tutor")({
   head: () => ({
     meta: [
@@ -119,14 +132,16 @@ function TutorPage() {
     const qs = detailQuery.data?.questions ?? [];
     if (qs.length > 0 && !qs.some((q) => q.id === practiceQ)) {
       setPracticeQ(qs[0]!.id);
+      setPracticeFeedback("");
+      setNewAnswer("");
     }
   }, [detailQuery.data, practiceQ]);
 
   async function sendChat(mode: "hint" | "explain", customText?: string) {
-    if (!questionId) return;
+    if (!questionId || chatBusy || configured === false) return;
     const answer = detailQuery.data?.answers.find((a) => a.question_id === questionId);
     const display = customText ?? (mode === "hint" ? t("tutorHintAsk") : t("tutorExplainAsk"));
-    const history = chat;
+    const history = chat.slice(-20).map((m) => ({ ...m, content: m.content.slice(0, 2000) }));
     setChat((prev) => [...prev, { role: "user", content: display }]);
     setChatBusy(true);
     try {
@@ -159,8 +174,8 @@ function TutorPage() {
 
   async function sendTopic() {
     const text = topic.trim();
-    if (!text) return;
-    const history = topicChat;
+    if (!text || topicBusy || configured === false) return;
+    const history = topicChat.slice(-20).map((m) => ({ ...m, content: m.content.slice(0, 2000) }));
     setTopicChat((prev) => [...prev, { role: "user", content: text }]);
     setTopic("");
     setTopicBusy(true);
@@ -253,8 +268,13 @@ function TutorPage() {
   );
   const objectiveStats = computeObjectiveStats(questionStats);
   const weak = reteachTopics(objectiveStats, 50);
-  const weakObjectives = weak.map((o) => o.objective);
+  const weakObjectives = weak
+    .slice(0, 20)
+    .map((o) => (o.objective.trim() || t("anNoObjective")).slice(0, 200));
   const selectedQuestion = questions.find((q) => q.id === questionId) ?? null;
+  const selectedOptions = selectedQuestion
+    ? parseTutorQuestionOptions(selectedQuestion.options)
+    : [];
   const selectedAnswer = answers.find((a) => a.question_id === questionId) ?? null;
   const selectedScore =
     selectedAnswer && (selectedAnswer.final_score ?? selectedAnswer.auto_score) !== null
@@ -288,6 +308,8 @@ function TutorPage() {
                   setSelectedId(e.target.value);
                   setChat([]);
                   setTips([]);
+                  setPracticeFeedback("");
+                  setNewAnswer("");
                 }}
               >
                 {assessments.map((a) => (
@@ -359,14 +381,13 @@ function TutorPage() {
                   {selectedQuestion && (
                     <div className="space-y-2 text-sm">
                       <p className="whitespace-pre-wrap">{selectedQuestion.prompt}</p>
-                      {Array.isArray(selectedQuestion.options) &&
-                        (selectedQuestion.options as string[]).length > 0 && (
-                          <ul className="list-disc ps-5 text-muted-foreground">
-                            {(selectedQuestion.options as string[]).map((opt, i) => (
-                              <li key={i}>{opt}</li>
-                            ))}
-                          </ul>
-                        )}
+                      {selectedOptions.length > 0 && (
+                        <ul className="list-disc ps-5 text-muted-foreground">
+                          {selectedOptions.map((opt, i) => (
+                            <li key={i}>{opt}</li>
+                          ))}
+                        </ul>
+                      )}
                       <p>
                         {t("tutorYourAnswer")}:{" "}
                         <span className="text-muted-foreground">
@@ -426,7 +447,12 @@ function TutorPage() {
                       onChange={(e) => setFollowUp(e.target.value)}
                       placeholder={t("tutorAskPlaceholder")}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" && followUp.trim()) {
+                        if (
+                          e.key === "Enter" &&
+                          followUp.trim() &&
+                          !chatBusy &&
+                          configured !== false
+                        ) {
                           const text = followUp;
                           setFollowUp("");
                           void sendChat("explain", text);
@@ -454,7 +480,11 @@ function TutorPage() {
                     <select
                       className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                       value={practiceQ}
-                      onChange={(e) => setPracticeQ(e.target.value)}
+                      onChange={(e) => {
+                        setPracticeQ(e.target.value);
+                        setPracticeFeedback("");
+                        setNewAnswer("");
+                      }}
                     >
                       {questions.map((q, i) => (
                         <option key={q.id} value={q.id}>
@@ -514,7 +544,8 @@ function TutorPage() {
                   onChange={(e) => setTopic(e.target.value)}
                   placeholder={t("tutorFreeTopicPlaceholder")}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && topic.trim()) void sendTopic();
+                    if (e.key === "Enter" && topic.trim() && !topicBusy && configured !== false)
+                      void sendTopic();
                   }}
                 />
                 <Button

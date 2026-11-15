@@ -212,20 +212,26 @@ export async function verifyPassword(password: string, stored: string | null): P
   if (!iterPart || !saltPart || !expected) return false;
   const iterations = Number(iterPart);
   if (!Number.isInteger(iterations) || iterations < 1) return false;
-  const salt = b64urlToBytes(saltPart);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
-    key,
-    256,
-  );
-  return timingSafeEqual(b64url(new Uint8Array(bits)), expected);
+  if (!/^[A-Za-z0-9_-]+$/.test(saltPart) || saltPart.length % 4 === 1) return false;
+  try {
+    const salt = b64urlToBytes(saltPart);
+    if (salt.length === 0) return false;
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(password),
+      "PBKDF2",
+      false,
+      ["deriveBits"],
+    );
+    const bits = await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
+      key,
+      256,
+    );
+    return timingSafeEqual(b64url(new Uint8Array(bits)), expected);
+  } catch {
+    return false;
+  }
 }
 
 export function hashSessionToken(rawToken: string): Promise<string> {
@@ -298,17 +304,25 @@ export async function signUp(
 
   const userId = newId();
   const passwordHash = await hashPassword(input.password, input.iterations);
-  await store.createUser({
-    id: userId,
-    email,
-    passwordHash,
-    fullName: input.fullName.trim(),
-    role: input.role as SignUpRole,
-    parentPhone: input.parentPhone ?? null,
-    teacherPhone,
-    subjects: (input.subjects ?? "").trim().slice(0, 200) || null,
-    school: (input.school ?? "").trim().slice(0, 200) || null,
-  });
+  try {
+    await store.createUser({
+      id: userId,
+      email,
+      passwordHash,
+      fullName: input.fullName.trim(),
+      role: input.role as SignUpRole,
+      parentPhone: isTeacherSignUpRole(input.role) ? null : input.parentPhone?.trim() || null,
+      teacherPhone,
+      subjects: (input.subjects ?? "").trim().slice(0, 200) || null,
+      school: (input.school ?? "").trim().slice(0, 200) || null,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/UNIQUE constraint failed.*auth_users\.email/i.test(msg)) {
+      throw new AuthError("EMAIL_TAKEN");
+    }
+    throw err;
+  }
   return { userId, status: "pending" };
 }
 
@@ -379,9 +393,14 @@ export async function checkSession(
 export async function signOut(store: AuthStore, rawToken: string): Promise<void> {
   // Revoking by session id requires resolving the token first; an
   // unknown token is a no-op (logout must never error on stale cookies).
+  // Look up directly by token hash rather than checkSession so sessions
+  // belonging to pending/rejected accounts are still revoked on sign-out.
   try {
-    const session = await checkSession(store, rawToken);
-    await store.revokeSession(session.id, nowIso());
+    if (!rawToken) return;
+    const row = await store.findSessionByTokenHash(await hashSessionToken(rawToken));
+    if (row && !row.revokedAt) {
+      await store.revokeSession(row.id, nowIso());
+    }
   } catch {
     // Unknown/expired/revoked tokens are already effectively logged out.
   }
@@ -389,12 +408,13 @@ export async function signOut(store: AuthStore, rawToken: string): Promise<void>
 
 /** Role gate: throws FORBIDDEN unless the session role is allowed. */
 export function requireRole(session: AuthSession, allowed: Role[]): AuthSession {
-  if (!allowed.includes(session.role)) throw new AuthError("FORBIDDEN");
+  const effective: Role = (session.role as string) === "teacher" ? "school_teacher" : session.role;
+  if (!allowed.includes(effective)) throw new AuthError("FORBIDDEN");
   return session;
 }
 
 export function isTeacherRole(role: Role): boolean {
-  return role === "school_teacher" || role === "tutor";
+  return role === "school_teacher" || role === "tutor" || (role as string) === "teacher";
 }
 
 /** Cookie header value for a freshly created session. */

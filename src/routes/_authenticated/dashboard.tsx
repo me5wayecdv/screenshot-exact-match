@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
   enrollLessonD1,
@@ -393,6 +393,11 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       };
     },
   });
+  useEffect(() => {
+    if (data?.myName !== undefined && !editingName) {
+      setDraftName(data.myName);
+    }
+  }, [data?.myName, editingName]);
   async function join(e: FormEvent) {
     e.preventDefault();
     // The teacher judges a request by name, so a nameless profile would arrive
@@ -447,8 +452,8 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
     setLessonCode("");
     qc.invalidateQueries();
   }
-  const activeAssessment = data?.assessments.find(
-    (a) => data.submissions.find((sub) => sub.assessment_id === a.id)?.status === "in_progress",
+  const activeAssessment = data?.assessments.find((a) =>
+    data.submissions.some((sub) => sub.assessment_id === a.id && sub.status === "in_progress"),
   );
   // A request is a third state: not "no teacher", not "nothing assigned yet".
   const pendingRows = data?.pendingRows ?? [];
@@ -570,7 +575,11 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {data?.assessments.map((a) => {
-            const sub = data.submissions.find((s) => s.assessment_id === a.id);
+            const subsForAssessment = data.submissions.filter((s) => s.assessment_id === a.id);
+            const sub =
+              subsForAssessment.find((s) => s.status === "in_progress") ??
+              subsForAssessment.find((s) => s.status === "released") ??
+              subsForAssessment[subsForAssessment.length - 1];
             // One pure decision, so "no button at all" can never come back:
             // every row ends up in exactly one explicit state.
             const state = studentAssessmentState({

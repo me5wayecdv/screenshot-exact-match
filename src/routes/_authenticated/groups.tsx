@@ -263,11 +263,22 @@ function GroupCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  function resetDraftFromGroup() {
+    setName(group.name);
+    setYear(group.schoolYear);
+    setDays(group.days ?? []);
+    setTime(group.timeText);
+    setNotes(group.notes);
+  }
+
   const { data: roster } = useQuery({
     queryKey: ["group-roster", group.groupId],
     queryFn: async () => getGroupRosterD1({ data: { groupId: group.groupId } }),
   });
-  const refreshRoster = () => qc.invalidateQueries({ queryKey: ["group-roster", group.groupId] });
+  const refreshRoster = () => {
+    qc.invalidateQueries({ queryKey: ["group-roster", group.groupId] });
+    qc.invalidateQueries({ queryKey: ["my-students"] });
+  };
   // splitRoster/displayName work on the shared EnrollmentRow shape, so
   // the D1 camelCase rows are adapted once here.
   const rosterRows = (roster ?? []).map((r: RosterRow) => ({
@@ -425,7 +436,13 @@ function GroupCard({
             <Button onClick={save} disabled={busy === "save" || name.trim() === ""}>
               {t("groupSave")}
             </Button>
-            <Button variant="outline" onClick={() => setEditing(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                resetDraftFromGroup();
+                setEditing(false);
+              }}
+            >
               {t("groupCancel")}
             </Button>
           </div>
@@ -451,7 +468,15 @@ function GroupCard({
               </p>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  resetDraftFromGroup();
+                  setConfirmingDelete(false);
+                  setEditing(true);
+                }}
+              >
                 {t("groupEdit")}
               </Button>
               <Button size="sm" variant="outline" onClick={remove} disabled={busy === "delete"}>

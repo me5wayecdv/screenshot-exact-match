@@ -157,7 +157,7 @@ function parseDetails(raw: string): Record<string, AuditDetailValue> | string {
  */
 export async function listAuditLog(db: D1Database, caller: Caller): Promise<AuditRow[]> {
   const role = normalizeRole(caller.role);
-  if (role === "student") {
+  if (role !== "school_teacher" && role !== "tutor" && role !== "admin") {
     throw new AdminError("FORBIDDEN");
   }
   const { results } = await db
@@ -299,10 +299,11 @@ export async function listSiteActivity(
   input: { cursor?: string | null; limit?: number } = {},
 ): Promise<SiteActivityPage> {
   requireAdmin(caller);
-  const size = Math.max(
-    1,
-    Math.min(ACTIVITY_PAGE_SIZE, Math.floor(input.limit ?? ACTIVITY_PAGE_SIZE)),
-  );
+  const rawLimit =
+    typeof input.limit === "number" && Number.isFinite(input.limit)
+      ? Math.floor(input.limit)
+      : ACTIVITY_PAGE_SIZE;
+  const size = Math.max(1, Math.min(ACTIVITY_PAGE_SIZE, rawLimit));
   const before = decodeActivityCursor(input.cursor ?? null);
   const { results } = await db
     .prepare(
@@ -659,14 +660,15 @@ const TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxy
 const TEMP_PASSWORD_REJECT_AT = 256 - (256 % TEMP_PASSWORD_ALPHABET.length);
 
 export function newTemporaryPassword(chars = 14): string {
+  const targetLen = Number.isInteger(chars) && chars > 0 ? chars : 14;
   const out: string[] = [];
-  while (out.length < chars) {
+  while (out.length < targetLen) {
     // Draw generously so the expected number of crypto calls stays at one.
-    const bytes = crypto.getRandomValues(new Uint8Array((chars - out.length) * 2 + 8));
+    const bytes = crypto.getRandomValues(new Uint8Array((targetLen - out.length) * 2 + 8));
     for (const byte of bytes) {
       if (byte >= TEMP_PASSWORD_REJECT_AT) continue;
       out.push(TEMP_PASSWORD_ALPHABET.charAt(byte % TEMP_PASSWORD_ALPHABET.length));
-      if (out.length === chars) break;
+      if (out.length === targetLen) break;
     }
   }
   return out.join("");
@@ -765,13 +767,15 @@ export const createSetPasswordInvitationD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
   .validator((data: unknown) => data as { email: string })
   .handler(async ({ context, data }) => {
+    requireAdmin(ctxCaller(context));
     await assertEmailConfigured();
+    const origin = requestOrigin();
     const db = ctxDb(context);
     const session = ctxSession(context);
     const issued = await issueSetPasswordInvitation(createD1SecurityStore(db), session, data.email);
     await sendAuthEmail({
       to: data.email.trim().toLowerCase(),
-      origin: requestOrigin(),
+      origin,
       token: issued.token,
       purpose: "set-password",
     });

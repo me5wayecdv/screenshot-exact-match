@@ -58,7 +58,6 @@
 
 import {
   AuthError,
-  checkSession,
   hashPassword,
   hashSessionToken,
   newId,
@@ -314,8 +313,12 @@ export async function signInWithRotation(
   await recordAttempt(store, { email: input.email, ip: input.ip, succeeded: true });
   if (input.previousRawToken) {
     try {
-      const prev = await checkSession(store, input.previousRawToken);
-      await store.revokeSession(prev.id, nowIso());
+      const prev = await store.findSessionByTokenHash(
+        await hashSessionToken(input.previousRawToken),
+      );
+      if (prev && !prev.revokedAt) {
+        await store.revokeSession(prev.id, nowIso());
+      }
     } catch {
       // No valid previous session: nothing to rotate. A stolen or
       // expired token must not block a legitimate new sign-in.
@@ -421,14 +424,23 @@ export async function createAdmin(
   const email = normalizeEmail(input.email);
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new AuthError("INVALID_EMAIL");
   if (input.password.length < 8) throw new AuthError("WEAK_PASSWORD");
+  if (!input.fullName.trim()) throw new AuthError("INVALID_INPUT");
   if (await store.findUserByEmail(email)) throw new AuthError("EMAIL_TAKEN");
   const userId = newId();
-  await store.createAdminUser({
-    id: userId,
-    email,
-    passwordHash: await hashPassword(input.password),
-    fullName: input.fullName.trim(),
-  });
+  try {
+    await store.createAdminUser({
+      id: userId,
+      email,
+      passwordHash: await hashPassword(input.password),
+      fullName: input.fullName.trim(),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/UNIQUE constraint failed.*auth_users\.email/i.test(msg)) {
+      throw new AuthError("EMAIL_TAKEN");
+    }
+    throw err;
+  }
   return { userId };
 }
 

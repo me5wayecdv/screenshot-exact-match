@@ -244,6 +244,7 @@ export async function createTeacherGroup(
   const data = clean(input);
   if (data.name === "") throw new GroupError("invalid_student");
   const groupId = crypto.randomUUID();
+  let inserted = false;
   for (let attempt = 0; attempt < 10; attempt++) {
     const code = newGroupCode();
     const clash = await db
@@ -268,17 +269,21 @@ export async function createTeacherGroup(
           code,
         )
         .run();
-      // Activity feed: group created (label = group name, never a join code).
-      await appendAuditLog(db, teacherId, "group_created", groupId, {
-        target_label: data.name,
-      });
-      return groupId;
+      inserted = true;
+      break;
     } catch {
       // UNIQUE clash racing the check above: retry with a fresh code.
       continue;
     }
   }
-  throw new GroupError("group_code_unavailable");
+  if (!inserted) {
+    throw new GroupError("group_code_unavailable");
+  }
+  // Activity feed: group created (label = group name, never a join code).
+  await appendAuditLog(db, teacherId, "group_created", groupId, {
+    target_label: data.name,
+  });
+  return groupId;
 }
 
 /** Old RPC: update_teacher_group. Owner only; empty name rejected. */
@@ -560,7 +565,7 @@ async function approveTeacherLink(
   await db
     .prepare(
       "UPDATE teacher_students SET status = 'approved', decided_at = ? " +
-        "WHERE teacher_id = ? AND student_id = ? AND status = 'pending'",
+        "WHERE teacher_id = ? AND student_id = ? AND status IN ('pending', 'rejected')",
     )
     .bind(nowIso, teacherId, studentId)
     .run();

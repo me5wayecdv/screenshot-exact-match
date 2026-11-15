@@ -61,7 +61,15 @@ export async function consumeAiQuota(
   nowIso: string = new Date().toISOString(),
 ): Promise<boolean> {
   try {
-    if (!userId || !Number.isInteger(units) || units < 1 || units > QUOTA_MAX_UNITS_PER_CALL) {
+    if (
+      !userId ||
+      !Number.isInteger(units) ||
+      units < 1 ||
+      units > QUOTA_MAX_UNITS_PER_CALL ||
+      typeof nowIso !== "string" ||
+      nowIso.length < 16 ||
+      Number.isNaN(Date.parse(nowIso))
+    ) {
       return false;
     }
     const minute = minuteOf(nowIso);
@@ -156,6 +164,9 @@ export async function refundAiQuota(
       !Number.isInteger(units) ||
       units < 1 ||
       units > QUOTA_MAX_UNITS_PER_CALL ||
+      typeof nowIso !== "string" ||
+      nowIso.length < 16 ||
+      Number.isNaN(Date.parse(nowIso)) ||
       !db.batch
     ) {
       return false;
@@ -264,7 +275,7 @@ export const consumeAiQuotaD1 = createServerFn({ method: "POST" })
   .validator((data: unknown) => data as { units: number })
   .handler(async ({ data, context }): Promise<{ allowed: boolean }> => {
     const session = ctxSession(context);
-    return { allowed: await consumeAiQuota(ctxDb(context), session.userId, data.units) };
+    return { allowed: await consumeAiQuota(ctxDb(context), session.userId, data?.units as number) };
   });
 
 /** Server wrapper: read the session user's own quota row. */

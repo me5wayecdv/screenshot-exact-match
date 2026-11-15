@@ -155,27 +155,28 @@ export async function assignGroupExam(
     .bind(groupId)
     .all<{ student_id: string }>();
   const approvedIds = (approved ?? []).map((r) => r.student_id);
-  if (approvedIds.length === 0) return 0;
-  const { results: existing } = await db
-    .prepare(
-      "SELECT student_id FROM assessment_assignments WHERE assessment_id = ? " +
-        "AND student_id IN (SELECT student_id FROM group_members " +
-        "WHERE group_id = ? AND status = 'approved')",
-    )
-    .bind(assessmentId, groupId)
-    .all<{ student_id: string }>();
-  const already = new Set((existing ?? []).map((r) => r.student_id));
   let count = 0;
-  for (const studentId of approvedIds) {
-    if (already.has(studentId)) continue;
-    await db
+  if (approvedIds.length > 0) {
+    const { results: existing } = await db
       .prepare(
-        "INSERT INTO assessment_assignments (assessment_id, student_id) " +
-          "VALUES (?, ?) ON CONFLICT(assessment_id, student_id) DO NOTHING",
+        "SELECT student_id FROM assessment_assignments WHERE assessment_id = ? " +
+          "AND student_id IN (SELECT student_id FROM group_members " +
+          "WHERE group_id = ? AND status = 'approved')",
       )
-      .bind(assessmentId, studentId)
-      .run();
-    count++;
+      .bind(assessmentId, groupId)
+      .all<{ student_id: string }>();
+    const already = new Set((existing ?? []).map((r) => r.student_id));
+    for (const studentId of approvedIds) {
+      if (already.has(studentId)) continue;
+      await db
+        .prepare(
+          "INSERT INTO assessment_assignments (assessment_id, student_id) " +
+            "VALUES (?, ?) ON CONFLICT(assessment_id, student_id) DO NOTHING",
+        )
+        .bind(assessmentId, studentId)
+        .run();
+      count++;
+    }
   }
   // Activity-feed labels: exam title + group name (ids alone are unreadable).
   const exam = await db

@@ -61,7 +61,10 @@ export type WhatsAppApiResult =
   | { configured: false; ok: false; error: string };
 
 function readServerEnv(name: string): string | undefined {
-  if (typeof process !== "undefined") return process.env[name];
+  if (typeof process !== "undefined") {
+    const val = process.env[name]?.trim();
+    return val ? val : undefined;
+  }
   return undefined;
 }
 
@@ -89,7 +92,7 @@ export async function sendWhatsAppTemplate(
     return { configured: true, ok: false, error: "invalid_phone" };
   }
 
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${encodeURIComponent(phoneNumberId)}/messages`;
   let res: Response;
   try {
     res = await fetch(url, {

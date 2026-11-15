@@ -34,13 +34,19 @@ function Students() {
 
   const { data } = useQuery({
     queryKey: ["my-students"],
+    enabled: !!me && (me.role === "school_teacher" || me.role === "tutor"),
     // D1 roster: the status rides along, so one read answers three
     // questions — who is waiting, who is mine, who was turned down.
     // Contact data rides only on approved rows (server-side CASE).
     queryFn: async () => listStudentRosterD1({ data: {} }),
   });
 
-  const refresh = () => qc.invalidateQueries({ queryKey: ["my-students"] });
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["my-students"] });
+    qc.invalidateQueries({ queryKey: ["my-teacher-groups"] });
+    qc.invalidateQueries({ queryKey: ["group-roster"] });
+    qc.invalidateQueries({ queryKey: ["whatsapp-contact"] });
+  };
   const { pending, approved, rejected } = splitRoster(data);
 
   async function decide(studentId: string, approve: boolean) {
@@ -72,11 +78,14 @@ function Students() {
   }
 
   async function remove(id: string) {
+    setBusy(id);
     try {
       await removeStudentD1({ data: { studentId: id } });
     } catch (err) {
+      setBusy(null);
       return void toast.error(translateError(err, lang));
     }
+    setBusy(null);
     refresh();
   }
 
@@ -166,7 +175,12 @@ function Students() {
                 <span className="font-medium">{displayName(s)}</span>
                 <span className="flex items-center gap-3 text-sm text-muted-foreground">
                   {formatDate(s.joined_at, lang)}
-                  <Button size="sm" variant="ghost" onClick={() => remove(s.student_id)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy === s.student_id}
+                    onClick={() => remove(s.student_id)}
+                  >
                     {t("remove")}
                   </Button>
                 </span>

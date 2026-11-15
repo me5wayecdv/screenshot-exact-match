@@ -130,8 +130,18 @@ export const sendWhatsAppReport = createServerFn({ method: "POST" })
       return { ok: false, status: "forbidden", error: "not_assessment_owner" };
 
     // 3. Teacher-final-word: never send an unreleased submission.
-    if (sub.status !== "released")
+    if (
+      sub.status !== "released" ||
+      sub.final_score === null ||
+      sub.final_score === undefined ||
+      !Number.isFinite(Number(sub.final_score)) ||
+      sub.total_possible === null ||
+      sub.total_possible === undefined ||
+      !Number.isFinite(Number(sub.total_possible)) ||
+      Number(sub.total_possible) <= 0
+    ) {
       return { ok: false, status: "not_released", error: "submission_not_released" };
+    }
 
     // 4. Auto path: the toggle is checked here, then a database uniqueness
     // claim is acquired after contact/consent checks and before the network call.

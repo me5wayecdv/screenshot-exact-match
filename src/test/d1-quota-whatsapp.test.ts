@@ -183,7 +183,11 @@ function whatsappDb() {
       }
       return { changes: 0 };
     }
-    if (sql.includes("FROM whatsapp_send_claims") && sql.includes("completed = 0")) {
+    if (
+      sql.includes("SELECT") &&
+      sql.includes("FROM whatsapp_send_claims") &&
+      sql.includes("completed = 0")
+    ) {
       const c = claims.get(params[0] as string);
       return { first: c && c.completed === 0 ? { submission_id: params[0] } : null };
     }
