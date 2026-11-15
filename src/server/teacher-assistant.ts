@@ -169,19 +169,20 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
     const config = resolveAiConfig();
     if (!config) return { ok: false, code: "AI_NOT_CONFIGURED" };
     const quotaRefundKey = crypto.randomUUID();
-    if (!(await consumeAiQuota(db, session.userId, 1))) {
+    const quotaConsumedAt = new Date().toISOString();
+    if (!(await consumeAiQuota(db, session.userId, 1, quotaConsumedAt))) {
       return { ok: false, code: "AI_RATE_LIMIT" };
     }
     let summary: TeacherWorkspaceSummary | null;
     try {
       summary = await loadWorkspaceSummary(db, session.userId);
     } catch {
-      await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
       return { ok: false, code: "DB_ERROR" };
     }
     if (!summary) {
       // AI-F5: the flow aborted before any AI call, so the unit goes back.
-      await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
       return { ok: false, code: "DB_ERROR" };
     }
 
@@ -208,7 +209,7 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
       if (!response.ok) {
         // AI-F5: the AI call failed, so the unit consumed above goes back.
         // Best-effort: a failed refund never changes this failure result.
-        await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
+        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
         if (response.status === 401 || response.status === 403) {
           return { ok: false, code: "AI_AUTH" };
         }
@@ -223,7 +224,7 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
       const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
       if (!reply || reply.length > 10_000) {
         // AI-F5: empty/oversized reply — no usable result, unit goes back.
-        await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
+        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
         return { ok: false, code: "AI_UPSTREAM" };
       }
 
@@ -240,7 +241,7 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
       // AI-F5: the AI call failed, so the unit consumed above goes back.
-      await refundAiQuota(db, session.userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
       return { ok: false, code: timedOut ? "AI_TIMEOUT" : "AI_UPSTREAM" };
     } finally {
       clearTimeout(timeout);
