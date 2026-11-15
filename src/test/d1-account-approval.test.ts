@@ -498,6 +498,8 @@ describe("admin approval: admin functions", () => {
     expect(row.passwordHash).toBe(originalHash);
     expect(row.sessionsRevoked).toBe(false);
     expect(db.audit).toHaveLength(0);
-    expect(db.seenSql.some((sql) => sql.includes("NOT EXISTS") && sql.includes("role = 'admin'"))).toBe(true);
+    expect(
+      db.seenSql.some((sql) => sql.includes("NOT EXISTS") && sql.includes("role = 'admin'")),
+    ).toBe(true);
   });
 });
