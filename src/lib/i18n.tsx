@@ -37,9 +37,9 @@ const dict = {
     assistantWelcome:
       "اسأل عن تخطيط درس أو إعداد أسئلة أو كتابة معيار تصحيح. يعتمد المساعد على أعداد إجمالية من مساحة عملك فقط؛ لا تُدخل أسماء طلاب أو بيانات تعريفية.",
     assistantPromptLesson:
-      "حضّر خطة درس مدتها ٤٠ دقيقة عن دورة الماء للصف الثامن، مع هدف تعلم ونشاط ختامي.",
+      "حضّر خطة درس مدتها ٤٠ دقيقة عن دورة الماء للصف الثاني الإعدادي، مع هدف تعلم ونشاط ختامي.",
     assistantPromptQuestions:
-      "اكتب خمسة أسئلة متنوعة عن دورة الماء للصف الثامن مع تحديد هدف كل سؤال.",
+      "اكتب خمسة أسئلة متنوعة عن دورة الماء للصف الثاني الإعدادي مع تحديد هدف كل سؤال.",
     assistantPromptRubric:
       "صغ معيار تصحيح من أربعة مستويات لإجابة قصيرة تشرح التبخر والتكاثف والهطول.",
     assistantPromptFeedback:
@@ -93,7 +93,7 @@ const dict = {
     step3Body: "عدّل الدرجة أو الملاحظة، ثم قرر متى تظهر النتيجة للطالب.",
     closingTitle: "كل إجابة لها سياقها. وكل درجة لها صاحب قرار.",
     closingBody: "قيمني يرتّب المراجعة؛ أما الحكم النهائي فيبقى للمعلم.",
-    demoAssessment: "اختبار العلوم · الصف الثامن",
+    demoAssessment: "اختبار العلوم · الصف الثاني الإعدادي",
     demoQuestion: "فسّر كيف تتكوّن الأمطار في دورة الماء.",
     demoQuestionNumber: "السؤال ٣",
     demoAnswerTitle: "إجابة تدريبية",
@@ -985,9 +985,9 @@ const dict = {
     assistantWelcome:
       "Ask about lesson planning, drafting questions, or writing a marking criterion. The assistant only receives aggregate workspace counts; do not enter student names or identifying details.",
     assistantPromptLesson:
-      "Plan a 40-minute Grade 8 lesson on the water cycle, with one learning objective and a short exit activity.",
+      "Plan a 40-minute Preparatory 2 lesson on the water cycle, with one learning objective and a short exit activity.",
     assistantPromptQuestions:
-      "Draft five varied Grade 8 questions about the water cycle and state the objective for each.",
+      "Draft five varied Preparatory 2 questions about the water cycle and state the objective for each.",
     assistantPromptRubric:
       "Write a four-level marking criterion for a short answer explaining evaporation, condensation, and precipitation.",
     assistantPromptFeedback:
@@ -1042,7 +1042,7 @@ const dict = {
     step3Body: "Adjust the mark or feedback, then decide when the student can see the result.",
     closingTitle: "Every answer has context. Every mark has an owner.",
     closingBody: "Qayyimni organizes the review; the teacher makes the final call.",
-    demoAssessment: "Science assessment · Grade 8",
+    demoAssessment: "Science assessment · Preparatory 2",
     demoQuestion: "Explain how rain forms in the water cycle.",
     demoQuestionNumber: "Question 3",
     demoAnswerTitle: "Sample response",
@@ -2340,4 +2340,4 @@ export function formatDate(d: string | null | undefined, lang: Lang) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(d));
-                             }
+}
