@@ -50,6 +50,7 @@ function createMemoryStore(users: StoredUser[]): SecurityStore & {
   };
   return {
     ...base,
+    consumeResetAtomic: async () => false,
     recordedTokens,
     countRecentFailures: async () => ({ byEmail: 0, byIp: 0 }),
     recordLoginAttempt: async () => {},
