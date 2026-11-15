@@ -69,6 +69,19 @@ function createMemorySecurityStore(): SecurityStore & {
   const resets = new Map<string, StoredReset>();
   return {
     sessions,
+    async consumeResetAtomic(input) {
+      const row = [...resets.values()].find(
+        (r) => r.id === input.tokenId && r.userId === input.userId,
+      );
+      if (!row || row.usedAt || row.expiresAt <= input.atIso) return false;
+      const user = [...users.values()].find((u) => u.id === input.userId);
+      if (!user) return false;
+      row.usedAt = input.atIso;
+      user.passwordHash = input.passwordHash;
+      for (const session of sessions.values())
+        if (session.userId === input.userId) session.revokedAt = input.atIso;
+      return true;
+    },
     approveUser(userId: string) {
       for (const u of users.values()) {
         if (u.id === userId) u.status = "approved";
@@ -507,5 +520,25 @@ describe("admin creation", () => {
     });
     expect(created.userId).toBeTruthy();
     expect(await store.findRoleByUserId(created.userId)).toBe("admin");
+  });
+});
+
+describe("Audit: concurrent single-use reset contract", () => {
+  it("allows exactly one winner for two simultaneous consumers", async () => {
+    const store = createMemorySecurityStore();
+    await signedUpTeacher(store);
+    const issued = await issuePasswordResetToken(store, "teacher@example.com");
+    const results = await Promise.allSettled([
+      consumePasswordResetToken(store, {
+        token: issued.token!,
+        newPassword: "synthetic-first-value",
+      }),
+      consumePasswordResetToken(store, {
+        token: issued.token!,
+        newPassword: "synthetic-second-value",
+      }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
   });
 });
