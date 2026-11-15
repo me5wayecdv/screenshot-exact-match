@@ -157,6 +157,9 @@ const dict = {
     feature3: "نتائج واضحة للطالب",
     feature3b: "درجات وملاحظات تُنشر فقط بعد اعتماد المعلم.",
     loading: "جارٍ التحميل…",
+    sessionLoadFailed: "تعذر تحميل حسابك",
+    sessionLoadHelp: "حاول مرة أخرى. لو استمرت المشكلة، سجل الدخول من جديد.",
+    sessionRetry: "حاول مرة أخرى",
     save: "حفظ",
     saving: "جارٍ الحفظ…",
     cancel: "إلغاء",
@@ -1108,6 +1111,9 @@ const dict = {
     feature3: "Clear results for students",
     feature3b: "Scores and feedback are shown only after teacher release.",
     loading: "Loading…",
+    sessionLoadFailed: "Could not load your account",
+    sessionLoadHelp: "Try again. If the problem continues, sign in again.",
+    sessionRetry: "Try again",
     save: "Save",
     saving: "Saving…",
     cancel: "Cancel",
@@ -2340,4 +2346,4 @@ export function formatDate(d: string | null | undefined, lang: Lang) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(d));
-}
+    }
