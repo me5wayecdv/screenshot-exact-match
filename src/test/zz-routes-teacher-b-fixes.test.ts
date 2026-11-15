@@ -466,6 +466,7 @@ describe("routes-teacher-b regression fixes", () => {
           id: "sub-1",
           assessment_id: "a-1",
           status: "submitted",
+          attempt_number: 1,
           final_score: null,
           total_possible: 10,
         },
@@ -473,6 +474,7 @@ describe("routes-teacher-b regression fixes", () => {
           id: "sub-2",
           assessment_id: "a-1",
           status: "in_progress",
+          attempt_number: 2,
           final_score: null,
           total_possible: 10,
         },
@@ -500,5 +502,63 @@ describe("routes-teacher-b regression fixes", () => {
     });
     // Both hero and assessment card should show continueAttempt because sub-2 is in_progress
     expect(screen.getAllByText("متابعة المحاولة").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("Dashboard shows the CURRENT attempt, not a stale released attempt 1", async () => {
+    const qc = makeQc();
+    qc.setQueryData(["me"], {
+      id: "stu-1",
+      email: "student@example.invalid",
+      fullName: "Student One",
+      role: "student",
+      joinCode: null,
+    });
+    vi.mocked(getStudentHomeD1).mockResolvedValue({
+      assessments: [
+        {
+          id: "a-1",
+          title: "Second Attempt Exam",
+          instructions: "",
+          status: "published",
+          starts_at: null,
+          due_at: null,
+        },
+      ],
+      hasMoreAssessments: false,
+      // Attempt 1 is released, attempt 2 is in review. The dashboard must
+      // reflect attempt 2 (awaiting result), never attempt 1's release.
+      submissions: [
+        {
+          id: "sub-1",
+          assessment_id: "a-1",
+          status: "released",
+          attempt_number: 1,
+          final_score: 10,
+          total_possible: 10,
+        },
+        {
+          id: "sub-2",
+          assessment_id: "a-1",
+          status: "awaiting_review",
+          attempt_number: 2,
+          final_score: null,
+          total_possible: 10,
+        },
+      ],
+      lessons: [],
+      hasMoreLessons: false,
+      parentContact: null,
+      teacherLinks: 1,
+      myName: "Student One",
+      pendingRows: [],
+      handwrittenGrades: [],
+    });
+
+    const DashboardComp = DashboardRoute.options.component!;
+    render(wrap(qc, createElement(DashboardComp)));
+
+    await screen.findByText("Second Attempt Exam");
+    await waitFor(() => expect(screen.getAllByText("بانتظار النتيجة").length).toBeGreaterThan(0));
+    expect(screen.queryByText("منشور للطالب")).not.toBeInTheDocument();
   });
 });

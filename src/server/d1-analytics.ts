@@ -26,6 +26,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import { requireNumber, requireObject, requireString, requireStringArray } from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -503,16 +504,24 @@ function ctxCaller(context: unknown): Caller {
 
 export const listAnalyticsAssessmentsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { page: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { page: requireNumber(input["page"], { integer: true, min: 0 }) };
+  })
   .handler(async ({ data, context }) =>
     listAnalyticsAssessments(ctxDb(context), ctxCaller(context), data.page),
   );
 
 export const getAnalyticsDetailD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) => data as { assessmentId: string; studentPage: number; groupPage: number },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      studentPage: requireNumber(input["studentPage"], { integer: true, min: 0 }),
+      groupPage: requireNumber(input["groupPage"], { integer: true, min: 0 }),
+    };
+  })
   .handler(async ({ data, context }) =>
     getAnalyticsDetail(
       ctxDb(context),
@@ -525,23 +534,37 @@ export const getAnalyticsDetailD1 = createServerFn({ method: "POST" })
 
 export const getAnalyticsOverviewD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentIds: string[] })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentIds: requireStringArray(input["assessmentIds"], 200) };
+  })
   .handler(async ({ data, context }) =>
     getAnalyticsOverview(ctxDb(context), ctxCaller(context), data.assessmentIds),
   );
 
 export const listAnalyticsStudentPageD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string; offset: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      offset: requireNumber(input["offset"], { integer: true, min: 0 }),
+    };
+  })
   .handler(async ({ data, context }) =>
     listAnalyticsStudentPage(ctxDb(context), ctxCaller(context), data.assessmentId, data.offset),
   );
 
 export const createPracticeDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) => data as { assessmentId: string; questionIds: string[]; title: string },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      questionIds: requireStringArray(input["questionIds"], 100),
+      title: requireString(input["title"], 200),
+    };
+  })
   .handler(async ({ data, context }) =>
     createPracticeDraft(ctxDb(context), ctxCaller(context), data),
   );

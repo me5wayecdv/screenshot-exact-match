@@ -21,14 +21,10 @@
  *   teacher review (the existing /assessments/$id flow) before
  *   anything is published or graded.
  *
- * NOT migrated here (owned by another workstream, left on its old
- * path): the AI generation call itself (src/lib/generate-assessment.ts)
- * and source OCR (src/server/source-ocr.ts) still run against
- * Supabase. This module is the D1 persistence those calls must use
- * once they migrate; the generate route's AI submit still goes
- * through the legacy call today, and that gap is reported, not
- * hidden. The route's direct Supabase calls (subjects query and
- * source upload) are migrated to the wrappers below.
+ * MIGRATION NOTE: the AI generation call (src/lib/generate-assessment.ts)
+ * and source OCR (src/server/source-ocr.ts) were migrated to D1 as
+ * well; this module is the D1 persistence they use, and the generate
+ * route no longer calls Supabase directly.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -37,6 +33,17 @@ import type { R2BucketLike } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { buildR2Key, r2Put, sourcesBucket } from "@/server/d1-r2";
+import {
+  compact,
+  invalidInput,
+  optionalString,
+  optionalStringArray,
+  requireEnum,
+  requireNumber,
+  requireObject,
+  requireString,
+  requireStringArray,
+} from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -138,6 +145,39 @@ export type SaveDraftInput = {
 const QUESTION_TYPES = new Set(["mcq", "true_false", "short_answer", "written"]);
 
 /**
+ * Validate a client-supplied draft payload at the boundary. The
+ * handler re-validates the content (marks range, prompt length, …);
+ * this guarantees the SHAPE, so a malformed payload fails with a
+ * translated INVALID_INPUT instead of a TypeError inside the handler.
+ */
+function parseSaveDraftInput(data: unknown): SaveDraftInput {
+  const input = requireObject(data);
+  const rawQuestions = input["questions"];
+  if (!Array.isArray(rawQuestions) || rawQuestions.length > 20) invalidInput();
+  const questions: GeneratedQuestionInput[] = rawQuestions.map((raw) => {
+    const q = requireObject(raw);
+    return compact({
+      type: requireEnum(q["type"], ["mcq", "true_false", "short_answer", "written"] as const),
+      prompt: requireString(q["prompt"], 10_000),
+      options: optionalStringArray(q["options"], 50) ?? [],
+      marks: requireNumber(q["marks"], { min: 0, max: 1000 }),
+      difficulty: optionalString(q["difficulty"], 50),
+      objective: optionalString(q["objective"], 500),
+      correctAnswer: optionalString(q["correctAnswer"], 5000) ?? "",
+      acceptedAlternatives: optionalStringArray(q["acceptedAlternatives"], 50),
+      rubric: optionalString(q["rubric"], 5000),
+      explanation: optionalString(q["explanation"], 5000),
+    });
+  });
+  return {
+    title: requireString(input["title"], 200),
+    subjectId: optionalString(input["subjectId"]) ?? null,
+    gradeLevel: optionalString(input["gradeLevel"], 100) ?? "",
+    questions,
+  };
+}
+
+/**
  * Persist a generated assessment as a DRAFT for teacher review.
  * Never publishes, never writes final grades. The subject, when
  * given, must exist (any teacher's subject, mirroring the old
@@ -150,7 +190,10 @@ export async function saveGeneratedDraft(
   input: SaveDraftInput,
 ): Promise<{ assessmentId: string; questionCount: number }> {
   requireTeacher(caller);
-  if (!input.title.trim()) throw new GenerationError("INVALID_INPUT");
+  const title = input.title.trim();
+  // Same 200-char cap the assessment editor enforces, so a generated
+  // draft cannot create a title the editor would refuse to save.
+  if (!title || title.length > 200) throw new GenerationError("INVALID_INPUT");
   if (input.questions.length < 1 || input.questions.length > 20) {
     throw new GenerationError("INVALID_INPUT");
   }
@@ -174,7 +217,7 @@ export async function saveGeneratedDraft(
           "(id, teacher_id, subject_id, title, grade_level, instructions, status) " +
           "VALUES (?, ?, ?, ?, ?, '', 'draft')",
       )
-      .bind(assessmentId, caller.id, input.subjectId, input.title.trim(), input.gradeLevel.trim()),
+      .bind(assessmentId, caller.id, input.subjectId, title, input.gradeLevel.trim()),
   ];
   input.questions.forEach((q, i) => {
     const questionId = crypto.randomUUID();
@@ -236,14 +279,20 @@ export const listSubjectsD1 = createServerFn({ method: "POST" })
 
 export const uploadGenerationSourceD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { dataUrl: string; fileName: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      dataUrl: requireString(input["dataUrl"], 12_000_000),
+      fileName: requireString(input["fileName"], 200),
+    };
+  })
   .handler(async ({ data, context }) =>
     uploadGenerationSource(ctxDb(context), ctxCaller(context), await sourcesBucket(), data),
   );
 
 export const saveGeneratedDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as SaveDraftInput)
+  .validator((data: unknown) => parseSaveDraftInput(data))
   .handler(async ({ data, context }) =>
     saveGeneratedDraft(ctxDb(context), ctxCaller(context), data),
   );

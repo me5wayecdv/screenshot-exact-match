@@ -49,15 +49,19 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { assertEmailConfigured, sendAuthEmail } from "@/server/d1-email";
-import {
-  createD1SecurityStore,
-  revokeAllSessions,
-  setPasswordHash,
-} from "@/server/d1-security-store";
+import { createD1SecurityStore, revokeAllSessions } from "@/server/d1-security-store";
 import { getRequest } from "@tanstack/react-start/server";
 import { EmailError } from "@/server/d1-email";
 import { issueSetPasswordInvitation } from "@/lib/cloudflare-security";
 import { hashPassword, type AccountStatus, type AuthSession } from "@/lib/cloudflare-auth";
+import {
+  compact,
+  optionalNumber,
+  optionalString,
+  requireEnum,
+  requireObject,
+  requireString,
+} from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -682,6 +686,14 @@ export function newTemporaryPassword(chars = 14): string {
  * to the user out-of-band. It is never logged, never stored, and
  * never appears in the audit row. The admin UI must show it once and
  * discard it; there is no way to retrieve it afterwards.
+ *
+ * ADMIN ACCOUNTS ARE EXCLUDED. A reset is a takeover: it replaces the
+ * target's password and kills its sessions. Allowing it on an admin
+ * account would let one admin take over another admin's account (and
+ * lock the real owner out) with no approval step — the same reason
+ * decideAccount refuses to decide an admin account. The exclusion is
+ * checked on read AND enforced in the write, so a role that becomes
+ * 'admin' between the two cannot slip through.
  */
 export async function resetUserPassword(
   db: D1Database,
@@ -691,14 +703,36 @@ export async function resetUserPassword(
   requireAdmin(caller);
   const target = await db
     .prepare(
-      "SELECT a.id, a.email, p.full_name FROM auth_users a " +
+      "SELECT a.id, a.email, p.full_name, r.role FROM auth_users a " +
+        "LEFT JOIN user_roles r ON r.user_id = a.id " +
         "LEFT JOIN profiles p ON p.id = a.id WHERE a.id = ?",
     )
     .bind(input.userId)
-    .first<{ id: string; email: string; full_name: string | null }>();
+    .first<{ id: string; email: string; full_name: string | null; role: string | null }>();
   if (!target) throw new AdminError("INVALID_INPUT");
+  if (target.role && normalizeRole(target.role) === "admin") {
+    throw new AdminError("INVALID_INPUT");
+  }
   const temporaryPassword = newTemporaryPassword();
-  await setPasswordHash(db, input.userId, await hashPassword(temporaryPassword));
+  // Guarded write: the NOT EXISTS clause is the real check. The read
+  // above is only a fast path for a clear error message.
+  const written = await db
+    .prepare(
+      "UPDATE auth_users SET password_hash = ? WHERE id = ? " +
+        "AND NOT EXISTS (SELECT 1 FROM user_roles r " +
+        "WHERE r.user_id = auth_users.id AND r.role = 'admin')",
+    )
+    .bind(await hashPassword(temporaryPassword), input.userId)
+    .run();
+  if (runChanges(written) === 0) {
+    // Nothing was written: the account vanished, or it became an admin
+    // account between the read and the write.
+    const now = await db
+      .prepare("SELECT role FROM user_roles WHERE user_id = ?")
+      .bind(input.userId)
+      .first<{ role: string }>();
+    if (!now || normalizeRole(now.role) === "admin") throw new AdminError("INVALID_INPUT");
+  }
   await revokeAllSessions(db, input.userId, new Date().toISOString());
   // Activity-feed label only: name/email of the reset account.
   // The temporary password itself is NEVER in the audit row.
@@ -715,26 +749,44 @@ export const getAdminCountsD1 = createServerFn({ method: "POST" })
 
 export const listAccountsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { page?: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { page: optionalNumber(input["page"], { integer: true, min: 0 }) };
+  })
   .handler(async ({ context, data }) =>
-    listAccounts(ctxDb(context), ctxCaller(context), data?.page ?? 0),
+    listAccounts(ctxDb(context), ctxCaller(context), data.page ?? 0),
   );
 
 export const decideAccountD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { userId: string; decision: AccountDecision })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      userId: requireString(input["userId"]),
+      decision: requireEnum(input["decision"], ["approved", "rejected"] as const),
+    };
+  })
   .handler(async ({ context, data }) => decideAccount(ctxDb(context), ctxCaller(context), data));
 
 export const resetUserPasswordD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { userId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { userId: requireString(input["userId"]) };
+  })
   .handler(async ({ context, data }) =>
     resetUserPassword(ctxDb(context), ctxCaller(context), data),
   );
 
 export const listSiteActivityD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { cursor?: string | null; limit?: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return compact({
+      cursor: optionalString(input["cursor"]) ?? null,
+      limit: optionalNumber(input["limit"], { integer: true, min: 1, max: 200 }),
+    });
+  })
   .handler(async ({ context, data }) =>
     listSiteActivity(ctxDb(context), ctxCaller(context), data ?? {}),
   );
@@ -751,9 +803,12 @@ export const listAuditLogD1 = createServerFn({ method: "POST" })
 
 export const listPasswordlessAccountsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { page?: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { page: optionalNumber(input["page"], { integer: true, min: 0 }) };
+  })
   .handler(async ({ context, data }) =>
-    listPasswordlessAccounts(ctxDb(context), ctxCaller(context), data?.page ?? 0),
+    listPasswordlessAccounts(ctxDb(context), ctxCaller(context), data.page ?? 0),
   );
 
 /**
@@ -765,7 +820,10 @@ export const listPasswordlessAccountsD1 = createServerFn({ method: "POST" })
  */
 export const createSetPasswordInvitationD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { email: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { email: requireString(input["email"], 320) };
+  })
   .handler(async ({ context, data }) => {
     requireAdmin(ctxCaller(context));
     await assertEmailConfigured();

@@ -37,6 +37,14 @@ import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { effectiveRole, notFound } from "@/server/d1-assessments";
 import { appendAuditLog } from "@/server/d1-admin";
+import {
+  invalidInput,
+  optionalNumber,
+  requireEnum,
+  requireNumber,
+  requireObject,
+  requireString,
+} from "@/server/validate";
 
 export type GradingSubmission = {
   id: string;
@@ -498,10 +506,14 @@ function ctx(context: unknown): { session: AuthSession; db: D1Database } {
 
 export const listGradingPageD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as { status: "awaiting_review" | "released"; offset: number; limit: number },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      status: requireEnum(input["status"], ["awaiting_review", "released"] as const),
+      offset: requireNumber(input["offset"], { integer: true, min: 0 }),
+      limit: requireNumber(input["limit"], { integer: true, min: 1, max: 200 }),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireSchoolTeacher(session);
@@ -510,7 +522,10 @@ export const listGradingPageD1 = createServerFn({ method: "POST" })
 
 export const getGradingDetailD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { submissionId: requireString(input["submissionId"]) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireSchoolTeacher(session);
@@ -519,10 +534,19 @@ export const getGradingDetailD1 = createServerFn({ method: "POST" })
 
 export const setAutoScoresD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as { submissionId: string; scores: { answerId: string; score: number }[] },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    const rawScores = input["scores"];
+    if (!Array.isArray(rawScores) || rawScores.length > 200) invalidInput();
+    const scores = rawScores.map((raw) => {
+      const row = requireObject(raw);
+      return {
+        answerId: requireString(row["answerId"]),
+        score: requireNumber(row["score"]),
+      };
+    });
+    return { submissionId: requireString(input["submissionId"]), scores };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireSchoolTeacher(session);
@@ -532,15 +556,15 @@ export const setAutoScoresD1 = createServerFn({ method: "POST" })
 
 export const reviewAnswerD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as {
-        answerId: string;
-        score: number | null;
-        feedback: string;
-        decision: "approve" | "reject";
-      },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      answerId: requireString(input["answerId"]),
+      score: optionalNumber(input["score"]) ?? null,
+      feedback: requireString(input["feedback"], 5000),
+      decision: requireEnum(input["decision"], ["approve", "reject"] as const),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireSchoolTeacher(session);
@@ -550,7 +574,13 @@ export const reviewAnswerD1 = createServerFn({ method: "POST" })
 
 export const releaseSubmissionD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string; feedback: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      feedback: requireString(input["feedback"], 5000),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireSchoolTeacher(session);

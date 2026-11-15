@@ -37,6 +37,16 @@ import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { isValidEgyptianMobile, normalizePhoneInput } from "@/lib/whatsapp";
+import {
+  compact,
+  invalidInput,
+  optionalString,
+  requireBoolean,
+  requireEnum,
+  requireObject,
+  requireString,
+  requireStringArray,
+} from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -557,35 +567,57 @@ export async function recordIntegrityEvents(
 
 export const getAssessmentReportD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ data, context }) =>
     getAssessmentReport(ctxDb(context), ctxCaller(context), data.assessmentId),
   );
 
 export const listReportQuestionsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ data, context }) =>
     listReportQuestions(ctxDb(context), ctxCaller(context), data.assessmentId),
   );
 
 export const getIntegritySummaryD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string; assessmentId?: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      assessmentId: optionalString(input["assessmentId"]),
+    };
+  })
   .handler(async ({ data, context }) =>
     getIntegritySummary(ctxDb(context), ctxCaller(context), data.submissionId, data.assessmentId),
   );
 
 export const getParentContactD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { studentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { studentId: requireString(input["studentId"]) };
+  })
   .handler(async ({ data, context }) =>
     getParentContact(ctxDb(context), ctxCaller(context), data.studentId),
   );
 
 export const updateParentContactD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { studentId: string; phone: string; consent: boolean })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      studentId: requireString(input["studentId"]),
+      phone: requireString(input["phone"], 40),
+      consent: requireBoolean(input["consent"]),
+    };
+  })
   .handler(async ({ data, context }) =>
     updateParentContact(
       ctxDb(context),
@@ -598,21 +630,33 @@ export const updateParentContactD1 = createServerFn({ method: "POST" })
 
 export const setAutoWhatsAppSendD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string; on: boolean })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      on: requireBoolean(input["on"]),
+    };
+  })
   .handler(async ({ data, context }) =>
     setAutoWhatsAppSend(ctxDb(context), ctxCaller(context), data.assessmentId, data.on),
   );
 
 export const listWhatsAppSendsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { submissionId: requireString(input["submissionId"]) };
+  })
   .handler(async ({ data, context }) =>
     listWhatsAppSends(ctxDb(context), ctxCaller(context), data.submissionId),
   );
 
 export const listWhatsAppStudentNamesD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { studentIds: string[] })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { studentIds: requireStringArray(input["studentIds"], 500) };
+  })
   .handler(async ({ data, context }) =>
     listWhatsAppStudentNames(ctxDb(context), ctxCaller(context), data.studentIds),
   );
@@ -639,7 +683,13 @@ export const getWhatsAppConfiguredD1 = createServerFn({ method: "POST" })
  */
 export const sendWhatsAppReportD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string; trigger: "manual" | "auto" })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      trigger: requireEnum(input["trigger"], ["manual", "auto"] as const),
+    };
+  })
   .handler(
     async (): Promise<{
       ok: boolean;
@@ -652,9 +702,20 @@ export const sendWhatsAppReportD1 = createServerFn({ method: "POST" })
 
 export const recordIntegrityEventsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) => data as { submissionId: string; events: BufferedIntegrityEventInput[] },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    const rawEvents = input["events"];
+    if (!Array.isArray(rawEvents) || rawEvents.length > 500) invalidInput();
+    const events = rawEvents.map((raw) => {
+      const event = requireObject(raw);
+      return {
+        event_type: requireString(event["event_type"], 100),
+        question_id: optionalString(event["question_id"]) ?? null,
+        created_at: requireString(event["created_at"], 40),
+      };
+    });
+    return { submissionId: requireString(input["submissionId"]), events };
+  })
   .handler(async ({ data, context }) =>
     recordIntegrityEvents(ctxDb(context), ctxCaller(context), data.submissionId, data.events),
   );

@@ -34,6 +34,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import { requireObject, requireString } from "@/server/validate";
 
 export const WHATSAPP_RECLAIM_MINUTES = 15;
 
@@ -127,6 +128,15 @@ export type WhatsappFinishInput = {
  * Finish a claimed send: writes the whatsapp_sends audit row and
  * completes (or, for a retryable failure, releases) the claim.
  * Returns false when there is no uncompleted claim to finish.
+ *
+ * The claim is re-checked INSIDE the insert, not only before the
+ * batch. Two concurrent finishes both pass a pre-batch SELECT, and
+ * whatsapp_sends is keyed on its own id, so an unconditional INSERT
+ * wrote two "sent" audit rows for one send — the `completed = 0`
+ * guard on the release only stopped the second claim update. The
+ * INSERT..SELECT..WHERE EXISTS form makes the audit row itself
+ * conditional on the claim still being open, so exactly one caller
+ * can write it; the loser writes 0 rows and reports false.
  */
 export async function finishWhatsappSend(
   db: D1Database,
@@ -142,19 +152,12 @@ export async function finishWhatsappSend(
   if (!["manual", "auto"].includes(input.trigger)) {
     throw new WhatsappClaimError("INVALID_SEND");
   }
-  const claim = await db
-    .prepare(
-      "SELECT submission_id FROM whatsapp_send_claims " +
-        "WHERE submission_id = ? AND completed = 0",
-    )
-    .bind(submissionId)
-    .first<{ submission_id: string }>();
-  if (!claim) return false;
   const audit = db
     .prepare(
       "INSERT INTO whatsapp_sends " +
         "(id, submission_id, trigger, status, message_id, error, sent_at) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (" +
+        "SELECT 1 FROM whatsapp_send_claims WHERE submission_id = ? AND completed = 0)",
     )
     .bind(
       crypto.randomUUID(),
@@ -164,6 +167,7 @@ export async function finishWhatsappSend(
       input.messageId ?? null,
       input.error ? input.error.slice(0, 500) : null,
       nowIso,
+      submissionId,
     );
   const release =
     input.status === "sent" || !input.retryable
@@ -176,12 +180,19 @@ export async function finishWhatsappSend(
       : db
           .prepare("DELETE FROM whatsapp_send_claims WHERE submission_id = ? AND completed = 0")
           .bind(submissionId);
-  if (db.batch) await db.batch([audit, release]);
-  else {
-    await audit.run();
-    await release.run();
+  let auditChanges: number;
+  if (db.batch) {
+    // batch() is typed Promise<unknown> in the local binding interface;
+    // the first result is the audit INSERT's own D1Result.
+    const results = (await db.batch([audit, release])) as unknown[];
+    auditChanges = runChanges(results[0]);
+  } else {
+    // No batch (test fakes / minimal bindings): insert first, then
+    // release. The claim check still lives inside the insert.
+    auditChanges = runChanges(await audit.run());
+    if (auditChanges > 0) await release.run();
   }
-  return true;
+  return auditChanges === 1;
 }
 
 function ctxSession(context: unknown): AuthSession {
@@ -198,7 +209,10 @@ function ctxDb(context: unknown): D1Database {
  */
 export const claimWhatsappSendD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { submissionId: requireString(input["submissionId"]) };
+  })
   .handler(async ({ data, context }): Promise<{ claimed: boolean }> => {
     const session = ctxSession(context);
     return { claimed: await claimWhatsappSend(ctxDb(context), session.userId, data.submissionId) };

@@ -294,6 +294,16 @@ function reviewsDb() {
     ["req-1", { teacher_id: "teacher-1", student_id: "student-1" }],
     ["req-2", { teacher_id: "teacher-2", student_id: "student-2" }],
   ]);
+  // Requests filed through submitReviewRequest, with the fields the
+  // duplicate guard needs (submission + question + status).
+  const filed: {
+    id: string;
+    submission_id: string;
+    question_id: string | null;
+    teacher_id: string;
+    student_id: string;
+    status: string;
+  }[] = [];
   const db = fakeDb((sql, params) => {
     if (sql.includes("FROM submissions WHERE id")) {
       const s = submissions.get(params[0] as string);
@@ -311,12 +321,39 @@ function reviewsDb() {
       const a = questions.get(params[0] as string);
       return { first: a ? { assessment_id: a } : null };
     }
-    if (sql.includes("INSERT INTO grade_review_requests")) return { changes: 1 };
+    if (sql.includes("INSERT INTO grade_review_requests")) {
+      // The insert is conditional on no other open request for the same
+      // (submission, question). Model that here.
+      const submissionId = params[1] as string;
+      const questionId = (params[2] ?? null) as string | null;
+      const duplicate = filed.some(
+        (r) =>
+          r.submission_id === submissionId &&
+          r.question_id === questionId &&
+          r.status !== "resolved",
+      );
+      if (duplicate) return { changes: 0 };
+      filed.push({
+        id: params[0] as string,
+        submission_id: submissionId,
+        question_id: questionId,
+        teacher_id: params[4] as string,
+        student_id: params[3] as string,
+        status: "open",
+      });
+      return { changes: 1 };
+    }
     if (sql.includes("FROM grade_review_requests WHERE id")) {
       const r = requests.get(params[0] as string);
-      return { first: r ? { teacher_id: r.teacher_id } : null };
+      const f = filed.find((x) => x.id === params[0]);
+      return { first: r ? { teacher_id: r.teacher_id } : f ? { teacher_id: f.teacher_id } : null };
     }
-    if (sql.includes("UPDATE grade_review_requests")) return { changes: 1 };
+    if (sql.includes("UPDATE grade_review_requests")) {
+      // UPDATE binds (response, resolved_at, request_id).
+      const f = filed.find((x) => x.id === params[2]);
+      if (f) f.status = "resolved";
+      return { changes: 1 };
+    }
     if (sql.includes("FROM grade_review_requests") && sql.includes("ORDER BY")) {
       const col = sql.includes("WHERE student_id") ? "student_id" : "teacher_id";
       const rows = [...requests.entries()]
@@ -326,7 +363,7 @@ function reviewsDb() {
     }
     return {};
   });
-  return db;
+  return Object.assign(db, { filed });
 }
 
 describe("D1 grade reviews", () => {
@@ -379,6 +416,49 @@ describe("D1 grade reviews", () => {
       message: "why?",
     });
     expect(typeof id).toBe("string");
+  });
+
+  it("files only ONE open request per question, and only one per submission", async () => {
+    const db = reviewsDb();
+    const first = await submitReviewRequest(db, STUDENT, {
+      submissionId: "sub-own",
+      questionId: "q-1",
+      message: "why?",
+    });
+    // A second request for the same question is refused: the teacher
+    // must not see the same question twice.
+    await expect(
+      submitReviewRequest(db, STUDENT, {
+        submissionId: "sub-own",
+        questionId: "q-1",
+        message: "again?",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(db.filed.filter((r) => r.question_id === "q-1")).toHaveLength(1);
+
+    // A whole-submission request (no question) is deduped too.
+    await submitReviewRequest(db, STUDENT, {
+      submissionId: "sub-own",
+      questionId: null,
+      message: "whole paper?",
+    });
+    await expect(
+      submitReviewRequest(db, STUDENT, {
+        submissionId: "sub-own",
+        questionId: null,
+        message: "whole paper again?",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(db.filed.filter((r) => r.question_id === null)).toHaveLength(1);
+
+    // Once the teacher resolved it, the student may ask again.
+    await resolveReviewRequest(db, TEACHER, first.id, "explained");
+    const again = await submitReviewRequest(db, STUDENT, {
+      submissionId: "sub-own",
+      questionId: "q-1",
+      message: "thanks, one more thing",
+    });
+    expect(again.id).not.toBe(first.id);
   });
 
   it("only the owning teacher can resolve a request", async () => {

@@ -51,6 +51,13 @@ import type { D1Database } from "@/server/d1-auth-store";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { appendAuditLog } from "@/server/d1-admin";
+import {
+  optionalString,
+  optionalStringArray,
+  requireBoolean,
+  requireObject,
+  requireString,
+} from "@/server/validate";
 
 export type TeacherRole = "school_teacher" | "tutor";
 
@@ -59,6 +66,28 @@ export class GroupError extends Error {
     super(code);
     this.name = "GroupError";
   }
+}
+
+/**
+ * True only for a join-code UNIQUE violation on teacher_groups.
+ *
+ * The code-generation retry loop must retry ONLY this failure: D1
+ * reports every other write error (NOT NULL, CHECK, FK, overloaded,
+ * unavailable) through the same thrown Error, and retrying those with
+ * a fresh code cannot possibly succeed — it just burns 10 queries and
+ * then misreports a real failure as `group_code_unavailable`, sending
+ * the teacher after a collision that does not exist. Mirrors the
+ * pattern in src/server/d1-lessons.ts.
+ */
+function isGroupJoinCodeClash(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /UNIQUE constraint failed:\s*teacher_groups\.join_code/i.test(message);
+}
+
+/** D1 reports rows written on `meta.changes`; 1 = claimed, 0 = someone else won. */
+function runGroupChanges(result: unknown): number {
+  const meta = (result as { meta?: { changes?: number } } | null)?.meta;
+  return typeof meta?.changes === "number" ? meta.changes : 0;
 }
 
 export function normalizeGroupRole(role: string): string {
@@ -175,13 +204,44 @@ function newGroupCode(): string {
     .toUpperCase();
 }
 
+/** Trim a client-supplied field without assuming it is a string. */
+function text(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * Validate a client-supplied group payload at the server-function
+ * boundary. Every field is checked for its real type: the old bare
+ * cast let a non-array `days` or a numeric `name` through to the
+ * handler, where it became a TypeError (a 500) instead of a
+ * translated INVALID_INPUT.
+ */
+function parseGroupInput(data: unknown): GroupInput {
+  const input = requireObject(data);
+  return {
+    name: requireString(input["name"], 200),
+    year: optionalString(input["year"], 100) ?? "",
+    days: optionalStringArray(input["days"], 20) ?? [],
+    time: optionalString(input["time"], 100) ?? "",
+    notes: optionalString(input["notes"], 2000) ?? "",
+  };
+}
+
+/**
+ * Normalise a group payload. Every field is coerced rather than
+ * assumed: the server-function wrappers use bare-cast validators, so a
+ * partial or wrongly-typed payload must land on a typed GroupError
+ * (`name_required`) instead of a TypeError from `.trim()` on undefined.
+ */
 function clean(input: GroupInput): GroupInput {
   return {
-    name: input.name.trim(),
-    year: input.year.trim(),
-    days: input.days ?? [],
-    time: input.time.trim(),
-    notes: input.notes.trim(),
+    name: text(input?.name),
+    year: text(input?.year),
+    days: Array.isArray(input?.days)
+      ? input["days"].filter((d): d is string => typeof d === "string")
+      : [],
+    time: text(input?.time),
+    notes: text(input?.notes),
   };
 }
 
@@ -242,7 +302,7 @@ export async function createTeacherGroup(
 ): Promise<string> {
   assertTeacher(role);
   const data = clean(input);
-  if (data.name === "") throw new GroupError("invalid_student");
+  if (data.name === "") throw new GroupError("name_required");
   const groupId = crypto.randomUUID();
   let inserted = false;
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -271,9 +331,11 @@ export async function createTeacherGroup(
         .run();
       inserted = true;
       break;
-    } catch {
-      // UNIQUE clash racing the check above: retry with a fresh code.
-      continue;
+    } catch (error) {
+      // ONLY a join_code UNIQUE clash (racing the check above) is
+      // retryable. Anything else is a real failure and must surface
+      // as itself, not as "the code could not be generated".
+      if (!isGroupJoinCodeClash(error)) throw error;
     }
   }
   if (!inserted) {
@@ -296,7 +358,7 @@ export async function updateTeacherGroup(
 ): Promise<boolean> {
   assertTeacher(role);
   const data = clean(input);
-  if (data.name === "") throw new GroupError("invalid_student");
+  if (data.name === "") throw new GroupError("name_required");
   await assertOwner(db, groupId, teacherId);
   await db
     .prepare(
@@ -656,6 +718,23 @@ export async function decideGroupMembership(
 /**
  * Old RPC: approve_all_group_members (20261104090000 body).
  * Returns the number of pending members approved (0 when none).
+ *
+ * ORDER MATTERS. Members are approved ONE AT A TIME, and each one's
+ * teacher link and exam assignments are written BEFORE its
+ * group_members row is flipped to 'approved':
+ *
+ * - Reading the pending snapshot first and then bulk-UPDATING it (the
+ *   previous shape) let a request arriving between the SELECT and the
+ *   UPDATE be approved with no teacher_students link and no exam
+ *   assignments — the student saw the group but no work.
+ * - Doing the side effects after the bulk UPDATE also made the loop
+ *   non-recoverable: a failure partway left members approved but
+ *   unlinked, and re-running "approve all" found zero pending rows and
+ *   returned 0, so the damage was never repaired.
+ *
+ * With this order a failure leaves the member still 'pending', so the
+ * teacher can simply press the button again. The returned count is
+ * derived from the rows actually claimed, never from a stale snapshot.
  */
 export async function approveAllGroupMembers(
   db: D1Database,
@@ -672,16 +751,24 @@ export async function approveAllGroupMembers(
     .all<{ student_id: string }>();
   const students = (pending ?? []).map((r) => r.student_id);
   if (students.length === 0) return 0;
-  await db
-    .prepare(
-      "UPDATE group_members SET status = 'approved', decided_at = ? WHERE group_id = ? AND status = 'pending'",
-    )
-    .bind(nowIso, groupId)
-    .run();
+  let approved = 0;
   for (const studentId of students) {
+    // Side effects first: if any of these fail the member stays
+    // pending and a retry redoes the whole set idempotently.
     await approveTeacherLink(db, teacherId, studentId, nowIso);
     await assignOpenExamsToStudent(db, teacherId, studentId, nowIso);
     await assignGroupExamsToStudent(db, groupId, studentId);
+    // Claim this member atomically. A concurrent decision that already
+    // resolved the request makes this change 0 rows, and the member is
+    // not counted twice.
+    const result = await db
+      .prepare(
+        "UPDATE group_members SET status = 'approved', decided_at = ? " +
+          "WHERE group_id = ? AND student_id = ? AND status = 'pending'",
+      )
+      .bind(nowIso, groupId, studentId)
+      .run();
+    if (runGroupChanges(result) === 1) approved += 1;
   }
   await db
     .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
@@ -689,10 +776,10 @@ export async function approveAllGroupMembers(
       teacherId,
       "group_membership_approve_all",
       null,
-      JSON.stringify({ approved: students.length, group_id: groupId }),
+      JSON.stringify({ approved, group_id: groupId }),
     )
     .run();
-  return students.length;
+  return approved;
 }
 
 // ------------------------------------------------------- server functions ---
@@ -715,7 +802,10 @@ export const getTeacherGroupsD1 = createServerFn({ method: "POST" })
 
 export const getGroupRosterD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { groupId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { groupId: requireString(input["groupId"]) };
+  })
   .handler(async ({ context, data }): Promise<RosterRow[]> => {
     const { teacherId, role, db } = teacherCtx(context);
     return getGroupRoster(db, teacherId, role, data.groupId);
@@ -723,7 +813,7 @@ export const getGroupRosterD1 = createServerFn({ method: "POST" })
 
 export const createTeacherGroupD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as GroupInput)
+  .validator((data: unknown) => parseGroupInput(data))
   .handler(async ({ context, data }): Promise<{ groupId: string }> => {
     const { teacherId, role, db } = teacherCtx(context);
     return { groupId: await createTeacherGroup(db, teacherId, role, data) };
@@ -731,7 +821,10 @@ export const createTeacherGroupD1 = createServerFn({ method: "POST" })
 
 export const updateTeacherGroupD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as GroupInput & { groupId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { ...parseGroupInput(input), groupId: requireString(input["groupId"]) };
+  })
   .handler(async ({ context, data }): Promise<{ ok: boolean }> => {
     const { teacherId, role, db } = teacherCtx(context);
     await updateTeacherGroup(db, teacherId, role, data.groupId, data);
@@ -740,7 +833,10 @@ export const updateTeacherGroupD1 = createServerFn({ method: "POST" })
 
 export const deleteTeacherGroupD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { groupId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { groupId: requireString(input["groupId"]) };
+  })
   .handler(async ({ context, data }): Promise<{ ok: boolean }> => {
     const { teacherId, role, db } = teacherCtx(context);
     await deleteTeacherGroup(db, teacherId, role, data.groupId);
@@ -769,7 +865,10 @@ export const getPendingGroupRequestsD1 = createServerFn({ method: "POST" })
 
 export const joinGroupD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { code: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { code: requireString(input["code"], 32) };
+  })
   .handler(async ({ context, data }): Promise<{ groupId: string }> => {
     const { session, db } = context as Ctx;
     return { groupId: await joinGroup(db, session.userId, session.role, data.code) };
@@ -777,7 +876,14 @@ export const joinGroupD1 = createServerFn({ method: "POST" })
 
 export const decideGroupMembershipD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { groupId: string; studentId: string; approve: boolean })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      groupId: requireString(input["groupId"]),
+      studentId: requireString(input["studentId"]),
+      approve: requireBoolean(input["approve"]),
+    };
+  })
   .handler(async ({ context, data }): Promise<{ decision: string }> => {
     const { teacherId, role, db } = teacherCtx(context);
     return {
@@ -794,7 +900,10 @@ export const decideGroupMembershipD1 = createServerFn({ method: "POST" })
 
 export const approveAllGroupMembersD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { groupId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { groupId: requireString(input["groupId"]) };
+  })
   .handler(async ({ context, data }): Promise<{ count: number }> => {
     const { teacherId, role, db } = teacherCtx(context);
     return { count: await approveAllGroupMembers(db, teacherId, role, data.groupId) };

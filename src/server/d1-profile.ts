@@ -20,6 +20,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import { requireObject, requireString } from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -110,14 +111,20 @@ export const getMyProfileExtraD1 = createServerFn({ method: "POST" })
 
 export const updateMyFullNameD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { fullName: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { fullName: requireString(input["fullName"], 200) };
+  })
   .handler(async ({ data, context }) =>
     updateMyFullName(ctxDb(context), ctxCaller(context), data.fullName),
   );
 
 export const updateMySubjectD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { subjectsText: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { subjectsText: requireString(input["subjectsText"], 500) };
+  })
   .handler(async ({ data, context }) =>
     updateMySubject(ctxDb(context), ctxCaller(context), data.subjectsText),
   );

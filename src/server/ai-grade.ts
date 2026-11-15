@@ -440,7 +440,6 @@ export const suggestGrade = createServerFn({ method: "POST" })
         studentAnswer: effectiveRequest.studentAnswer,
         maxMarks: effectiveRequest.maxMarks,
       },
-      undefined,
       async (event) => {
         usageEvent = event;
       },

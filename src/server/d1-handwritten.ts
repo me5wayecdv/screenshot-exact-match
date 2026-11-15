@@ -41,6 +41,15 @@ import type { AuthSession } from "@/lib/cloudflare-auth";
 import { suggestGradeWithAi, type AiGradeSuggestion } from "./ai-client";
 import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import {
+  compact,
+  optionalNumber,
+  optionalString,
+  optionalStringArray,
+  requireNumber,
+  requireObject,
+  requireString,
+} from "@/server/validate";
+import {
   buildR2Key,
   papersBucket,
   r2Delete,
@@ -76,6 +85,19 @@ export class HandwrittenError extends Error {
     super(message ?? code);
     this.name = "HandwrittenError";
   }
+}
+
+/**
+ * True only for a handwritten_grades primary-key collision.
+ *
+ * D1 reports every write failure through the same thrown Error, so the
+ * save path must distinguish "another request already saved this
+ * preview" (idempotent retry, return the id) from a real failure (must
+ * surface).
+ */
+function isHandwrittenIdClash(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /UNIQUE constraint failed:\s*handwritten_grades\.id/i.test(message);
 }
 
 function requireTeacher(caller: Caller): void {
@@ -367,6 +389,38 @@ export type SaveHandwrittenGradeInput = {
   teacherFeedback: string;
 };
 
+/**
+ * Validate a client-supplied handwritten-grade payload at the
+ * boundary. The handler used to trust the shape: a missing
+ * `maxMarks` reached the score comparison as undefined (NaN, so the
+ * grade silently failed later) and a non-string `correctedText`
+ * reached `.trim()` as a TypeError. Both are client mistakes, so both
+ * must be a translated INVALID_INPUT, not a 500.
+ */
+function parseSaveHandwrittenGradeInput(data: unknown): SaveHandwrittenGradeInput {
+  const input = requireObject(data);
+  return {
+    ...compact({
+      previewId: optionalString(input["previewId"], 500),
+      studentId: optionalString(input["studentId"]),
+      questionPrompt: optionalString(input["questionPrompt"], 10_000),
+      rubric: optionalString(input["rubric"], 5000),
+      acceptedAlternatives: optionalStringArray(input["acceptedAlternatives"], 50),
+    }),
+    assessmentId: optionalString(input["assessmentId"]) ?? null,
+    questionId: optionalString(input["questionId"]) ?? null,
+    studentName: requireString(input["studentName"], 200),
+    imagePath: optionalString(input["imagePath"], 500) ?? null,
+    extractedText: requireString(input["extractedText"], 100_000),
+    correctedText: requireString(input["correctedText"], 100_000),
+    aiSuggestedScore: optionalNumber(input["aiSuggestedScore"]) ?? null,
+    aiFeedback: optionalString(input["aiFeedback"], 5000) ?? null,
+    aiModel: optionalString(input["aiModel"], 200) ?? null,
+    maxMarks: requireNumber(input["maxMarks"], { min: 0, max: 1000 }),
+    teacherFeedback: requireString(input["teacherFeedback"], 5000),
+  };
+}
+
 /** Preview uses canonical server criteria once. Save accepts only that unexpired,
  * bound preview. Client-sent scores are ignored. The image key must belong
  * to the teacher. No new inference is made during Save.
@@ -576,7 +630,6 @@ export async function saveHandwrittenGrade(
         // per-request maxMarks, already bounded 1..1000 above.)
         maxMarks: effectiveMaxMarks,
       },
-      undefined,
       async (event) => {
         verifiedModel = event.model;
         await logAiUsageEvent(db, caller.id, {
@@ -704,7 +757,20 @@ export async function saveHandwrittenGrade(
       }),
     );
   if (!db.batch) throw new HandwrittenError("INVALID_INPUT", "Atomic save unavailable.");
-  await db.batch([grade, audit]);
+  try {
+    await db.batch([grade, audit]);
+  } catch (error) {
+    if (!isHandwrittenIdClash(error)) throw error;
+    // A concurrent save of the SAME preview won the insert. The payload
+    // is identical — the fingerprint check above ties this request to the
+    // same answer and grading criteria — so this is a retry, not a
+    // conflict: report success instead of a raw 500.
+    const raced = await db
+      .prepare("SELECT id FROM handwritten_grades WHERE id = ? AND teacher_id = ?")
+      .bind(id, caller.id)
+      .first<{ id: string }>();
+    if (!raced) throw error;
+  }
   return { id };
 }
 
@@ -769,7 +835,32 @@ export async function getHandwrittenPaper(
   let bin = "";
   const arr = new Uint8Array(bytes);
   for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]!);
-  return `data:image/jpeg;base64,${btoa(bin)}`;
+  // The key keeps the uploaded file name, so the browser is told the
+  // real type. Hardcoding image/jpeg mislabelled every PNG/WebP paper.
+  return `data:${paperMimeType(row.image_path)};base64,${btoa(bin)}`;
+}
+
+/** MIME type for a stored paper, from the extension kept in its R2 key. */
+function paperMimeType(key: string): string {
+  const ext = key.slice(key.lastIndexOf(".") + 1).toLowerCase();
+  switch (ext) {
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "gif":
+      return "image/gif";
+    case "heic":
+      return "image/heic";
+    case "heif":
+      return "image/heif";
+    case "avif":
+      return "image/avif";
+    case "jpg":
+    case "jpeg":
+    default:
+      return "image/jpeg";
+  }
 }
 
 /**
@@ -808,7 +899,10 @@ export const listHwAssessmentsD1 = createServerFn({ method: "POST" })
 
 export const listHwQuestionsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ data, context }) =>
     listHandwrittenQuestions(ctxDb(context), ctxCaller(context), data.assessmentId),
   );
@@ -825,14 +919,20 @@ export const listHwHistoryD1 = createServerFn({ method: "POST" })
 
 export const uploadHwPaperD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { dataUrl: string; fileName: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      dataUrl: requireString(input["dataUrl"], 12_000_000),
+      fileName: requireString(input["fileName"], 200),
+    };
+  })
   .handler(async ({ data, context }) =>
     uploadHandwrittenPaper(ctxDb(context), ctxCaller(context), await papersBucket(), data),
   );
 
 export const previewHwGradeD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as SaveHandwrittenGradeInput)
+  .validator((data: unknown) => parseSaveHandwrittenGradeInput(data))
   .handler(async ({ data, context }) => {
     const preview = await saveHandwrittenGrade(ctxDb(context), ctxCaller(context), data, {
       preview: true,
@@ -843,28 +943,37 @@ export const previewHwGradeD1 = createServerFn({ method: "POST" })
 
 export const saveHwGradeD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as SaveHandwrittenGradeInput)
+  .validator((data: unknown) => parseSaveHandwrittenGradeInput(data))
   .handler(async ({ data, context }) =>
     saveHandwrittenGrade(ctxDb(context), ctxCaller(context), data),
   );
 
 export const deleteHwGradeD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { gradeId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { gradeId: requireString(input["gradeId"]) };
+  })
   .handler(async ({ data, context }) =>
     deleteHandwrittenGrade(ctxDb(context), ctxCaller(context), await papersBucket(), data.gradeId),
   );
 
 export const deleteHwPaperD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { key: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { key: requireString(input["key"], 500) };
+  })
   .handler(async ({ data, context }) =>
     deleteHandwrittenPaper(ctxDb(context), ctxCaller(context), await papersBucket(), data.key),
   );
 
 export const getHwPaperD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { gradeId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { gradeId: requireString(input["gradeId"]) };
+  })
   .handler(async ({ data, context }) =>
     getHandwrittenPaper(ctxDb(context), ctxCaller(context), await papersBucket(), data.gradeId),
   );

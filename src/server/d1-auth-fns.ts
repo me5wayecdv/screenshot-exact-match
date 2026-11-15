@@ -52,6 +52,7 @@ import { validateSignInInput, validateSignUpInput } from "@/lib/validation";
 import { getMeData, parseSessionCookie, requireCloudflareAuth } from "@/server/d1-session";
 import { assertEmailConfigured, sendAuthEmail, EmailError } from "@/server/d1-email";
 import type { D1Database } from "@/server/d1-auth-store";
+import { requireObject, requireString } from "@/server/validate";
 
 // NOTE: this module is imported by client routes, so it must export
 // ONLY server functions (plus types). Plain exported helpers that use
@@ -206,7 +207,10 @@ export const getMeD1 = createServerFn({ method: "POST" })
  * The token is deliberately NOT returned — see the header note.
  */
 export const requestPasswordResetD1 = createServerFn({ method: "POST" })
-  .validator((data: unknown) => data as { email: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { email: requireString(input["email"], 320) };
+  })
   .handler(async ({ data }) => {
     await assertEmailConfigured();
     const db = await getD1Async();
@@ -228,7 +232,13 @@ export const requestPasswordResetD1 = createServerFn({ method: "POST" })
   });
 
 export const consumePasswordResetD1 = createServerFn({ method: "POST" })
-  .validator((data: unknown) => data as { token: string; newPassword: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      token: requireString(input["token"], 500),
+      newPassword: requireString(input["newPassword"], 200),
+    };
+  })
   .handler(async ({ data }) => {
     const db = await getD1Async();
     await consumePasswordResetToken(securityStore(db), {
@@ -240,7 +250,14 @@ export const consumePasswordResetD1 = createServerFn({ method: "POST" })
 
 export const createAdminD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { email: string; password: string; fullName: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      email: requireString(input["email"], 320),
+      password: requireString(input["password"], 200),
+      fullName: requireString(input["fullName"], 200),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = context as { session: AuthSession; db: D1Database };
     requireRole(session, ["admin"]);

@@ -45,6 +45,7 @@ import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { decideGroupMembership } from "@/server/d1-groups";
 import { appendAuditLog } from "@/server/d1-admin";
+import { requireBoolean, requireObject, requireString } from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -326,7 +327,13 @@ export const listStudentRosterD1 = createServerFn({ method: "POST" })
 
 export const decideEnrollmentD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { studentId: string; approve: boolean })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      studentId: requireString(input["studentId"]),
+      approve: requireBoolean(input["approve"]),
+    };
+  })
   .handler(async ({ data, context }) =>
     decideEnrollment(ctxDb(context), ctxCaller(context), data.studentId, data.approve),
   );
@@ -338,7 +345,10 @@ export const approveAllEnrollmentsD1 = createServerFn({ method: "POST" })
 
 export const removeStudentD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { studentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { studentId: requireString(input["studentId"]) };
+  })
   .handler(async ({ data, context }) =>
     removeStudent(ctxDb(context), ctxCaller(context), data.studentId),
   );

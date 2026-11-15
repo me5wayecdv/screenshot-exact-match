@@ -25,13 +25,10 @@
  *   selects teacher_profiles, and no prompt builder in this file
  *   receives a subject. Keep that separation.
  *
- * NOT migrated here (owned by other workstreams, left on their old
- * path): the chat call (src/server/teacher-assistant.ts), lesson
- * explanation generation (src/server/lesson-explain.ts) and source
- * OCR (src/server/source-ocr.ts) still run against Supabase. The
- * assistant route's direct Supabase call (lesson-source upload) is
- * migrated to uploadLessonSourceD1 below; its chat/explain/OCR
- * calls stay legacy until those files migrate.
+ * MIGRATION NOTE: the chat call (src/server/teacher-assistant.ts),
+ * lesson explanation generation (src/server/lesson-explain.ts) and
+ * source OCR (src/server/source-ocr.ts) were migrated to D1 as well;
+ * the assistant route no longer calls Supabase directly.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -41,6 +38,7 @@ import { requireCloudflareAuth } from "@/server/d1-session";
 import { log } from "@/lib/logger";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { buildR2Key, r2Put, sourcesBucket } from "@/server/d1-r2";
+import { requireObject, requireString } from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -215,7 +213,13 @@ export const getAssistantOverviewD1 = createServerFn({ method: "POST" })
 
 export const uploadLessonSourceD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { dataUrl: string; fileName: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      dataUrl: requireString(input["dataUrl"], 12_000_000),
+      fileName: requireString(input["fileName"], 200),
+    };
+  })
   .handler(async ({ data, context }) =>
     uploadLessonSource(ctxDb(context), ctxCaller(context), await sourcesBucket(), data),
   );
@@ -223,7 +227,10 @@ export const uploadLessonSourceD1 = createServerFn({ method: "POST" })
 /** Server wrapper for the drafts-only guard (refuses forbidden actions). */
 export const guardAssistantActionD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { action: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { action: requireString(input["action"], 100) };
+  })
   .handler(async ({ data }) => {
     assertAssistantActionAllowed(data.action);
     return { allowed: true };

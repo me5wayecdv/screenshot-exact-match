@@ -42,6 +42,7 @@ import type { AuthSession } from "@/lib/cloudflare-auth";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { GroupError, isGroupOwner, isTeacherRole } from "@/server/d1-groups";
 import { appendAuditLog } from "@/server/d1-admin";
+import { requireObject, requireString } from "@/server/validate";
 
 export type GroupExam = {
   assessmentId: string;
@@ -202,7 +203,10 @@ type Ctx = { session: AuthSession; db: D1Database };
 
 export const getGroupExamsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { groupId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { groupId: requireString(input["groupId"]) };
+  })
   .handler(async ({ context, data }): Promise<GroupExam[]> => {
     const { session, db } = context as Ctx;
     return listGroupExams(db, session.userId, data.groupId);
@@ -219,7 +223,13 @@ export const getTeacherAssessmentsD1 = createServerFn({ method: "POST" })
 
 export const assignGroupExamD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { groupId: string; assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      groupId: requireString(input["groupId"]),
+      assessmentId: requireString(input["assessmentId"]),
+    };
+  })
   .handler(async ({ context, data }): Promise<{ count: number }> => {
     const { session, db } = context as Ctx;
     if (!isTeacherRole(session.role)) throw new GroupError("not_teacher");

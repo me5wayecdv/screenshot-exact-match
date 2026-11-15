@@ -1,23 +1,20 @@
 /**
- * AI usage controls and measurement.
+ * AI usage measurement helpers.
  *
  * Billable call sites reserve weighted quota atomically through
- * consume_ai_rate_quota before contacting a provider. Calls also log one
- * row into public.ai_usage_events with the
- * acting user's id, the kind of call, the provider/model actually used,
- * and the token counts the provider reported (NULL when the provider
- * reports none, e.g. Cloudflare native run responses). Nothing in the
- * product reads this table for limits or pricing; it exists so real
- * unit cost per teacher can be measured before tiers are locked.
+ * src/server/d1-quota.ts (consumeAiQuota) before contacting a provider,
+ * and log one row into the D1 ai_usage_events table with the acting
+ * user's id, the kind of call, the provider/model actually used, and the
+ * token counts the provider reported (NULL when the provider reports
+ * none, e.g. Cloudflare native run responses). Nothing in the product
+ * reads this table for limits or pricing; it exists so real unit cost
+ * per teacher can be measured before tiers are locked.
  *
- * Logging is best-effort by construction: logAiUsage swallows every
- * error (bad env, network failure, RLS rejection) and never throws, so
- * a measurement failure can never fail a user-facing AI call. Call
- * sites await it (one small indexed insert) rather than floating it,
- * so the row is not lost when a Worker invocation ends.
+ * The Supabase era of this module (the client-based usage sink and the
+ * consume_ai_rate_quota RPC) is gone: every call site now uses the D1
+ * equivalents, so the dead Supabase exports were removed rather than
+ * left to rot.
  */
-
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export type AiUsageKind = "grade" | "generate" | "ocr" | "match" | "tutor" | "assistant";
 
@@ -31,12 +28,6 @@ export type AiUsageEvent = {
   provider: string;
   model: string;
   usage: AiTokenUsage;
-};
-
-/** Everything a call site needs to attribute one call to its caller. */
-export type AiUsageSink = {
-  client: SupabaseClient;
-  teacherId: string;
 };
 
 const NULL_USAGE: AiTokenUsage = { inputTokens: null, outputTokens: null };
@@ -87,51 +78,4 @@ export function extractGeminiUsage(payload: unknown): AiTokenUsage {
 /** Provider label for OpenAI-compatible text calls. */
 export function openAiProvider(baseUrl: string): string {
   return baseUrl.includes("api.cloudflare.com") ? "cloudflare-openai" : "openai-compatible";
-}
-
-/** User-token client for logging, mirroring the authorize() call sites. */
-export function createUsageClient(
-  url: string,
-  anonKey: string,
-  accessToken: string,
-): SupabaseClient {
-  return createClient(url, anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
-
-/**
- * Atomically reserve weighted quota before a billable provider request.
- * Fail closed when the RPC is unavailable; the upstream AI must not run.
- */
-export async function consumeAiRateQuota(client: SupabaseClient, units = 1): Promise<boolean> {
-  try {
-    if (!Number.isInteger(units) || units < 1 || units > 20) return false;
-    const { data, error } = await client.rpc("consume_ai_rate_quota", { _units: units });
-    return !error && data === true;
-  } catch {
-    // Fail closed: never call a billable provider when quota enforcement is unavailable.
-    return false;
-  }
-}
-
-export async function logAiUsage(
-  client: SupabaseClient,
-  teacherId: string,
-  event: AiUsageEvent,
-): Promise<void> {
-  try {
-    if (!teacherId) return;
-    await client.from("ai_usage_events").insert({
-      teacher_id: teacherId,
-      kind: event.kind,
-      provider: event.provider,
-      model: event.model,
-      input_tokens: event.usage.inputTokens,
-      output_tokens: event.usage.outputTokens,
-    });
-  } catch {
-    // Measurement only: never fail the user-facing call.
-  }
 }

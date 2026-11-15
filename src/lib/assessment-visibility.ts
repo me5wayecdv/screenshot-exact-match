@@ -54,3 +54,36 @@ export function studentAssessmentState({
   }
   return "available";
 }
+
+export type StudentSubmissionRef = {
+  status: string;
+  attempt_number?: number;
+};
+
+/**
+ * The ONE submission row the student dashboard should reflect for an
+ * assessment that can have several attempts.
+ *
+ * It must be the CURRENT attempt, never an older one. The previous
+ * selection (`in_progress` -> `released` -> last array element) had two
+ * faults: the SQL had no ORDER BY, so "last element" was arbitrary; and
+ * preferring any `released` row meant that once attempt 1 was released,
+ * a newer attempt 2 sitting in `awaiting_review` (or `in_progress`) was
+ * hidden behind attempt 1's finished "released" state and score — the
+ * student saw a result for work they had not had returned, and lost the
+ * "continue attempt" affordance.
+ *
+ * An open draft always wins (it is the attempt the student can resume).
+ * Otherwise it is the highest attempt number, which is why the caller
+ * must pass rows that carry `attempt_number`.
+ */
+export function currentStudentSubmission<T extends StudentSubmissionRef>(
+  submissions: readonly T[],
+): T | null {
+  if (submissions.length === 0) return null;
+  const draft = submissions.find((s) => s.status === "in_progress");
+  if (draft) return draft;
+  return submissions.reduce((best, s) =>
+    (s.attempt_number ?? 0) > (best.attempt_number ?? 0) ? s : best,
+  );
+}

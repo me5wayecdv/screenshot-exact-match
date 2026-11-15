@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { studentAssessmentState } from "@/lib/assessment-visibility";
+import { currentStudentSubmission, studentAssessmentState } from "@/lib/assessment-visibility";
 
 const now = new Date("2026-11-02T10:00:00Z");
 
@@ -53,5 +53,43 @@ describe("studentAssessmentState", () => {
         now,
       }),
     ).toBe("in_progress");
+  });
+});
+
+describe("currentStudentSubmission", () => {
+  it("returns null when the student has no attempt", () => {
+    expect(currentStudentSubmission([])).toBeNull();
+  });
+
+  it("prefers an open draft over a newer finished attempt", () => {
+    const draft = { id: "a1", status: "in_progress", attempt_number: 1 };
+    const newer = { id: "a2", status: "released", attempt_number: 2 };
+    expect(currentStudentSubmission([newer, draft])).toBe(draft);
+  });
+
+  it("returns the newest attempt, not a stale released one", () => {
+    // Regression: attempt 1 released, attempt 2 awaiting review. The old
+    // selection found `released` first and hid attempt 2 behind it.
+    const released = { id: "a1", status: "released", attempt_number: 1 };
+    const awaiting = { id: "a2", status: "awaiting_review", attempt_number: 2 };
+    expect(currentStudentSubmission([released, awaiting])).toBe(awaiting);
+    expect(currentStudentSubmission([awaiting, released])).toBe(awaiting);
+  });
+
+  it("does not depend on the order the rows arrived in", () => {
+    const rows = [
+      { id: "a1", status: "released", attempt_number: 1 },
+      { id: "a3", status: "awaiting_review", attempt_number: 3 },
+      { id: "a2", status: "released", attempt_number: 2 },
+    ];
+    expect(currentStudentSubmission(rows)?.id).toBe("a3");
+    expect(currentStudentSubmission([...rows].reverse())?.id).toBe("a3");
+  });
+
+  it("treats a missing attempt_number as attempt 0 rather than throwing", () => {
+    const legacy = { id: "old", status: "released" };
+    const numbered = { id: "new", status: "awaiting_review", attempt_number: 2 };
+    expect(currentStudentSubmission([legacy, numbered])?.id).toBe("new");
+    expect(currentStudentSubmission([legacy])?.id).toBe("old");
   });
 });

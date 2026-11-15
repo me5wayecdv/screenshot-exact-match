@@ -23,17 +23,16 @@
  * - Chat state stays in browser state and vanishes on leaving the
  *   page (unchanged); this module persists nothing about chats.
  *
- * NOT migrated here (owned by another workstream, left on its old
- * path): the AI tutor calls themselves (src/server/tutor.ts) still
- * validate a Supabase token. The tutor route's data queries are
- * migrated to the wrappers below; its AI calls keep passing the
- * legacy token until that file migrates.
+ * MIGRATION NOTE: the AI tutor calls themselves (src/server/tutor.ts)
+ * were migrated to D1 as well, so this module no longer depends on a
+ * Supabase token anywhere.
  */
 
 import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import { requireObject, requireString, requireStringArray } from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -69,7 +68,12 @@ export async function listTutorReleased(db: D1Database, caller: Caller): Promise
   const { results } = await db
     .prepare(
       "SELECT id, assessment_id, final_score, total_possible FROM submissions " +
-        "WHERE student_id = ? AND status = 'released' ORDER BY id DESC",
+        // Newest released first. The old ORDER BY id DESC sorted by
+        // random UUID, so the tutor list came back in no meaningful
+        // order; released_at (with submitted_at as the fallback for
+        // rows released without a timestamp) is the real chronology.
+        "WHERE student_id = ? AND status = 'released' " +
+        "ORDER BY COALESCE(released_at, submitted_at) DESC, id DESC",
     )
     .bind(caller.id)
     .all<TutorReleased>();
@@ -183,14 +187,23 @@ export const listTutorReleasedD1 = createServerFn({ method: "POST" })
 
 export const listTutorAssessmentsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentIds: string[] })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentIds: requireStringArray(input["assessmentIds"], 200) };
+  })
   .handler(async ({ data, context }) =>
     listTutorAssessments(ctxDb(context), ctxCaller(context), data.assessmentIds),
   );
 
 export const getTutorDetailD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string; submissionId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      submissionId: requireString(input["submissionId"]),
+    };
+  })
   .handler(async ({ data, context }) =>
     getTutorDetail(ctxDb(context), ctxCaller(context), data.assessmentId, data.submissionId),
   );

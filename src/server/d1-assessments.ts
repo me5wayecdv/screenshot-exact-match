@@ -53,6 +53,16 @@ import { getRequest } from "@tanstack/react-start/server";
 import { retryD1Overload } from "@/server/d1-retry";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
+import {
+  optionalNumber,
+  optionalString,
+  requireBoolean,
+  requireEnum,
+  requireNumber,
+  requireObject,
+  requireString,
+  requireStringArray,
+} from "@/server/validate";
 import { appendAuditLog } from "@/server/d1-admin";
 import { listStudentHandwrittenGrades, type StudentHwGrade } from "@/server/d1-handwritten";
 import { missingAssignments, modeFromCoverage, type AudienceMode } from "@/lib/audience";
@@ -874,6 +884,18 @@ export async function copyBankQuestion(
       explanation: string;
     }>();
   const id = crypto.randomUUID();
+  // The position comes from the client (the slot the teacher clicked).
+  // Clamp it to a sane integer inside the target assessment: a
+  // negative, fractional or absurd value would otherwise be stored
+  // verbatim and break the question ordering (and a NaN would violate
+  // the NOT NULL constraint as a 500).
+  const countRow = await db
+    .prepare("SELECT COUNT(*) AS n FROM questions WHERE assessment_id = ?")
+    .bind(assessmentId)
+    .first<{ n: number }>();
+  const total = countRow?.n ?? 0;
+  const requested = Number.isFinite(position) ? Math.trunc(position) : total;
+  const safePosition = Math.min(Math.max(requested, 0), total);
   await mutateQuestions(db, [
     db
       .prepare(
@@ -888,7 +910,7 @@ export async function copyBankQuestion(
         row.options,
         row.difficulty,
         row.marks,
-        position,
+        safePosition,
         row.objective,
         assessmentId,
       ),
@@ -1068,6 +1090,7 @@ export type StudentHome = {
     id: string;
     assessment_id: string;
     status: string;
+    attempt_number: number;
     final_score: number | null;
     total_possible: number | null;
   }[];
@@ -1147,8 +1170,9 @@ export async function getStudentHome(
     const placeholders = assessmentIds.map(() => "?").join(", ");
     const subs = await db
       .prepare(
-        `SELECT id, assessment_id, status, final_score, total_possible FROM submissions ` +
-          `WHERE student_id = ? AND assessment_id IN (${placeholders})`,
+        `SELECT id, assessment_id, status, attempt_number, final_score, total_possible FROM submissions ` +
+          `WHERE student_id = ? AND assessment_id IN (${placeholders}) ` +
+          `ORDER BY attempt_number DESC`,
       )
       .bind(studentId, ...assessmentIds)
       .all<StudentHome["submissions"][number]>();
@@ -1240,13 +1264,63 @@ export async function updateOwnName(
 
 /* ------------------------------------------------------- server wrappers */
 
+const ASSESSMENT_STATUSES = ["draft", "published", "closed", "archived"] as const;
+const QUESTION_TYPES = ["mcq", "true_false", "short_answer", "written"] as const;
+
+/**
+ * Validate the assessment-meta payload at the boundary. The old bare
+ * cast trusted the client: a non-numeric `maxAttempts` reached the
+ * UPDATE as a string (D1 bind error / 500), and a missing
+ * `durationMinutes` reached `.bind()` as undefined.
+ */
+function parseAssessmentMetaInput(data: unknown): AssessmentMetaInput {
+  const input = requireObject(data);
+  return {
+    title: requireString(input["title"], 200),
+    instructions: requireString(input["instructions"], 10_000),
+    gradeLevel: requireString(input["gradeLevel"], 100),
+    subjectId: optionalString(input["subjectId"]) ?? null,
+    newSubjectName: optionalString(input["newSubjectName"], 80) ?? null,
+    dueAt: optionalString(input["dueAt"], 40) ?? null,
+    startsAt: optionalString(input["startsAt"], 40) ?? null,
+    durationMinutes:
+      optionalNumber(input["durationMinutes"], { integer: true, min: 1, max: 10_000 }) ?? null,
+    maxAttempts: requireNumber(input["maxAttempts"], { integer: true, min: 1, max: 100 }),
+  };
+}
+
+/**
+ * Validate the question-update payload at the boundary. The old bare
+ * cast trusted the client: a missing `options` array reached
+ * `.map()` as a TypeError, and a non-string element in it reached
+ * `.trim()` as a TypeError.
+ */
+function parseQuestionUpdateInput(data: unknown): QuestionUpdateInput {
+  const input = requireObject(data);
+  return {
+    prompt: requireString(input["prompt"], 10_000),
+    marks: requireNumber(input["marks"], { min: 0, max: 1000 }),
+    objective: requireString(input["objective"], 500),
+    options: requireStringArray(input["options"], 50),
+    difficulty: requireString(input["difficulty"], 50),
+    correctAnswer: requireString(input["correctAnswer"], 5000),
+    acceptedAlternatives: requireStringArray(input["acceptedAlternatives"], 50),
+    rubric: requireString(input["rubric"], 5000),
+    explanation: requireString(input["explanation"], 5000),
+    type: requireEnum(input["type"], QUESTION_TYPES),
+  };
+}
+
 function ctx(context: unknown): { session: AuthSession; db: D1Database } {
   return context as { session: AuthSession; db: D1Database };
 }
 
 export const listTeacherAssessmentsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { page: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { page: requireNumber(input["page"], { integer: true, min: 0 }) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1255,7 +1329,10 @@ export const listTeacherAssessmentsD1 = createServerFn({ method: "POST" })
 
 export const createAssessmentD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { title: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { title: requireString(input["title"], 200) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1264,7 +1341,10 @@ export const createAssessmentD1 = createServerFn({ method: "POST" })
 
 export const getBuilderDataD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1273,7 +1353,13 @@ export const getBuilderDataD1 = createServerFn({ method: "POST" })
 
 export const updateAssessmentMetaD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string } & AssessmentMetaInput)
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      ...parseAssessmentMetaInput(input),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1284,7 +1370,13 @@ export const updateAssessmentMetaD1 = createServerFn({ method: "POST" })
 
 export const setAssessmentStatusD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string; status: AssessmentStatus })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      status: requireEnum(input["status"], ASSESSMENT_STATUSES),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1300,7 +1392,10 @@ export const setAssessmentStatusD1 = createServerFn({ method: "POST" })
 
 export const setAudienceEveryoneD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1309,7 +1404,14 @@ export const setAudienceEveryoneD1 = createServerFn({ method: "POST" })
 
 export const toggleAssignmentD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string; studentId: string; on: boolean })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      studentId: requireString(input["studentId"]),
+      on: requireBoolean(input["on"]),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1319,7 +1421,13 @@ export const toggleAssignmentD1 = createServerFn({ method: "POST" })
 
 export const addQuestionD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string; type: QuestionType })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      type: requireEnum(input["type"], QUESTION_TYPES),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1328,7 +1436,13 @@ export const addQuestionD1 = createServerFn({ method: "POST" })
 
 export const moveQuestionD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { questionId: string; dir: -1 | 1 })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      questionId: requireString(input["questionId"]),
+      dir: requireEnum(input["dir"], [-1, 1] as const),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1338,7 +1452,10 @@ export const moveQuestionD1 = createServerFn({ method: "POST" })
 
 export const deleteQuestionD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { questionId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { questionId: requireString(input["questionId"]) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1348,7 +1465,13 @@ export const deleteQuestionD1 = createServerFn({ method: "POST" })
 
 export const updateQuestionD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { questionId: string } & QuestionUpdateInput)
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      questionId: requireString(input["questionId"]),
+      ...parseQuestionUpdateInput(input),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1359,7 +1482,10 @@ export const updateQuestionD1 = createServerFn({ method: "POST" })
 
 export const listQuestionBankD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1368,9 +1494,14 @@ export const listQuestionBankD1 = createServerFn({ method: "POST" })
 
 export const copyBankQuestionD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) => data as { assessmentId: string; sourceQuestionId: string; position: number },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      sourceQuestionId: requireString(input["sourceQuestionId"]),
+      position: requireNumber(input["position"], { integer: true, min: 0 }),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireTeacher(session);
@@ -1412,7 +1543,13 @@ export const getAdminDashboardD1 = createServerFn({ method: "POST" })
 
 export const getStudentHomeD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assignmentPage: number; lessonPage: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assignmentPage: requireNumber(input["assignmentPage"], { integer: true, min: 0 }),
+      lessonPage: requireNumber(input["lessonPage"], { integer: true, min: 0 }),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireRoleNormalized(session, ["student"]);
@@ -1421,7 +1558,10 @@ export const getStudentHomeD1 = createServerFn({ method: "POST" })
 
 export const joinTeacherD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { code: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { code: requireString(input["code"], 32) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireRoleNormalized(session, ["student"]);
@@ -1430,7 +1570,10 @@ export const joinTeacherD1 = createServerFn({ method: "POST" })
 
 export const enrollLessonD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { code: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { code: requireString(input["code"], 32) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireRoleNormalized(session, ["student"]);
@@ -1440,7 +1583,10 @@ export const enrollLessonD1 = createServerFn({ method: "POST" })
 
 export const updateOwnNameD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { fullName: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { fullName: requireString(input["fullName"], 200) };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireRoleNormalized(session, ["student"]);

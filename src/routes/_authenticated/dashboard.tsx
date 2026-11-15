@@ -12,7 +12,7 @@ import {
   updateOwnNameD1,
 } from "@/server/d1-assessments";
 import { useMe } from "@/lib/session";
-import { studentAssessmentState } from "@/lib/assessment-visibility";
+import { currentStudentSubmission, studentAssessmentState } from "@/lib/assessment-visibility";
 import { pendingTeacherNames, waitingOn } from "@/lib/enrollment";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import {
@@ -576,10 +576,9 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
         <div className="grid gap-4 md:grid-cols-2">
           {data?.assessments.map((a) => {
             const subsForAssessment = data.submissions.filter((s) => s.assessment_id === a.id);
-            const sub =
-              subsForAssessment.find((s) => s.status === "in_progress") ??
-              subsForAssessment.find((s) => s.status === "released") ??
-              subsForAssessment[subsForAssessment.length - 1];
+            // The CURRENT attempt: an open draft, else the highest attempt
+            // number. Never a stale released attempt.
+            const sub = currentStudentSubmission(subsForAssessment);
             // One pure decision, so "no button at all" can never come back:
             // every row ends up in exactly one explicit state.
             const state = studentAssessmentState({

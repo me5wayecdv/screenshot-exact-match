@@ -25,6 +25,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import { requireNumber, requireObject } from "@/server/validate";
 
 export const QUOTA_PER_MINUTE = 30;
 export const QUOTA_PER_DAY = 500;
@@ -272,10 +273,13 @@ function ctxDb(context: unknown): D1Database {
 /** Server wrapper: consume quota for the session user only. */
 export const consumeAiQuotaD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { units: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { units: requireNumber(input["units"], { integer: true, min: 1, max: 20 }) };
+  })
   .handler(async ({ data, context }): Promise<{ allowed: boolean }> => {
     const session = ctxSession(context);
-    return { allowed: await consumeAiQuota(ctxDb(context), session.userId, data?.units as number) };
+    return { allowed: await consumeAiQuota(ctxDb(context), session.userId, data.units) };
   });
 
 /** Server wrapper: read the session user's own quota row. */

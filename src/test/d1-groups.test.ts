@@ -188,6 +188,14 @@ function fakeDb(s: State): D1Database {
     if (sql.startsWith("INSERT INTO audit_log")) return "insertAudit";
     if (sql.startsWith("UPDATE teacher_groups SET")) return "updateGroup";
     if (sql.startsWith("DELETE FROM teacher_groups")) return "deleteGroup";
+    // Per-member approval (approve-all): 3 params (now, group, student).
+    // Checked BEFORE the bulk shape — the bulk statement does not
+    // mention student_id.
+    if (
+      sql.startsWith("UPDATE group_members SET") &&
+      sql.includes("WHERE group_id = ? AND student_id = ? AND status = 'pending'")
+    )
+      return "updateMemberApprove";
     if (
       sql.startsWith("UPDATE group_members SET") &&
       sql.includes("WHERE group_id = ? AND status = 'pending'")
@@ -544,6 +552,16 @@ function fakeDb(s: State): D1Database {
           }
           return undefined;
         }
+        case "updateMemberApprove": {
+          const groupId = params[1] as string;
+          const studentId = params[2] as string;
+          const m = s.members.get(`${groupId}:${studentId}`);
+          if (m && m.status === "pending") {
+            m.status = "approved";
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        }
         case "updateLinkApproved": {
           const key = `${params[1]}:${params[2]}`;
           if (s.links.get(key) === "pending") s.links.set(key, "approved");
@@ -690,7 +708,7 @@ describe("teacher group CRUD", () => {
     expect(s.groups.get("g1")!.name).toBe("Renamed");
     await expect(
       updateTeacherGroup(db, "t1", "school_teacher", "g1", { ...input, name: "   " }),
-    ).rejects.toThrow("invalid_student");
+    ).rejects.toThrow("name_required");
   });
 
   it("deleting your own group cascades its members and exam links", async () => {

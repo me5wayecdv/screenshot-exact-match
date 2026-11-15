@@ -26,6 +26,12 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import {
+  optionalString,
+  requireObject,
+  requireString,
+  requireStringArray,
+} from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -46,6 +52,12 @@ export class ReviewError extends Error {
     super(message ?? code);
     this.name = "ReviewError";
   }
+}
+
+/** D1 reports rows written on `meta.changes`; 0 = the insert was skipped. */
+function runReviewChanges(result: unknown): number {
+  const meta = (result as { meta?: { changes?: number } } | null)?.meta;
+  return typeof meta?.changes === "number" ? meta.changes : 0;
 }
 
 export type ReviewRow = {
@@ -268,11 +280,22 @@ export async function submitReviewRequest(
     }
   }
   const id = crypto.randomUUID();
-  await db
+  // ONE OPEN REQUEST PER (submission, question). The check lives INSIDE
+  // the insert, so two concurrent clicks cannot both create a request:
+  // D1 runs each statement atomically, so the second insert sees the
+  // first one's committed row and writes nothing. A plain pre-check
+  // followed by an unconditional insert had a window where both
+  // requests landed, and the teacher then saw the same question twice.
+  // `question_id IS ?` matches a NULL question too (a whole-submission
+  // request), which a plain '=' would never match.
+  const inserted = await db
     .prepare(
       "INSERT INTO grade_review_requests " +
         "(id, submission_id, question_id, student_id, teacher_id, message, status, teacher_response) " +
-        "VALUES (?, ?, ?, ?, ?, ?, 'open', '')",
+        "SELECT ?, ?, ?, ?, ?, ?, 'open', '' " +
+        "WHERE NOT EXISTS (" +
+        "SELECT 1 FROM grade_review_requests " +
+        "WHERE submission_id = ? AND question_id IS ? AND status <> 'resolved')",
     )
     .bind(
       id,
@@ -281,8 +304,16 @@ export async function submitReviewRequest(
       caller.id,
       assessment.teacher_id,
       trimmedMessage,
+      input.submissionId,
+      input.questionId,
     )
     .run();
+  if (runReviewChanges(inserted) === 0) {
+    throw new ReviewError(
+      "INVALID_INPUT",
+      "An open review request already exists for this question.",
+    );
+  }
   return { id };
 }
 
@@ -331,7 +362,10 @@ export const listReleasedForStudentD1 = createServerFn({ method: "POST" })
 
 export const listQuestionsForReleasedAssessmentD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ data, context }) =>
     listQuestionsForReleasedAssessment(ctxDb(context), ctxCaller(context), data.assessmentId),
   );
@@ -343,24 +377,39 @@ export const listReviewRequestsD1 = createServerFn({ method: "POST" })
 
 export const getReviewMapsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as { submissionIds: string[]; studentIds: string[]; questionIds: string[] },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionIds: requireStringArray(input["submissionIds"], 500),
+      studentIds: requireStringArray(input["studentIds"], 500),
+      questionIds: requireStringArray(input["questionIds"], 500),
+    };
+  })
   .handler(async ({ data, context }) => getReviewMaps(ctxDb(context), ctxCaller(context), data));
 
 export const submitReviewRequestD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) => data as { submissionId: string; questionId: string | null; message: string },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      questionId: optionalString(input["questionId"]) ?? null,
+      message: requireString(input["message"], 5000),
+    };
+  })
   .handler(async ({ data, context }) =>
     submitReviewRequest(ctxDb(context), ctxCaller(context), data),
   );
 
 export const resolveReviewRequestD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { requestId: string; response: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      requestId: requireString(input["requestId"]),
+      response: requireString(input["response"], 5000),
+    };
+  })
   .handler(async ({ data, context }) =>
     resolveReviewRequest(ctxDb(context), ctxCaller(context), data.requestId, data.response),
   );

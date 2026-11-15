@@ -183,6 +183,17 @@ function whatsappDb() {
       }
       return { changes: 0 };
     }
+    // Must come BEFORE the claim read: the audit insert is now a
+    // conditional INSERT..SELECT that also mentions whatsapp_send_claims.
+    if (sql.includes("INSERT INTO whatsapp_sends")) {
+      // Conditional insert: writes only while the claim is still open.
+      if (sql.includes("whatsapp_send_claims")) {
+        const c = claims.get(params[1] as string);
+        if (!c || c.completed !== 0) return { changes: 0 };
+      }
+      sends.set(params[1] as string, params[3] as string);
+      return { changes: 1 };
+    }
     if (
       sql.includes("SELECT") &&
       sql.includes("FROM whatsapp_send_claims") &&
@@ -190,10 +201,6 @@ function whatsappDb() {
     ) {
       const c = claims.get(params[0] as string);
       return { first: c && c.completed === 0 ? { submission_id: params[0] } : null };
-    }
-    if (sql.includes("INSERT INTO whatsapp_sends")) {
-      sends.set(params[1] as string, params[3] as string);
-      return { changes: 1 };
     }
     if (sql.includes("UPDATE whatsapp_send_claims")) {
       const c = claims.get(params[1] as string);

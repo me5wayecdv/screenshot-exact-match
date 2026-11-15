@@ -43,6 +43,14 @@ import { canTakeAssessment } from "@/server/d1-take-gate";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { effectiveRole } from "@/server/d1-assessments";
 import { retryD1Overload } from "@/server/d1-retry";
+import {
+  invalidInput,
+  optionalString,
+  requireNumber,
+  requireObject,
+  requireString,
+  requireStringArray,
+} from "@/server/validate";
 
 export type TakeAssessment = {
   id: string;
@@ -513,6 +521,28 @@ export type DraftAnswerInput = {
   time_spent_seconds: number;
 };
 
+/**
+ * Validate the answers array at the server-function boundary. The
+ * handler used to trust the shape: a missing `response` reached D1 as
+ * undefined and failed the write, and a non-array `answers` reached
+ * `.map()` as a TypeError. Both are client mistakes, so both must be
+ * a translated INVALID_INPUT, not a 500.
+ */
+function parseDraftAnswers(value: unknown): DraftAnswerInput[] {
+  if (!Array.isArray(value) || value.length > 500) invalidInput();
+  return value.map((raw) => {
+    const answer = requireObject(raw);
+    return {
+      question_id: requireString(answer["question_id"]),
+      response: optionalString(answer["response"], 100_000) ?? "",
+      time_spent_seconds: requireNumber(answer["time_spent_seconds"], {
+        min: 0,
+        max: 86_400,
+      }),
+    };
+  });
+}
+
 /** Load + validate a draft target. Returns null when the submission
  *  does not exist or is not the caller's; `editable` is false when the
  *  draft is frozen (already submitted, expired, or past the window).
@@ -957,7 +987,10 @@ function requireStudent(session: AuthSession): void {
 
 export const getTakeDataD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { assessmentId: requireString(input["assessmentId"]) };
+  })
   .handler(async ({ context, data }) => {
     // Phase 4 V3 (DESIGN-V3.md): the take page's payload is served
     // from the TakeSession DO (config + questions + submissions +
@@ -984,10 +1017,14 @@ export const getTakeDataD1 = createServerFn({ method: "POST" })
 // A resume returns the existing draft synchronously.
 export const startAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as { assessmentId: string; questionOrder: string[]; submissionId: string },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      assessmentId: requireString(input["assessmentId"]),
+      questionOrder: requireStringArray(input["questionOrder"], 500),
+      submissionId: requireString(input["submissionId"]),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session } = ctx(context);
     requireStudent(session);
@@ -1002,15 +1039,15 @@ export const startAttemptD1 = createServerFn({ method: "POST" })
 
 export const saveDraftD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as {
-        submissionId: string;
-        assessmentId: string;
-        answers: DraftAnswerInput[];
-        seq: number;
-      },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      assessmentId: requireString(input["assessmentId"]),
+      answers: parseDraftAnswers(input["answers"]),
+      seq: requireNumber(input["seq"], { integer: true, min: 0 }),
+    };
+  })
   .handler(async ({ context, data }) => {
     // Phase 4 V3.1: no D1 pre-check. The per-draft D1 read
     // (loadDraftTarget) threw under load and is redundant — the DO
@@ -1033,15 +1070,15 @@ export const saveDraftD1 = createServerFn({ method: "POST" })
 
 export const submitAttemptD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as {
-        submissionId: string;
-        assessmentId: string;
-        answers: DraftAnswerInput[];
-        seq: number;
-      },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      assessmentId: requireString(input["assessmentId"]),
+      answers: parseDraftAnswers(input["answers"]),
+      seq: requireNumber(input["seq"], { integer: true, min: 0 }),
+    };
+  })
   .handler(async ({ context, data }) => {
     // Phase 4 V3.1: no D1 pre-check (same reason as saveDraftD1 —
     // the ownership SELECT threw under load, and the DO enforces
@@ -1061,7 +1098,13 @@ export const submitAttemptD1 = createServerFn({ method: "POST" })
 
 export const getTakeStatusD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { submissionId: string; assessmentId: string })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      assessmentId: requireString(input["assessmentId"]),
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireStudent(session);
@@ -1079,10 +1122,14 @@ export const getTakeStatusD1 = createServerFn({ method: "POST" })
 
 export const recordIntegrityEventD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator(
-    (data: unknown) =>
-      data as { submissionId: string; eventType: string; questionId: string | null },
-  )
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      submissionId: requireString(input["submissionId"]),
+      eventType: requireString(input["eventType"], 100),
+      questionId: optionalString(input["questionId"]) ?? null,
+    };
+  })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireStudent(session);

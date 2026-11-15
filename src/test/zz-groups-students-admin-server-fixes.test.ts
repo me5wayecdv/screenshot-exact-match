@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { auditDb } from "@/test/audit-sqlite-helper";
-import { createTeacherGroup, decideGroupMembership } from "@/server/d1-groups";
+import {
+  approveAllGroupMembers,
+  createTeacherGroup,
+  decideGroupMembership,
+  type GroupInput,
+} from "@/server/d1-groups";
 import { assignGroupExam } from "@/server/d1-group-exams";
 import { getAnalyticsDetail, listAnalyticsStudentPage } from "@/server/d1-analytics";
 import { listAuditLog, listSiteActivity, newTemporaryPassword } from "@/server/d1-admin";
@@ -17,6 +22,15 @@ import {
 } from "@/lib/analytics";
 import { isWhatsAppConfigured } from "@/lib/whatsapp-api.server";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
+
+/** A complete GroupInput with only the name set. */
+const groupInput = (name: string): GroupInput => ({
+  name,
+  year: "",
+  days: [],
+  time: "",
+  notes: "",
+});
 
 describe("groups-students-admin-server bug fixes", () => {
   it("decideGroupMembership re-approving a rejected member also approves a rejected teacher_students link", async () => {
@@ -203,61 +217,212 @@ describe("groups-students-admin-server bug fixes", () => {
     expect(await refundAiQuota(d1, "u1", 1, "not-a-date", "key-1")).toBe(false);
   });
 
-  it("finishWhatsappSend does not delete an already-completed claim when a retryable failure races", async () => {
-    const claims = new Map<string, { claimed_at: string; completed: number }>();
-    const db: D1Database = {
-      prepare(sql: string) {
-        let params: unknown[] = [];
-        const stmt: D1Statement = {
-          bind(...p: unknown[]) {
-            params = p;
-            return stmt;
+  it("createTeacherGroup surfaces a non-code write failure instead of retrying 10x and blaming the code", async () => {
+    const { db } = auditDb();
+    let inserts = 0;
+    const failing: D1Database = {
+      ...db,
+      prepare(query: string) {
+        const stmt = db.prepare(query);
+        if (!query.includes("INSERT INTO teacher_groups")) return stmt;
+        return {
+          ...stmt,
+          bind: (...args: unknown[]) => {
+            const bound = stmt.bind(...args);
+            return {
+              ...bound,
+              run: async () => {
+                inserts += 1;
+                throw new Error("D1_ERROR: no such table: teacher_groups");
+              },
+            } as unknown as D1Statement;
           },
-          first: async <T>(): Promise<T | null> => {
-            if (sql.includes("FROM submissions s JOIN assessments a")) {
-              return { teacher_id: "t1" } as unknown as T;
-            }
-            if (
-              sql.includes("FROM whatsapp_send_claims WHERE submission_id = ? AND completed = 0")
-            ) {
-              const subId = params[0] as string;
-              const c = claims.get(subId);
-              if (c && c.completed === 0) {
-                // Simulate a concurrent completion landing right after the SELECT check
-                c.completed = 1;
-                return { submission_id: subId } as unknown as T;
-              }
-              return null;
-            }
-            return null;
+        } as unknown as D1Statement;
+      },
+    };
+    await expect(
+      createTeacherGroup(failing, "t", "school_teacher", groupInput("Group A")),
+    ).rejects.toThrow(/no such table/);
+    // A real failure must not be retried as if it were a join-code clash.
+    expect(inserts).toBe(1);
+  });
+
+  it("approveAllGroupMembers approves every pending member with its link and exam assignment", async () => {
+    const { db, sql: raw } = auditDb();
+    raw
+      .prepare("INSERT INTO auth_users (id, email, status) VALUES (?, ?, 'approved')")
+      .run("s2", "s2@example.invalid");
+    raw.prepare("INSERT INTO profiles (id, full_name) VALUES (?, ?)").run("s2", "Student 2");
+    const groupId = await createTeacherGroup(db, "t", "school_teacher", groupInput("Group B"));
+    // The seeded exam must be an open auto_all exam so approval assigns it.
+    raw.prepare("UPDATE assessments SET audience_mode = 'auto_all' WHERE id = 'e'").run();
+    raw
+      .prepare("INSERT INTO group_members (group_id, student_id, status) VALUES (?, ?, 'pending')")
+      .run(groupId, "s");
+    raw
+      .prepare("INSERT INTO group_members (group_id, student_id, status) VALUES (?, ?, 'pending')")
+      .run(groupId, "s2");
+
+    expect(await approveAllGroupMembers(db, "t", "school_teacher", groupId)).toBe(2);
+
+    const members = raw
+      .prepare("SELECT status FROM group_members WHERE group_id = ?")
+      .all(groupId) as { status: string }[];
+    expect(members.every((m) => m.status === "approved")).toBe(true);
+    for (const studentId of ["s", "s2"]) {
+      const link = raw
+        .prepare("SELECT status FROM teacher_students WHERE teacher_id = ? AND student_id = ?")
+        .get("t", studentId) as { status: string } | undefined;
+      expect(link?.status).toBe("approved");
+      const assignment = raw
+        .prepare("SELECT student_id FROM assessment_assignments WHERE student_id = ?")
+        .get(studentId) as { student_id: string } | undefined;
+      expect(assignment?.student_id).toBe(studentId);
+    }
+    // Re-running finds nothing pending and approves nothing.
+    expect(await approveAllGroupMembers(db, "t", "school_teacher", groupId)).toBe(0);
+  });
+
+  it("approveAllGroupMembers leaves a member pending when its side effects fail, so a retry repairs it", async () => {
+    const { db, sql: raw } = auditDb();
+    const groupId = await createTeacherGroup(db, "t", "school_teacher", groupInput("Group C"));
+    // An open auto_all exam gives the approval an assignment write to fail on.
+    raw.prepare("UPDATE assessments SET audience_mode = 'auto_all' WHERE id = 'e'").run();
+    raw
+      .prepare("INSERT INTO group_members (group_id, student_id, status) VALUES (?, ?, 'pending')")
+      .run(groupId, "s");
+
+    // Fail the first exam-assignment write, then let the retry through.
+    let failNext = true;
+    const flaky: D1Database = {
+      ...db,
+      prepare(query: string) {
+        const stmt = db.prepare(query);
+        if (!query.includes("INSERT INTO assessment_assignments")) return stmt;
+        return {
+          ...stmt,
+          bind: (...args: unknown[]) => {
+            const bound = stmt.bind(...args);
+            return {
+              ...bound,
+              run: async () => {
+                if (failNext) {
+                  failNext = false;
+                  throw new Error("D1_ERROR: transient");
+                }
+                return bound.run();
+              },
+            } as unknown as D1Statement;
           },
-          all: async <T>() => ({ results: [] as T[] }),
-          run: async () => {
-            if (sql.includes("DELETE FROM whatsapp_send_claims")) {
-              const subId = params[0] as string;
-              const c = claims.get(subId);
-              if (c && (!sql.includes("completed = 0") || c.completed === 0)) {
-                claims.delete(subId);
-              }
-            }
-            return { meta: { changes: 1 } };
-          },
-        };
-        return stmt;
+        } as unknown as D1Statement;
       },
     };
 
-    claims.set("sub-1", { claimed_at: "2026-11-04T10:00:00.000Z", completed: 0 });
-    await finishWhatsappSend(
-      db,
-      "t1",
+    await expect(approveAllGroupMembers(flaky, "t", "school_teacher", groupId)).rejects.toThrow(
+      /transient/,
+    );
+    // The member is still pending, not half-approved.
+    const before = raw
+      .prepare("SELECT status FROM group_members WHERE group_id = ? AND student_id = ?")
+      .get(groupId, "s") as { status: string };
+    expect(before.status).toBe("pending");
+
+    // The retry completes the approval.
+    expect(await approveAllGroupMembers(db, "t", "school_teacher", groupId)).toBe(1);
+    const after = raw
+      .prepare("SELECT status FROM group_members WHERE group_id = ? AND student_id = ?")
+      .get(groupId, "s") as { status: string };
+    expect(after.status).toBe("approved");
+  });
+
+  it("finishWhatsappSend writes one audit row even when a concurrent finish completes the claim first", async () => {
+    const { db, sql: raw } = auditDb();
+    raw
+      .prepare(
+        "INSERT INTO submissions (id, assessment_id, student_id, status) VALUES (?, ?, ?, 'released')",
+      )
+      .run("sub-1", "e", "s");
+    raw
+      .prepare("INSERT INTO whatsapp_send_claims (submission_id, completed) VALUES (?, 0)")
+      .run("sub-1");
+
+    // Simulate the losing racer: it already decided to write, and a
+    // concurrent finish completes the claim between that decision and
+    // the INSERT. The audited write must then do nothing.
+    let completedBeforeInsert = false;
+    const racingDb: D1Database = {
+      ...db,
+      prepare(query: string) {
+        const stmt = db.prepare(query);
+        if (!query.includes("INSERT INTO whatsapp_sends")) return stmt;
+        return {
+          ...stmt,
+          bind: (...args: unknown[]) => {
+            const bound = stmt.bind(...args);
+            return {
+              ...bound,
+              run: async () => {
+                if (!completedBeforeInsert) {
+                  completedBeforeInsert = true;
+                  raw
+                    .prepare(
+                      "UPDATE whatsapp_send_claims SET completed = 1 WHERE submission_id = ?",
+                    )
+                    .run("sub-1");
+                }
+                return bound.run();
+              },
+            } as unknown as D1Statement;
+          },
+        } as unknown as D1Statement;
+      },
+    };
+
+    const won = await finishWhatsappSend(
+      racingDb,
+      "t",
       "sub-1",
       { status: "failed", trigger: "auto", retryable: true },
       "2026-11-04T10:01:00.000Z",
     );
-    // Because the claim became completed = 1, DELETE ... AND completed = 0 must preserve it
-    expect(claims.get("sub-1")?.completed).toBe(1);
+    expect(won).toBe(false);
+    const sends = raw.prepare("SELECT COUNT(*) AS n FROM whatsapp_sends").get() as { n: number };
+    expect(sends.n).toBe(0);
+    // The retryable release must not delete a claim another caller completed.
+    const claim = raw
+      .prepare("SELECT completed FROM whatsapp_send_claims WHERE submission_id = ?")
+      .get("sub-1") as { completed: number };
+    expect(claim.completed).toBe(1);
     void claimWhatsappSend;
+  });
+
+  it("finishWhatsappSend writes exactly one audit row for a single send", async () => {
+    const { db, sql: raw } = auditDb();
+    raw
+      .prepare(
+        "INSERT INTO submissions (id, assessment_id, student_id, status) VALUES (?, ?, ?, 'released')",
+      )
+      .run("sub-2", "e", "s");
+    raw
+      .prepare("INSERT INTO whatsapp_send_claims (submission_id, completed) VALUES (?, 0)")
+      .run("sub-2");
+    expect(
+      await finishWhatsappSend(
+        db,
+        "t",
+        "sub-2",
+        { status: "sent", trigger: "manual" },
+        "2026-11-04T10:01:00.000Z",
+      ),
+    ).toBe(true);
+    const sends = raw.prepare("SELECT COUNT(*) AS n FROM whatsapp_sends").get() as { n: number };
+    expect(sends.n).toBe(1);
+    // The claim is now completed, so a second finish is a no-op.
+    expect(await finishWhatsappSend(db, "t", "sub-2", { status: "sent", trigger: "manual" })).toBe(
+      false,
+    );
+    const after = raw.prepare("SELECT COUNT(*) AS n FROM whatsapp_sends").get() as { n: number };
+    expect(after.n).toBe(1);
   });
 
   it("analytics helpers reject undefined/NaN/Infinity scores and quote CR in CSV", () => {

@@ -431,6 +431,89 @@ describe("D1 handwritten grading", () => {
     expect(state.audits).toContain("handwritten_grade");
   });
 
+  it("a concurrent save of the same preview returns the id instead of a raw 500", async () => {
+    const state = baseState();
+    const db = fakeDb(state);
+    const input = {
+      assessmentId: "assess-1",
+      questionId: "q-1",
+      studentName: "Ali",
+      imagePath: null,
+      extractedText: "x",
+      correctedText: "x",
+      aiSuggestedScore: null,
+      aiFeedback: null,
+      aiModel: null,
+      maxMarks: 10,
+      teacherFeedback: "",
+    };
+    // The competing request commits the same grade row first; our own
+    // batch then loses on the primary key. The save must report success
+    // (same preview, same payload) rather than surfacing a D1 error.
+    const racing: D1Database = {
+      ...db,
+      batch: async (stmts: D1Statement[]) => {
+        const before = state.grades.size;
+        const out = await db.batch!(stmts);
+        // Only the grade-writing batch loses the race; quota batches
+        // must still behave normally.
+        if (state.grades.size > before) {
+          throw new Error("D1_ERROR: UNIQUE constraint failed: handwritten_grades.id");
+        }
+        return out;
+      },
+    };
+    const before = state.grades.size;
+    const { id } = await saveHandwrittenGrade(racing, TEACHER, input);
+    expect(state.grades.get(id)).toBeTruthy();
+    expect(state.grades.size).toBe(before + 1);
+  });
+
+  it("a save failure other than the primary-key race still surfaces", async () => {
+    const state = baseState();
+    const db = fakeDb(state);
+    const failing: D1Database = {
+      ...db,
+      batch: async (stmts: D1Statement[]) => {
+        const before = state.grades.size;
+        const out = await db.batch!(stmts);
+        if (state.grades.size > before) throw new Error("D1_ERROR: database is locked");
+        return out;
+      },
+    };
+    await expect(
+      saveHandwrittenGrade(failing, TEACHER, {
+        assessmentId: "assess-1",
+        questionId: "q-1",
+        studentName: "Ali",
+        imagePath: null,
+        extractedText: "x",
+        correctedText: "x",
+        aiSuggestedScore: null,
+        aiFeedback: null,
+        aiModel: null,
+        maxMarks: 10,
+        teacherFeedback: "",
+      }),
+    ).rejects.toThrow(/database is locked/);
+  });
+
+  it("serves a stored paper with its real mime type, not always image/jpeg", async () => {
+    const state = baseState();
+    state.grades.set("grade-png", {
+      ...state.grades.get("grade-1")!,
+      id: "grade-png",
+      image_path: "teacher-1/22222222-2222-2222-2222-222222222222/paper.png",
+    });
+    const bucket = fakeBucket();
+    bucket.files.set(
+      "teacher-1/22222222-2222-2222-2222-222222222222/paper.png",
+      new Uint8Array([1]),
+    );
+    const url = await getHandwrittenPaper(fakeDb(state), TEACHER, bucket, "grade-png");
+    expect(url.startsWith("data:image/png;base64,")).toBe(true);
+  });
+
   it("queued-paper delete refuses a foreign-folder key", async () => {
     const db = fakeDb(baseState());
     const bucket = fakeBucket();

@@ -272,9 +272,21 @@ function fakeAdminDb(seed: AccountRow[]): D1Database & {
           const row = rows.find((r) => r.id === params[0]);
           return (row ? { role: row.role, email: row.email, full_name: row.fullName } : null) as T;
         }
+        if (sql.includes("FROM auth_users a LEFT JOIN user_roles")) {
+          const row = rows.find((r) => r.id === params[0]);
+          return (
+            row ? { id: row.id, email: row.email, full_name: row.fullName, role: row.role } : null
+          ) as T;
+        }
         if (sql.includes("FROM auth_users a") && sql.includes("WHERE a.id = ?")) {
           const row = rows.find((r) => r.id === params[0]);
-          return (row ? { id: row.id, email: row.email, full_name: row.fullName } : null) as T;
+          return (
+            row ? { id: row.id, email: row.email, full_name: row.fullName, role: row.role } : null
+          ) as T;
+        }
+        if (sql.includes("FROM user_roles WHERE user_id = ?")) {
+          const row = rows.find((r) => r.id === params[0]);
+          return (row ? { role: row.role } : null) as T;
         }
         if (sql.includes("FROM auth_users WHERE id")) {
           const row = rows.find((r) => r.id === params[0]);
@@ -306,12 +318,18 @@ function fakeAdminDb(seed: AccountRow[]): D1Database & {
         return { results: [] };
       },
       run: async () => {
+        let changes = 1;
         if (sql.startsWith("UPDATE auth_users SET status")) {
           const row = rows.find((r) => r.id === params[1]);
           if (row) row.status = params[0] as AccountStatus;
         } else if (sql.startsWith("UPDATE auth_users SET password_hash")) {
           const row = rows.find((r) => r.id === params[1]);
-          if (row) row.passwordHash = params[0] as string;
+          // The guarded write must honour the admin exclusion.
+          if (row && row.role === "admin") {
+            changes = 0;
+          } else if (row) {
+            row.passwordHash = params[0] as string;
+          }
         } else if (sql.startsWith("UPDATE auth_sessions SET revoked_at")) {
           for (const r of rows) {
             if (r.id === params[1]) r.sessionsRevoked = true;
@@ -324,7 +342,7 @@ function fakeAdminDb(seed: AccountRow[]): D1Database & {
             details: params[3] as string,
           });
         }
-        return { meta: { changes: 1 } };
+        return { meta: { changes } };
       },
     };
     return stmt as unknown as D1Statement;
@@ -485,5 +503,17 @@ describe("admin approval: admin functions", () => {
     await expect(resetUserPassword(db, ADMIN, { userId: "no-such-user" })).rejects.toMatchObject({
       code: "INVALID_INPUT",
     });
+  });
+
+  it("never resets an admin account: the hash, sessions and audit stay untouched", async () => {
+    const db = fakeAdminDb(seedRows());
+    const adminRow = db.rows.find((r) => r.id === "u-admin")!;
+    const hashBefore = adminRow.passwordHash;
+    await expect(resetUserPassword(db, ADMIN, { userId: "u-admin" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
+    expect(adminRow.passwordHash).toBe(hashBefore);
+    expect(adminRow.sessionsRevoked).toBe(false);
+    expect(db.audit.find((a) => a.action === "password_reset")).toBeUndefined();
   });
 });

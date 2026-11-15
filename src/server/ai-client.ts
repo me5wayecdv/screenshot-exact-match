@@ -28,7 +28,7 @@
 
 import { buildAiGradingPrompt, type AiGradingPromptInput } from "./ai-grading-prompt";
 import { resolveAiConfig } from "./ai-config";
-import { extractOpenAiUsage, logAiUsage, openAiProvider, type AiUsageSink } from "./ai-usage";
+import { extractOpenAiUsage, openAiProvider } from "./ai-usage";
 import { classifyAiHttpStatus, type AiFailureCode } from "@/lib/ai-failure";
 import { cleanAiOutputText } from "@/lib/ai-output";
 
@@ -122,15 +122,12 @@ function parseSuggestion(raw: unknown, maxMarks: number): AiGradeSuggestion {
  * Ask the provider for one grading suggestion. Returns a discriminated
  * result instead of throwing for expected failures, so the UI can show a
  * distinct "AI not configured" state rather than a generic error.
- * When `usage` is supplied, a successful call is logged for pilot cost
- * measurement (best-effort: logging never fails the suggestion).
- * `onUsage` is the D1 equivalent of the Supabase sink: the caller logs
- * token counts + model to its own store. When both are given, both run;
- * neither is required.
+ * `onUsage` is the D1 usage sink: the caller logs token counts +
+ * model to its own store (D1 ai_usage_events). It is optional and
+ * best-effort: logging never fails the suggestion.
  */
 export async function suggestGradeWithAi(
   input: AiGradingPromptInput,
-  usage?: AiUsageSink,
   onUsage?: (event: {
     provider: string;
     model: string;
@@ -232,14 +229,6 @@ export async function suggestGradeWithAi(
         ok: false,
         error: { code: "AI_ERROR", message: "AI provider returned an unusable response." },
       };
-    }
-    if (usage) {
-      await logAiUsage(usage.client, usage.teacherId, {
-        kind: "grade",
-        provider: openAiProvider(config.baseUrl),
-        model: config.model,
-        usage: extractOpenAiUsage(payload),
-      });
     }
     if (onUsage) {
       await onUsage({

@@ -21,6 +21,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
+import { optionalString, requireNumber, requireObject, requireString } from "@/server/validate";
 
 export type Caller = { id: string; role: string };
 
@@ -179,12 +180,22 @@ function ctxCaller(context: unknown): Caller {
 
 export const listTutorLessonsD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as { page: number })
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { page: requireNumber(input["page"], { integer: true, min: 0 }) };
+  })
   .handler(async ({ data, context }) =>
     listTutorLessons(ctxDb(context), ctxCaller(context), data.page),
   );
 
 export const createLessonD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data as CreateLessonInput)
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return {
+      title: requireString(input["title"], 200),
+      description: requireString(input["description"], 5000),
+      subjectId: optionalString(input["subjectId"]) ?? null,
+    };
+  })
   .handler(async ({ data, context }) => createLesson(ctxDb(context), ctxCaller(context), data));
