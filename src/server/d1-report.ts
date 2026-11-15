@@ -157,12 +157,15 @@ export async function getAssessmentReport(
     // One query per name would be N+1; D1 has no array binding, so
     // fetch via a single IN list built from already-validated ids
     // (ids come from the caller's own submissions, never raw input).
-    const placeholders = studentIds.map(() => "?").join(",");
-    const profiles = await db
-      .prepare(`SELECT id, full_name FROM profiles WHERE id IN (${placeholders})`)
-      .bind(...studentIds)
-      .all<{ id: string; full_name: string | null }>();
-    for (const p of profiles.results ?? []) names[p.id] = p.full_name || "—";
+    for (let offset = 0; offset < studentIds.length; offset += 100) {
+      const chunk = studentIds.slice(offset, offset + 100);
+      const placeholders = chunk.map(() => "?").join(",");
+      const profiles = await db
+        .prepare(`SELECT id, full_name FROM profiles WHERE id IN (${placeholders})`)
+        .bind(...chunk)
+        .all<{ id: string; full_name: string | null }>();
+      for (const p of profiles.results ?? []) names[p.id] = p.full_name || "—";
+    }
   }
   return {
     assessment,
@@ -226,16 +229,19 @@ export async function listReportQuestions(
       options: string | null;
       difficulty: string | null;
     }>();
-  let answers: ReportAnswerRow[] = [];
+  const answers: ReportAnswerRow[] = [];
   if (submissionIds.length > 0) {
-    const placeholders = submissionIds.map(() => "?").join(",");
-    const answersRes = await db
-      .prepare(
-        `SELECT question_id, auto_score, final_score FROM answers WHERE submission_id IN (${placeholders})`,
-      )
-      .bind(...submissionIds)
-      .all<ReportAnswerRow>();
-    answers = answersRes.results ?? [];
+    for (let offset = 0; offset < submissionIds.length; offset += 100) {
+      const chunk = submissionIds.slice(offset, offset + 100);
+      const placeholders = chunk.map(() => "?").join(",");
+      const answersRes = await db
+        .prepare(
+          `SELECT question_id, auto_score, final_score FROM answers WHERE submission_id IN (${placeholders})`,
+        )
+        .bind(...chunk)
+        .all<ReportAnswerRow>();
+      answers.push(...(answersRes.results ?? []));
+    }
   }
   const questions: ReportQuestionRow[] = (questionsRes.results ?? []).map((q) => {
     let options: string[] = [];
@@ -453,25 +459,34 @@ export async function listWhatsAppStudentNames(
   requireTeacher(caller);
   if (studentIds.length === 0) return {};
   const unique = [...new Set(studentIds)];
-  const placeholders = unique.map(() => "?").join(",");
-  const links = await db
-    .prepare(
-      `SELECT student_id FROM teacher_students WHERE teacher_id = ? AND status = 'approved' AND student_id IN (${placeholders})`,
-    )
-    .bind(caller.id, ...unique)
-    .all<{ student_id: string }>();
-  const allowed = new Set((links.results ?? []).map((r) => r.student_id));
+  const allowed = new Set<string>();
+  for (let offset = 0; offset < unique.length; offset += 99) {
+    const chunk = unique.slice(offset, offset + 99);
+    const placeholders = chunk.map(() => "?").join(",");
+    const links = await db
+      .prepare(
+        `SELECT student_id FROM teacher_students WHERE teacher_id = ? AND status = 'approved' AND student_id IN (${placeholders})`,
+      )
+      .bind(caller.id, ...chunk)
+      .all<{ student_id: string }>();
+    for (const row of links.results ?? []) allowed.add(row.student_id);
+  }
   if (normalizeRole(caller.role) === "admin") {
     for (const id of unique) allowed.add(id);
   }
   const visible = unique.filter((id) => allowed.has(id));
   if (visible.length === 0) return {};
-  const ph = visible.map(() => "?").join(",");
-  const profiles = await db
-    .prepare(`SELECT id, full_name FROM profiles WHERE id IN (${ph})`)
-    .bind(...visible)
-    .all<{ id: string; full_name: string | null }>();
-  return Object.fromEntries((profiles.results ?? []).map((p) => [p.id, p.full_name || "—"]));
+  const names: Record<string, string> = {};
+  for (let offset = 0; offset < visible.length; offset += 100) {
+    const chunk = visible.slice(offset, offset + 100);
+    const ph = chunk.map(() => "?").join(",");
+    const profiles = await db
+      .prepare(`SELECT id, full_name FROM profiles WHERE id IN (${ph})`)
+      .bind(...chunk)
+      .all<{ id: string; full_name: string | null }>();
+    for (const p of profiles.results ?? []) names[p.id] = p.full_name || "—";
+  }
+  return names;
 }
 
 export type BufferedIntegrityEventInput = {
