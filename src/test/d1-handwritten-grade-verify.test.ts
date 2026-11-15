@@ -1,3 +1,4 @@
+import { saveHandwrittenGrade } from "./handwritten-preview-helper";
 /**
  * Tests for the AI-F2 server-verified handwritten save
  * (src/server/d1-handwritten.ts): the saved final score must come
@@ -11,11 +12,7 @@
  * AI provider is required.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  saveHandwrittenGrade,
-  type Caller,
-  type SaveHandwrittenGradeInput,
-} from "@/server/d1-handwritten";
+import { type Caller, type SaveHandwrittenGradeInput } from "@/server/d1-handwritten";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 
 type Grade = {
@@ -519,4 +516,88 @@ describe("saveHandwrittenGrade server verification (AI-F2)", () => {
     expect(stored?.max_marks).toBe(10);
     expect(stored?.final_score).toBe(7);
   });
+});
+
+describe("Audit: bind paper Save to reviewed server preview", () => {
+  beforeEach(() => {
+    process.env["GRADE_PREVIEW_SIGNING_KEY"] = "synthetic-test-key-only-000000000000000000000000";
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete process.env["AI_BASE_URL"];
+    delete process.env["AI_MODEL"];
+  });
+  it("saves the reviewed score with no second model call", async () => {
+    const { saveHandwrittenGrade: processGrade } = await import("@/server/d1-handwritten");
+    const state = baseState(),
+      db = fakeDb(state);
+    process.env["AI_BASE_URL"] = "http://localhost:11434/v1";
+    process.env["AI_MODEL"] = "test-model";
+    const fetchMock = mockGradeFetch(8);
+    const preview = await processGrade(db, TEACHER, gradeInput(), { preview: true });
+    mockGradeFetch(2); // Any fresh inference would now disagree with the reviewed8.
+    await processGrade(
+      db,
+      TEACHER,
+      gradeInput({ previewId: preview.id, aiSuggestedScore: 10 }),
+      {},
+    );
+    expect(fetchMock.mock.calls).toHaveLength(1);
+    expect([...state.grades.values()][0]?.final_score).toBe(8);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+  it("rejects changed text, forged id, absent id and expired preview", async () => {
+    const { saveHandwrittenGrade: processGrade } = await import("@/server/d1-handwritten");
+    const db = fakeDb(baseState());
+    process.env["AI_BASE_URL"] = "http://localhost:11434/v1";
+    process.env["AI_MODEL"] = "test-model";
+    mockGradeFetch(7);
+    const preview = await processGrade(db, TEACHER, gradeInput(), { preview: true });
+    await expect(
+      processGrade(
+        db,
+        TEACHER,
+        gradeInput({ previewId: preview.id, correctedText: "changed" }),
+        {},
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(processGrade(db, TEACHER, gradeInput(), {})).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
+    await expect(
+      processGrade(db, TEACHER, gradeInput({ previewId: crypto.randomUUID() }), {}),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31 * 60000);
+    await expect(
+      processGrade(db, TEACHER, gradeInput({ previewId: preview.id }), {}),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+  it.each(["", true, [], {}, null].map((score) => [score]))(
+    "refuses malformed model score %j before final save",
+    async (score) => {
+      const { saveHandwrittenGrade: processGrade } = await import("@/server/d1-handwritten");
+      process.env["AI_BASE_URL"] = "http://localhost:11434/v1";
+      process.env["AI_MODEL"] = "test-model";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [
+              { message: { content: JSON.stringify({ suggested_score: score, feedback: "bad" }) } },
+            ],
+          }),
+        })),
+      );
+      const state = baseState();
+      await expect(
+        processGrade(fakeDb(state), TEACHER, gradeInput(), {
+          preview: true,
+        }),
+      ).rejects.toMatchObject({ code: "AI_ERROR" });
+      expect(state.grades.size).toBe(0);
+    },
+  );
 });
