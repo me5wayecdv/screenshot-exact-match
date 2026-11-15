@@ -83,6 +83,7 @@ function seedOwnership(db: DatabaseSync) {
       id TEXT PRIMARY KEY,
       submission_id TEXT NOT NULL,
       question_id TEXT NOT NULL,
+      response TEXT NOT NULL DEFAULT '',
       ai_suggestion TEXT
     );
     CREATE TABLE ai_usage_events (
@@ -104,10 +105,10 @@ function seedOwnership(db: DatabaseSync) {
   db.prepare("INSERT INTO submissions (id, assessment_id) VALUES ('sub-1', 'ex1')").run();
   db.prepare("INSERT INTO submissions (id, assessment_id) VALUES ('sub-2', 'ex2')").run();
   db.prepare(
-    "INSERT INTO answers (id, submission_id, question_id, ai_suggestion) VALUES ('ans-1', 'sub-1', 'q-1', NULL)",
+    "INSERT INTO answers (id, submission_id, question_id, response, ai_suggestion) VALUES ('ans-1', 'sub-1', 'q-1', 'canonical answer', NULL)",
   ).run();
   db.prepare(
-    "INSERT INTO answers (id, submission_id, question_id, ai_suggestion) VALUES ('ans-2', 'sub-2', 'q-2', NULL)",
+    "INSERT INTO answers (id, submission_id, question_id, response, ai_suggestion) VALUES ('ans-2', 'sub-2', 'q-2', 'other answer', NULL)",
   ).run();
 }
 
@@ -169,6 +170,25 @@ describe("persistAiSuggestion", () => {
     });
     // No other row touched.
     expect(readSuggestion(raw, "ans-2")).toBeNull();
+  });
+
+  it("does not persist a stale suggestion when the answer text changed during the AI request", async () => {
+    const raw = new DatabaseSync(":memory:");
+    seedOwnership(raw);
+    const db = sqliteD1(raw);
+    raw.prepare("UPDATE answers SET response = 'edited answer' WHERE id = 'ans-1'").run();
+
+    const persisted = await persistAiSuggestion(
+      db,
+      { teacherId: "teacher-1", isAdmin: false },
+      { answerId: "ans-1", submissionId: "sub-1", questionId: "q-1", assessmentId: "ex1" },
+      SUGGESTION,
+      "llama-3.3-70b",
+      "canonical answer",
+    );
+
+    expect(persisted).toBe(false);
+    expect(readSuggestion(raw, "ans-1")).toBeNull();
   });
 
   it("(a) persists via submissionId+questionId when no answerId is given", async () => {

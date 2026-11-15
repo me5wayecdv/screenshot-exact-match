@@ -386,6 +386,16 @@ CREATE TABLE IF NOT EXISTS ai_rate_limits (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- AI-F5: one durable idempotency claim per refunded quota consumption.
+CREATE TABLE IF NOT EXISTS ai_quota_refunds (
+  refund_key TEXT PRIMARY KEY,
+  claim_token TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES auth_users(id) ON DELETE CASCADE,
+  units INTEGER NOT NULL CHECK (units > 0),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS ai_quota_refunds_created_idx ON ai_quota_refunds(created_at);
+
 CREATE TABLE IF NOT EXISTS whatsapp_sends (
   id TEXT PRIMARY KEY,
   submission_id TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,

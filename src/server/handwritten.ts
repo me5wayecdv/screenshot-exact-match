@@ -796,6 +796,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
           "Vision provider is not configured on the server (set AI_BASE_URL and AI_MODEL, plus AI_VISION_MODEL for a vision-capable model, and AI_API_KEY for hosted providers).",
       };
     }
+    const quotaRefundKey = crypto.randomUUID();
     if (!(await consumeAiQuota(db, auth.userId, 1))) {
       return {
         ok: false,
@@ -806,7 +807,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
     const result = await callVisionOcr(config, request.imageDataUrl);
     if (!result.ok) {
       // AI-F5: the OCR call failed, so the unit consumed above goes back.
-      await refundAiQuota(db, auth.userId, 1);
+      await refundAiQuota(db, auth.userId, 1, undefined, quotaRefundKey);
       return { ok: false, code: result.code, message: result.message };
     }
     // Pilot cost measurement (best-effort, never fails the OCR result).
@@ -817,7 +818,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
     }).catch(() => undefined);
-    return { ok: true, text: result.text, model: config.model };
+    return { ok: true, text: result.text, model: result.model };
   });
 
 /**

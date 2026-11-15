@@ -67,6 +67,13 @@ function freshDb(): { db: DatabaseSync; d1: D1Database } {
       day_units INTEGER NOT NULL DEFAULT 0 CHECK (day_units >= 0),
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE ai_quota_refunds (
+      refund_key TEXT PRIMARY KEY,
+      claim_token TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      units INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
   return { db, d1: sqliteD1(db) };
 }
@@ -78,42 +85,53 @@ describe("refundAiQuota (AI-F5)", () => {
     const { d1 } = freshDb();
     expect(await consumeAiQuota(d1, "teacher-1", 3, NOW)).toBe(true);
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 3, dayUnits: 3 });
-    expect(await refundAiQuota(d1, "teacher-1", 3, NOW)).toBe(true);
+    expect(await refundAiQuota(d1, "teacher-1", 3, NOW, "consume-3")).toBe(true);
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 0, dayUnits: 0 });
   });
 
   it("refunds only the requested amount (partial refund)", async () => {
     const { d1 } = freshDb();
     await consumeAiQuota(d1, "teacher-1", 5, NOW);
-    await refundAiQuota(d1, "teacher-1", 2, NOW);
+    await refundAiQuota(d1, "teacher-1", 2, NOW, "consume-partial");
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 3, dayUnits: 3 });
   });
 
   it("never drives the counters below zero on a repeated refund", async () => {
     const { d1 } = freshDb();
     await consumeAiQuota(d1, "teacher-1", 1, NOW);
-    expect(await refundAiQuota(d1, "teacher-1", 1, NOW)).toBe(true);
+    expect(await refundAiQuota(d1, "teacher-1", 1, NOW, "consume-one")).toBe(true);
     // A second refund of the same consume must not double-refund.
-    await refundAiQuota(d1, "teacher-1", 1, NOW);
+    await refundAiQuota(d1, "teacher-1", 1, NOW, "consume-one");
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 0, dayUnits: 0 });
+  });
+
+  it("a duplicate refund cannot debit a later consumption", async () => {
+    const { d1 } = freshDb();
+    expect(await consumeAiQuota(d1, "teacher-1", 1, NOW)).toBe(true);
+    expect(await refundAiQuota(d1, "teacher-1", 1, NOW, "first-consumption")).toBe(true);
+    expect(await consumeAiQuota(d1, "teacher-1", 1, NOW)).toBe(true);
+    expect(await refundAiQuota(d1, "teacher-1", 1, NOW, "first-consumption")).toBe(false);
+    expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 1, dayUnits: 1 });
   });
 
   it("refunding more than was consumed floors at zero", async () => {
     const { d1 } = freshDb();
     await consumeAiQuota(d1, "teacher-1", 1, NOW);
-    await refundAiQuota(d1, "teacher-1", 20, NOW);
+    await refundAiQuota(d1, "teacher-1", 20, NOW, "consume-over");
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 0, dayUnits: 0 });
   });
 
   it("returns false when there is no quota row to refund", async () => {
     const { d1 } = freshDb();
-    expect(await refundAiQuota(d1, "nobody", 1, NOW)).toBe(false);
+    expect(await refundAiQuota(d1, "nobody", 1, NOW, "no-consume")).toBe(false);
   });
 
   it("rejects invalid units without touching the database", async () => {
     const { d1 } = freshDb();
     for (const units of [0, -1, 1.5, 21, Number.NaN]) {
-      await expect(refundAiQuota(d1, "teacher-1", units, NOW)).resolves.toBe(false);
+      await expect(
+        refundAiQuota(d1, "teacher-1", units, NOW, "invalid-" + String(units)),
+      ).resolves.toBe(false);
     }
     expect(await getAiQuotaUsage(d1, "teacher-1")).toBeNull();
   });
@@ -124,7 +142,7 @@ describe("refundAiQuota (AI-F5)", () => {
         throw new Error("offline");
       },
     } as unknown as D1Database;
-    await expect(refundAiQuota(broken, "teacher-1", 1, NOW)).resolves.toBe(false);
+    await expect(refundAiQuota(broken, "teacher-1", 1, NOW, "broken")).resolves.toBe(false);
   });
 
   it("does not debit the new minute window when the minute rolled over", async () => {
@@ -132,7 +150,7 @@ describe("refundAiQuota (AI-F5)", () => {
     await consumeAiQuota(d1, "teacher-1", 5, NOW);
     // One minute later: the day window is the same, the minute window is new.
     const later = "2026-11-12T19:01:00.000Z";
-    await refundAiQuota(d1, "teacher-1", 5, later);
+    await refundAiQuota(d1, "teacher-1", 5, later, "consume-rollover");
     // Day units are refunded; the stale minute value is left alone (the
     // next consume in the new window resets it via its own CASE).
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 5, dayUnits: 0 });
@@ -146,7 +164,7 @@ describe("refundAiQuota (AI-F5)", () => {
     const { d1 } = freshDb();
     expect(await consumeAiQuota(d1, "teacher-1", 1, NOW)).toBe(true);
     const aiSucceeded = true;
-    if (!aiSucceeded) await refundAiQuota(d1, "teacher-1", 1, NOW);
+    if (!aiSucceeded) await refundAiQuota(d1, "teacher-1", 1, NOW, "consume-one");
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 1, dayUnits: 1 });
   });
 
@@ -155,7 +173,7 @@ describe("refundAiQuota (AI-F5)", () => {
     const { d1 } = freshDb();
     expect(await consumeAiQuota(d1, "teacher-1", 1, NOW)).toBe(true);
     const aiSucceeded = false;
-    if (!aiSucceeded) await refundAiQuota(d1, "teacher-1", 1, NOW);
+    if (!aiSucceeded) await refundAiQuota(d1, "teacher-1", 1, NOW, "consume-one");
     expect(await getAiQuotaUsage(d1, "teacher-1")).toEqual({ minuteUnits: 0, dayUnits: 0 });
   });
 });

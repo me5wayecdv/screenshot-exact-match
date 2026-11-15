@@ -137,32 +137,53 @@ export async function consumeAiQuota(
  * Best-effort by design: it never throws and returns false when the
  * units are invalid, there is no quota row, or anything at all goes
  * wrong. A failed refund must never turn a good response into an error.
- * Callers refund at most once per consume; the 0 floor also makes a
- * repeated refund harmless (it can never drive the counters negative).
+ * Every refund requires a stable idempotency key created with the original
+ * request. A unique claim row and the counter update execute in one D1 batch,
+ * so replaying the same refund cannot debit a later consumption.
  */
 export async function refundAiQuota(
   db: D1Database,
   userId: string,
   units: number,
   nowIso: string = new Date().toISOString(),
+  idempotencyKey?: string,
 ): Promise<boolean> {
   try {
-    if (!userId || !Number.isInteger(units) || units < 1 || units > QUOTA_MAX_UNITS_PER_CALL) {
+    if (
+      !userId ||
+      !idempotencyKey ||
+      idempotencyKey.length > 128 ||
+      !Number.isInteger(units) ||
+      units < 1 ||
+      units > QUOTA_MAX_UNITS_PER_CALL ||
+      !db.batch
+    ) {
       return false;
     }
     const minute = minuteOf(nowIso);
     const day = dayOf(nowIso);
-    const result = await db
-      .prepare(
-        "UPDATE ai_rate_limits SET " +
-          "minute_units = CASE WHEN minute_started_at = ? THEN MAX(0, minute_units - ?) ELSE minute_units END, " +
-          "day_units = CASE WHEN day_started_on = ? THEN MAX(0, day_units - ?) ELSE day_units END, " +
-          "updated_at = ? " +
-          "WHERE user_id = ?",
-      )
-      .bind(minute, units, day, units, nowIso, userId)
-      .run();
-    return runChanges(result) === 1;
+    const claimToken = crypto.randomUUID();
+    const cutoff = new Date(Date.parse(nowIso) - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const results = (await db.batch([
+      db.prepare("DELETE FROM ai_quota_refunds WHERE created_at < ?").bind(cutoff),
+      db
+        .prepare(
+          "INSERT OR IGNORE INTO ai_quota_refunds " +
+            "(refund_key, claim_token, user_id, units, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(idempotencyKey, claimToken, userId, units, nowIso),
+      db
+        .prepare(
+          "UPDATE ai_rate_limits SET " +
+            "minute_units = CASE WHEN minute_started_at = ? THEN MAX(0, minute_units - ?) ELSE minute_units END, " +
+            "day_units = CASE WHEN day_started_on = ? THEN MAX(0, day_units - ?) ELSE day_units END, " +
+            "updated_at = ? " +
+            "WHERE user_id = ? AND EXISTS (" +
+            "SELECT 1 FROM ai_quota_refunds WHERE refund_key = ? AND claim_token = ? AND user_id = ?)",
+        )
+        .bind(minute, units, day, units, nowIso, userId, idempotencyKey, claimToken, userId),
+    ])) as unknown[];
+    return runChanges(results[2]) === 1;
   } catch {
     return false;
   }
