@@ -49,10 +49,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { D1Database } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { assertEmailConfigured, sendAuthEmail } from "@/server/d1-email";
-import {
-  createD1SecurityStore,
-  revokeAllSessions,
-} from "@/server/d1-security-store";
+import { createD1SecurityStore, revokeAllSessions } from "@/server/d1-security-store";
 import { getRequest } from "@tanstack/react-start/server";
 import { EmailError } from "@/server/d1-email";
 import { issueSetPasswordInvitation } from "@/lib/cloudflare-security";
