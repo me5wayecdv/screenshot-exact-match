@@ -1427,6 +1427,10 @@ describe("score-refresh TTL (V3.3)", () => {
       error: "TAKE_NOT_FOUND",
       status: 400,
     });
+    expect(classifyTakeError(new Error("TAKE_SESSION_ERROR"))).toEqual({
+      error: "TAKE_SESSION_ERROR",
+      status: 500,
+    });
     expect(classifyTakeError(new Error("D1 DB is overloaded: account=private"))).toEqual({
       error: "TAKE_SESSION_ERROR",
       status: 500,
