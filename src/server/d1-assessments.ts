@@ -619,6 +619,21 @@ export async function toggleAssignment(
 
 /* -------------------------------------------------------------- questions */
 
+/** D1 batches are transactional: question and key cannot straddle a student's submission. */
+async function mutateQuestions(db: D1Database, statements: D1Statement[]): Promise<void> {
+  if (!db.batch) throw new Error("ATOMIC_QUESTION_EDIT_UNAVAILABLE");
+  const results = (await db.batch(statements)) as { meta?: { changes?: number } }[];
+  if (results?.[0]?.meta?.changes === 0) throw new Error("HAS_SUBMISSIONS");
+}
+
+async function assertQuestionsEditable(db: D1Database, assessmentId: string): Promise<void> {
+  const row = await db
+    .prepare("SELECT 1 AS locked FROM submissions WHERE assessment_id = ? LIMIT 1")
+    .bind(assessmentId)
+    .first();
+  if (row) throw new Error("HAS_SUBMISSIONS");
+}
+
 export async function addQuestion(
   db: D1Database,
   teacherId: string,
@@ -626,6 +641,7 @@ export async function addQuestion(
   type: QuestionType,
 ): Promise<{ id: string }> {
   await ownAssessment(db, teacherId, assessmentId);
+  await assertQuestionsEditable(db, assessmentId);
   const countRow = await db
     .prepare("SELECT COUNT(*) AS n FROM questions WHERE assessment_id = ?")
     .bind(assessmentId)
@@ -634,17 +650,26 @@ export async function addQuestion(
   // D1 has no column defaults for prompt/marks, so explicit defaults:
   // prompt '' and marks 1. Publish completeness blocks publishing until
   // the teacher fills them, exactly as the old incomplete check did.
-  await db
-    .prepare(
-      "INSERT INTO questions (id, assessment_id, prompt, type, options, difficulty, marks, position, objective) " +
-        "VALUES (?, ?, '', ?, ?, 'medium', 1, ?, '')",
-    )
-    .bind(id, assessmentId, type, JSON.stringify(type === "mcq" ? ["", ""] : []), countRow?.n ?? 0)
-    .run();
-  await db
-    .prepare("INSERT INTO question_keys (question_id, correct_answer) VALUES (?, ?)")
-    .bind(id, type === "true_false" ? "true" : "")
-    .run();
+  await mutateQuestions(db, [
+    db
+      .prepare(
+        "INSERT INTO questions (id, assessment_id, prompt, type, options, difficulty, marks, position, objective) " +
+          "SELECT ?, ?, '', ?, ?, 'medium', 1, ?, '' WHERE NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = ?)",
+      )
+      .bind(
+        id,
+        assessmentId,
+        type,
+        JSON.stringify(type === "mcq" ? ["", ""] : []),
+        countRow?.n ?? 0,
+        assessmentId,
+      ),
+    db
+      .prepare(
+        "INSERT INTO question_keys (question_id, correct_answer) SELECT ?, ? WHERE EXISTS (SELECT 1 FROM questions WHERE id = ?) AND NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = ?)",
+      )
+      .bind(id, type === "true_false" ? "true" : "", id, assessmentId),
+  ]);
   return { id };
 }
 
@@ -672,6 +697,7 @@ export async function moveQuestion(
   dir: -1 | 1,
 ): Promise<void> {
   const current = await ownQuestion(db, teacherId, questionId);
+  await assertQuestionsEditable(db, current.assessment_id);
   const { results } = await db
     .prepare("SELECT id, position FROM questions WHERE assessment_id = ? ORDER BY position")
     .bind(current.assessment_id)
@@ -680,14 +706,18 @@ export async function moveQuestion(
   const idx = ordered.findIndex((q) => q.id === questionId);
   const other = ordered[idx + dir];
   if (idx < 0 || !other) return;
-  await db
-    .prepare("UPDATE questions SET position = ? WHERE id = ?")
-    .bind(other.position, questionId)
-    .run();
-  await db
-    .prepare("UPDATE questions SET position = ? WHERE id = ?")
-    .bind(current.position, other.id)
-    .run();
+  await mutateQuestions(db, [
+    db
+      .prepare(
+        "UPDATE questions SET position = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = questions.assessment_id)",
+      )
+      .bind(other.position, questionId),
+    db
+      .prepare(
+        "UPDATE questions SET position = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = questions.assessment_id)",
+      )
+      .bind(current.position, other.id),
+  ]);
 }
 
 export async function deleteQuestion(
@@ -695,9 +725,15 @@ export async function deleteQuestion(
   teacherId: string,
   questionId: string,
 ): Promise<void> {
-  await ownQuestion(db, teacherId, questionId);
-  await db.prepare("DELETE FROM question_keys WHERE question_id = ?").bind(questionId).run();
-  await db.prepare("DELETE FROM questions WHERE id = ?").bind(questionId).run();
+  const current = await ownQuestion(db, teacherId, questionId);
+  await assertQuestionsEditable(db, current.assessment_id);
+  await mutateQuestions(db, [
+    db
+      .prepare(
+        "DELETE FROM questions WHERE id = ? AND NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = questions.assessment_id)",
+      )
+      .bind(questionId),
+  ]);
 }
 
 export type QuestionUpdateInput = {
@@ -720,6 +756,7 @@ export async function updateQuestion(
   input: QuestionUpdateInput,
 ): Promise<void> {
   const current = await ownQuestion(db, teacherId, questionId);
+  await assertQuestionsEditable(db, current.assessment_id);
   void current;
   if (!(input.marks > 0)) throw new Error("INVALID_MARKS");
   const cleanOptions = input.options.map((o) => o.trim()).filter(Boolean);
@@ -732,35 +769,36 @@ export async function updateQuestion(
       throw new Error("INVALID_QUESTION");
     }
   }
-  await db
-    .prepare(
-      "UPDATE questions SET prompt = ?, marks = ?, objective = ?, options = ?, difficulty = ? WHERE id = ?",
-    )
-    .bind(
-      input.prompt.trim(),
-      input.marks,
-      input.objective.trim(),
-      JSON.stringify(cleanOptions),
-      input.difficulty,
-      questionId,
-    )
-    .run();
-  await db
-    .prepare(
-      "INSERT INTO question_keys (question_id, correct_answer, accepted_alternatives, rubric, explanation) " +
-        "VALUES (?, ?, ?, ?, ?) " +
-        "ON CONFLICT(question_id) DO UPDATE SET correct_answer = excluded.correct_answer, " +
-        "accepted_alternatives = excluded.accepted_alternatives, rubric = excluded.rubric, " +
-        "explanation = excluded.explanation",
-    )
-    .bind(
-      questionId,
-      input.correctAnswer.trim(),
-      JSON.stringify(input.acceptedAlternatives),
-      input.rubric.trim(),
-      input.explanation.trim(),
-    )
-    .run();
+  await mutateQuestions(db, [
+    db
+      .prepare(
+        "UPDATE questions SET prompt = ?, marks = ?, objective = ?, options = ?, difficulty = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = questions.assessment_id)",
+      )
+      .bind(
+        input.prompt.trim(),
+        input.marks,
+        input.objective.trim(),
+        JSON.stringify(cleanOptions),
+        input.difficulty,
+        questionId,
+      ),
+    db
+      .prepare(
+        "INSERT INTO question_keys (question_id, correct_answer, accepted_alternatives, rubric, explanation) " +
+          "SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = ?) " +
+          "ON CONFLICT(question_id) DO UPDATE SET correct_answer = excluded.correct_answer, " +
+          "accepted_alternatives = excluded.accepted_alternatives, rubric = excluded.rubric, " +
+          "explanation = excluded.explanation",
+      )
+      .bind(
+        questionId,
+        input.correctAnswer.trim(),
+        JSON.stringify(input.acceptedAlternatives),
+        input.rubric.trim(),
+        input.explanation.trim(),
+        current.assessment_id,
+      ),
+  ]);
 }
 
 export async function listQuestionBank(
@@ -810,6 +848,7 @@ export async function copyBankQuestion(
   position: number,
 ): Promise<{ id: string }> {
   await ownAssessment(db, teacherId, assessmentId);
+  await assertQuestionsEditable(db, assessmentId);
   // The source must also be the teacher's own question.
   const source = await ownQuestion(db, teacherId, sourceQuestionId);
   void source;
@@ -835,36 +874,39 @@ export async function copyBankQuestion(
       explanation: string;
     }>();
   const id = crypto.randomUUID();
-  await db
-    .prepare(
-      "INSERT INTO questions (id, assessment_id, prompt, type, options, difficulty, marks, position, objective) " +
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(
-      id,
-      assessmentId,
-      row.prompt,
-      row.type,
-      row.options,
-      row.difficulty,
-      row.marks,
-      position,
-      row.objective,
-    )
-    .run();
-  await db
-    .prepare(
-      "INSERT INTO question_keys (question_id, correct_answer, accepted_alternatives, rubric, explanation) " +
-        "VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(
-      id,
-      key?.correct_answer ?? "",
-      key?.accepted_alternatives ?? "[]",
-      key?.rubric ?? "",
-      key?.explanation ?? "",
-    )
-    .run();
+  await mutateQuestions(db, [
+    db
+      .prepare(
+        "INSERT INTO questions (id, assessment_id, prompt, type, options, difficulty, marks, position, objective) " +
+          "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = ?)",
+      )
+      .bind(
+        id,
+        assessmentId,
+        row.prompt,
+        row.type,
+        row.options,
+        row.difficulty,
+        row.marks,
+        position,
+        row.objective,
+        assessmentId,
+      ),
+    db
+      .prepare(
+        "INSERT INTO question_keys (question_id, correct_answer, accepted_alternatives, rubric, explanation) " +
+          "SELECT ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM questions WHERE id = ?) AND NOT EXISTS (SELECT 1 FROM submissions WHERE assessment_id = ?)",
+      )
+      .bind(
+        id,
+        key?.correct_answer ?? "",
+        key?.accepted_alternatives ?? "[]",
+        key?.rubric ?? "",
+        key?.explanation ?? "",
+        id,
+        assessmentId,
+      ),
+  ]);
   return { id };
 }
 
