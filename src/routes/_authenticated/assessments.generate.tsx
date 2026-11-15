@@ -1,3 +1,4 @@
+import { SchoolGradeSelect } from "@/components/school-grade-select";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
@@ -629,12 +630,7 @@ function Generate() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="g-grade">{t("gradeLevel")}</Label>
-                <Input
-                  id="g-grade"
-                  value={gradeLevel}
-                  maxLength={60}
-                  onChange={(e) => setGradeLevel(e.target.value)}
-                />
+                <SchoolGradeSelect id="g-grade" value={gradeLevel} onChange={setGradeLevel} />
               </div>
             </div>
 
