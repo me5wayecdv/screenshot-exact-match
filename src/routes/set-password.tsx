@@ -52,7 +52,7 @@ function SetPassword() {
         onSubmit={onSubmit}
         className="w-full max-w-sm space-y-4 rounded-lg border bg-card p-6 shadow-soft"
       >
-        <Brand className="text-primary" />
+        <Brand onDark className="text-primary" />
         <div className="space-y-1.5">
           <Label htmlFor="token">{lang === "ar" ? "رمز الدعوة" : "Invitation token"}</Label>
           <Input
