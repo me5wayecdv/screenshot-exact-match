@@ -63,7 +63,7 @@ describe("lesson join attempt rate limit", () => {
     expect(
       await consumeLessonJoinAttempt(db, "student-1", now + LESSON_JOIN_LIMIT_WINDOW_MS + 1),
     ).toBe(true);
-    expect(inspect()?.attempts).toBe(1);
+    expect(inspect("student-1")?.attempts).toBe(1);
     expect(await consumeLessonJoinAttempt(db, "student-2", now + 25)).toBe(true);
   });
 });
