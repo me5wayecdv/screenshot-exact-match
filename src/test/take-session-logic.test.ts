@@ -1422,15 +1422,24 @@ describe("score-refresh TTL (V3.3)", () => {
     }
     expect(state.reads - readsBefore).toBe(0);
   });
-  it("returns stable public errors and never exposes unexpected internal messages", () => {
-    expect(classifyTakeError(new Error("TAKE_NOT_FOUND"))).toEqual({
-      error: "TAKE_NOT_FOUND",
-      status: 400,
-    });
-    expect(classifyTakeError(new Error("TAKE_SESSION_ERROR"))).toEqual({
-      error: "TAKE_SESSION_ERROR",
-      status: 500,
-    });
+  it("returns only allowlisted business errors and hides all internal TAKE_* codes", () => {
+    for (const code of [
+      "TAKE_NOT_FOUND",
+      "TAKE_NOT_PUBLISHED",
+      "TAKE_NOT_STARTED",
+      "TAKE_WINDOW_CLOSED",
+      "TAKE_NOT_ASSIGNED",
+      "TAKE_NOT_GROUP_MEMBER",
+      "TAKE_NO_ATTEMPTS_LEFT",
+    ]) {
+      expect(classifyTakeError(new Error(code))).toEqual({ error: code, status: 400 });
+    }
+    for (const code of ["TAKE_SESSION_ERROR", "TAKE_FLUSH_NO_ROW", "TAKE_SECRET_INTERNAL"]) {
+      expect(classifyTakeError(new Error(code))).toEqual({
+        error: "TAKE_SESSION_ERROR",
+        status: 500,
+      });
+    }
     expect(classifyTakeError(new Error("D1 DB is overloaded: account=private"))).toEqual({
       error: "TAKE_SESSION_ERROR",
       status: 500,

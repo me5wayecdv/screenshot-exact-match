@@ -166,13 +166,23 @@ export interface ExamConfigStore {
  *  to the stale config (V3.2), never throw into the student's call. */
 export type TakeErrorResponse = { error: string; status: 400 | 500 };
 
+const PUBLIC_TAKE_ERRORS = new Set([
+  "TAKE_NOT_FOUND",
+  "TAKE_NOT_PUBLISHED",
+  "TAKE_NOT_STARTED",
+  "TAKE_WINDOW_CLOSED",
+  "TAKE_NOT_ASSIGNED",
+  "TAKE_NOT_GROUP_MEMBER",
+  "TAKE_NO_ATTEMPTS_LEFT",
+]);
+
 export function classifyTakeError(error: unknown): TakeErrorResponse {
-  if (error instanceof Error && error.message === "TAKE_SESSION_ERROR") {
-    return { error: "TAKE_SESSION_ERROR", status: 500 };
-  }
-  if (error instanceof Error && /^TAKE_/.test(error.message)) {
+  if (error instanceof Error && PUBLIC_TAKE_ERRORS.has(error.message)) {
     return { error: error.message, status: 400 };
   }
+  // Only explicitly enumerated business errors are safe to return.
+  // Internal TAKE_* codes (e.g. TAKE_FLUSH_NO_ROW) are implementation
+  // details and must be logged by the caller, never exposed to students.
   return { error: "TAKE_SESSION_ERROR", status: 500 };
 }
 
