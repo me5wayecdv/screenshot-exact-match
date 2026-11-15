@@ -163,7 +163,8 @@ export async function refundAiQuota(
     const minute = minuteOf(nowIso);
     const day = dayOf(nowIso);
     const claimToken = crypto.randomUUID();
-    const cutoff = new Date(Date.parse(nowIso) - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const refundedAt = new Date().toISOString();
+    const cutoff = new Date(Date.parse(refundedAt) - 30 * 24 * 60 * 60 * 1000).toISOString();
     const results = (await db.batch([
       db.prepare("DELETE FROM ai_quota_refunds WHERE created_at < ?").bind(cutoff),
       db
@@ -171,7 +172,7 @@ export async function refundAiQuota(
           "INSERT OR IGNORE INTO ai_quota_refunds " +
             "(refund_key, claim_token, user_id, units, created_at) VALUES (?, ?, ?, ?, ?)",
         )
-        .bind(idempotencyKey, claimToken, userId, units, nowIso),
+        .bind(idempotencyKey, claimToken, userId, units, refundedAt),
       db
         .prepare(
           "UPDATE ai_rate_limits SET " +
