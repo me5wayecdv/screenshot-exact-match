@@ -306,12 +306,14 @@ function fakeAdminDb(seed: AccountRow[]): D1Database & {
         return { results: [] };
       },
       run: async () => {
+        let changes = 1;
         if (sql.startsWith("UPDATE auth_users SET status")) {
           const row = rows.find((r) => r.id === params[1]);
           if (row) row.status = params[0] as AccountStatus;
         } else if (sql.startsWith("UPDATE auth_users SET password_hash")) {
           const row = rows.find((r) => r.id === params[1]);
-          if (row) row.passwordHash = params[0] as string;
+          if (row && row.role !== "admin") row.passwordHash = params[0] as string;
+          else changes = 0;
         } else if (sql.startsWith("UPDATE auth_sessions SET revoked_at")) {
           for (const r of rows) {
             if (r.id === params[1]) r.sessionsRevoked = true;
@@ -324,7 +326,7 @@ function fakeAdminDb(seed: AccountRow[]): D1Database & {
             details: params[3] as string,
           });
         }
-        return { meta: { changes: 1 } };
+        return { meta: { changes } };
       },
     };
     return stmt as unknown as D1Statement;
@@ -485,5 +487,17 @@ describe("admin approval: admin functions", () => {
     await expect(resetUserPassword(db, ADMIN, { userId: "no-such-user" })).rejects.toMatchObject({
       code: "INVALID_INPUT",
     });
+  });
+  it("refuses to reset an admin account and performs no side effects", async () => {
+    const db = fakeAdminDb(seedRows());
+    const row = db.rows.find((r) => r.id === "u-admin")!;
+    const originalHash = row.passwordHash;
+    await expect(resetUserPassword(db, ADMIN, { userId: "u-admin" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
+    expect(row.passwordHash).toBe(originalHash);
+    expect(row.sessionsRevoked).toBe(false);
+    expect(db.audit).toHaveLength(0);
+    expect(db.seenSql.some((sql) => sql.includes("NOT EXISTS") && sql.includes("role = 'admin'"))).toBe(true);
   });
 });

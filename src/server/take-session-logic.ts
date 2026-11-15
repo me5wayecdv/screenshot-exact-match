@@ -164,6 +164,15 @@ export interface ExamConfigStore {
  *  the V3.1 150-step proved the boundary can fall between drafts
  *  and submits — so a reload that fails under load must fall back
  *  to the stale config (V3.2), never throw into the student's call. */
+export type TakeErrorResponse = { error: string; status: 400 | 500 };
+
+export function classifyTakeError(error: unknown): TakeErrorResponse {
+  if (error instanceof Error && /^TAKE_/.test(error.message)) {
+    return { error: error.message, status: 400 };
+  }
+  return { error: "TAKE_SESSION_ERROR", status: 500 };
+}
+
 export const TAKE_SESSION_CACHE_TTL_MS = 60_000;
 
 /** How long a released score may wait before the take page re-reads

@@ -41,6 +41,7 @@ import {
   loadTakeData,
   validateStart,
   TAKE_SESSION_FLUSH_BATCH,
+  classifyTakeError,
   type DoAnswerState,
   type DoSubmissionState,
   type DraftInput,
@@ -523,10 +524,6 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-function isTakeError(error: unknown): boolean {
-  return error instanceof Error && /^TAKE_/.test(error.message);
-}
-
 /**
  * The DurableObject base class is a Worker runtime global — but
  * Cloudflare validates a deploy by executing the script in a context
@@ -780,16 +777,16 @@ export class TakeSession extends DurableObjectBase {
           return jsonResponse({ error: "NOT_FOUND" }, 404);
       }
     } catch (error) {
-      if (isTakeError(error)) {
-        return jsonResponse({ error: (error as Error).message }, 400);
+      const classified = classifyTakeError(error);
+      if (classified.status === 400) {
+        return jsonResponse({ error: classified.error }, classified.status);
       }
-      // Diagnostic (Phase 4, 2026-11-10): log the real error — the
-      // dashboard shows only the 500 request line, no stack. Return
-      // the message (not a bare "INTERNAL") so the caller surfaces it.
+      // Keep diagnostics server-side. Provider, SQL, and runtime details
+      // must never be reflected into a student's browser response.
       log("error", "[TakeSession] fetch failed", {
         error: error instanceof Error ? (error.stack ?? error.message) : String(error),
       });
-      return jsonResponse({ error: error instanceof Error ? error.message : "INTERNAL" }, 500);
+      return jsonResponse({ error: classified.error }, classified.status);
     }
   }
 

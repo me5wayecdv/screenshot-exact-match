@@ -54,6 +54,7 @@ import { retryD1Overload } from "@/server/d1-retry";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { appendAuditLog } from "@/server/d1-admin";
+import { consumeLessonJoinAttempt } from "@/server/d1-lesson-join-limit";
 import { listStudentHandwrittenGrades, type StudentHwGrade } from "@/server/d1-handwritten";
 import { missingAssignments, modeFromCoverage, type AudienceMode } from "@/lib/audience";
 import type { AuthSession } from "@/lib/cloudflare-auth";
@@ -1392,6 +1393,9 @@ export const enrollLessonD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireRoleNormalized(session, ["student"]);
+    if (!(await consumeLessonJoinAttempt(db, session.userId))) {
+      throw new Error("LESSON_JOIN_RATE_LIMIT");
+    }
     await enrollLesson(db, session.userId, data.code);
     return { ok: true };
   });

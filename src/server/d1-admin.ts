@@ -52,7 +52,6 @@ import { assertEmailConfigured, sendAuthEmail } from "@/server/d1-email";
 import {
   createD1SecurityStore,
   revokeAllSessions,
-  setPasswordHash,
 } from "@/server/d1-security-store";
 import { getRequest } from "@tanstack/react-start/server";
 import { EmailError } from "@/server/d1-email";
@@ -696,7 +695,17 @@ export async function resetUserPassword(
     .first<{ id: string; email: string; full_name: string | null }>();
   if (!target) throw new AdminError("INVALID_INPUT");
   const temporaryPassword = newTemporaryPassword();
-  await setPasswordHash(db, input.userId, await hashPassword(temporaryPassword));
+  const passwordHash = await hashPassword(temporaryPassword);
+  // Guard in the UPDATE itself: an account promoted to admin between
+  // the initial lookup and this write must remain protected.
+  const updated = await db
+    .prepare(
+      "UPDATE auth_users SET password_hash = ? WHERE id = ? " +
+        "AND NOT EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = ? AND r.role = 'admin')",
+    )
+    .bind(passwordHash, input.userId, input.userId)
+    .run();
+  if (runChanges(updated) === 0) throw new AdminError("INVALID_INPUT");
   await revokeAllSessions(db, input.userId, new Date().toISOString());
   // Activity-feed label only: name/email of the reset account.
   // The temporary password itself is NEVER in the audit row.
