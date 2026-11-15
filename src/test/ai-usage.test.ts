@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runGeminiQuery } from "@/server/handwritten";
-import {
-  extractGeminiUsage,
-  extractOpenAiUsage,
-  openAiProvider,
-} from "@/server/ai-usage";
+import { extractGeminiUsage, extractOpenAiUsage, openAiProvider } from "@/server/ai-usage";
 
 describe("extractOpenAiUsage", () => {
   it("reads prompt_tokens and completion_tokens", () => {
@@ -108,4 +104,3 @@ describe("runGeminiQuery usage passthrough", () => {
     });
   });
 });
-
