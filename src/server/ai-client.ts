@@ -94,7 +94,14 @@ function parseSuggestion(raw: unknown, maxMarks: number): AiGradeSuggestion {
   }
   const obj = raw as Record<string, unknown>;
   const scoreRaw = obj["suggested_score"] ?? obj["score"];
-  const score = typeof scoreRaw === "number" ? scoreRaw : Number(scoreRaw);
+  // Accept actual numbers and explicit decimal strings only. JS Number()
+  // also turns booleans, null, empty strings and arrays into plausible grades.
+  const score =
+    typeof scoreRaw === "number"
+      ? scoreRaw
+      : typeof scoreRaw === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(scoreRaw.trim())
+        ? Number(scoreRaw)
+        : Number.NaN;
   if (!Number.isFinite(score)) {
     throw new Error("Model response had no usable suggested_score.");
   }
