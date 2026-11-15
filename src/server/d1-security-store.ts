@@ -23,6 +23,7 @@ export function createD1SecurityStore(db: D1Database): SecurityStore {
   const auth = createD1AuthStore(db);
   return {
     ...auth,
+    consumeResetAtomic: (input) => consumePasswordResetAtomic(db, input),
     countRecentFailures: (input) => countRecentFailures(db, input),
     recordLoginAttempt: (input) => recordLoginAttempt(db, input),
     revokeAllSessions: (userId, atIso) => revokeAllSessions(db, userId, atIso),
@@ -178,22 +179,33 @@ export async function markPasswordResetTokenUsed(
     .run();
 }
 
-/** Atomic reset consumption: set hash + mark used + revoke all sessions. */
+/** D1 batches are isolated transactions: every effect uses the same unspent,
+ * unexpired token predicate. The last statement consumes it. Concurrent batches
+ * serialize; a failed statement rolls back all three effects. Never fall back
+ * to independent writes when batch is unavailable. */
 export async function consumePasswordResetAtomic(
   db: D1Database,
   input: { tokenId: string; userId: string; passwordHash: string; atIso: string },
-): Promise<void> {
-  const stmts = [
+): Promise<boolean> {
+  if (!db.batch) throw new Error("ATOMIC_RESET_UNAVAILABLE");
+  const valid =
+    "SELECT 1 FROM password_reset_tokens WHERE id = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?";
+  const results = (await db.batch([
     db
-      .prepare("UPDATE auth_users SET password_hash = ? WHERE id = ?")
-      .bind(input.passwordHash, input.userId),
+      .prepare("UPDATE auth_users SET password_hash = ? WHERE id = ? AND EXISTS (" + valid + ")")
+      .bind(input.passwordHash, input.userId, input.tokenId, input.userId, input.atIso),
     db
-      .prepare("UPDATE password_reset_tokens SET used_at = ? WHERE id = ?")
-      .bind(input.atIso, input.tokenId),
+      .prepare(
+        "UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL AND EXISTS (" +
+          valid +
+          ")",
+      )
+      .bind(input.atIso, input.userId, input.tokenId, input.userId, input.atIso),
     db
-      .prepare("UPDATE auth_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL")
-      .bind(input.atIso, input.userId),
-  ];
-  if (db.batch) await db.batch(stmts);
-  else for (const s of stmts) await s.run();
+      .prepare(
+        "UPDATE password_reset_tokens SET used_at = ? WHERE id = ? AND user_id = ? AND used_at IS NULL AND expires_at > ?",
+      )
+      .bind(input.atIso, input.tokenId, input.userId, input.atIso),
+  ])) as Array<{ meta?: { changes?: number } }>;
+  return results[2]?.meta?.changes === 1;
 }
