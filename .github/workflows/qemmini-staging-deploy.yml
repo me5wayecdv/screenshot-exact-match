@@ -1,0 +1,90 @@
+name: Qemmini Staging Deploy
+# Manual-only deploy of a chosen ref (default main) to the STAGING Worker
+# `qemmini-staging`, bound to the STAGING D1 `qemmini-db`.
+# NEVER deploys to live. The rebind step FAILS the run if the config still
+# points at the live D1 or the live R2 buckets after rebinding.
+# Binding procedure (durable lesson): the build generates
+# dist/server/wrangler.json from the ROOT wrangler.jsonc, so the config must
+# be rebound to staging BEFORE `npm run build`. Never --config
+# wrangler-staging.jsonc (no such file exists on main).
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag, or SHA to deploy to staging (e.g. security-phase-3-hardening)'
+        required: false
+        default: 'main'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The project installs with Bun (bun.lock is the lockfile; there is no
+      # package-lock.json, so npm ci / setup-node npm cache cannot work).
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      # Rebind wrangler config to staging. Today the committed file holds
+      # the live names, so every replace below is required; if the file is
+      # ever restored to staging names, this step is a no-op safeguard.
+      # The guard FAILS the run if any live D1 / live R2 reference survives
+      # — staging must never point at live data.
+      - name: Rebind wrangler config to staging
+        run: |
+          node -e "
+          const fs = require('fs');
+          let s = fs.readFileSync('wrangler.jsonc', 'utf8');
+          s = s.replace(/\"name\": \"qemmini\"/, '\"name\": \"qemmini-staging\"');
+          s = s.replace(/\"database_name\": \"qemmini-live-db\"/, '\"database_name\": \"qemmini-db\"');
+          s = s.replace(/\"database_id\": \"3d9fae1b-acb7-426c-a7ec-307217fab151\"/, '\"database_id\": \"382015c0-8484-4143-b2e3-7391b0fffb7d\"');
+          s = s.replace(/\"bucket_name\": \"qemmini-handwritten-papers\"/, '\"bucket_name\": \"qemmini-staging-handwritten-papers\"');
+          s = s.replace(/\"bucket_name\": \"qemmini-generation-sources\"/, '\"bucket_name\": \"qemmini-staging-generation-sources\"');
+          if (s.includes('3d9fae1b-acb7-426c-a7ec-307217fab151')) throw new Error('staging rebind failed: live D1 id still present');
+          if (s.includes('qemmini-live-db')) throw new Error('staging rebind failed: live D1 name still present');
+          if (s.includes('\"bucket_name\": \"qemmini-handwritten-papers\"') || s.includes('\"bucket_name\": \"qemmini-generation-sources\"')) throw new Error('staging rebind failed: live R2 bucket still present');
+          if (!s.includes('\"name\": \"qemmini-staging\"')) throw new Error('staging rebind failed: worker name not staging');
+          if (!s.includes('qemmini-db') || !s.includes('382015c0-8484-4143-b2e3-7391b0fffb7d')) throw new Error('staging rebind failed');
+          if (!s.includes('qemmini-staging-handwritten-papers') || !s.includes('qemmini-staging-generation-sources')) throw new Error('staging R2 rebind failed');
+          fs.writeFileSync('wrangler.jsonc', s);
+          console.log('wrangler.jsonc rebound to qemmini-db + staging R2 buckets');
+          "
+      - run: npm run build
+      - name: Confirm generated binding is staging
+        run: |
+          # NOTE: the generated file is minified JSON — no space after
+          # the colon, so the DO pattern must match \"name\":\"TAKE_SESSIONS\"
+          # exactly (a spaced '\"name\": \"TAKE_SESSIONS\"' never matches).
+          grep -q '382015c0-8484-4143-b2e3-7391b0fffb7d' dist/server/wrangler.json && ! grep -q '3d9fae1b-acb7-426c-a7ec-307217fab151' dist/server/wrangler.json && ! grep -q 'qemmini-live-db' dist/server/wrangler.json && grep -q '\"name\":\"qemmini-staging\"' dist/server/wrangler.json && grep -q '\"name\":\"TAKE_SESSIONS\"' dist/server/wrangler.json && echo "generated binding is staging"
+      # The staging R2 buckets may not exist yet (their existence is
+      # unconfirmed). Create each one if absent — idempotent: a bucket
+      # that already exists is skipped, never recreated.
+      - name: Create staging R2 buckets (idempotent)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler r2 bucket list | grep -q 'qemmini-staging-handwritten-papers' || npx wrangler r2 bucket create qemmini-staging-handwritten-papers
+          npx wrangler r2 bucket list | grep -q 'qemmini-staging-generation-sources' || npx wrangler r2 bucket create qemmini-staging-generation-sources
+      # `wrangler deploy` applies the TakeSession DO migration (v1)
+      # from wrangler.jsonc automatically.
+      - name: Deploy to Cloudflare Workers (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --name qemmini-staging
+      - name: Verify staging site
+        run: |
+          curl -fsS https://qemmini-staging.adhamelhansye.workers.dev/health | grep -Eq '"ok": ?true' && echo "staging /health OK"
+          curl -s https://qemmini-staging.adhamelhansye.workers.dev | grep -q 'rel="manifest"' && echo "staging manifest OK"
