@@ -396,6 +396,16 @@ CREATE TABLE IF NOT EXISTS ai_quota_refunds (
 );
 CREATE INDEX IF NOT EXISTS ai_quota_refunds_created_idx ON ai_quota_refunds(created_at);
 
+-- Per-student lesson join-code brute-force protection (15-minute window).
+CREATE TABLE IF NOT EXISTS lesson_join_rate_limits (
+  student_id TEXT PRIMARY KEY,
+  window_started_at INTEGER NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS lesson_join_rate_limits_updated_idx
+  ON lesson_join_rate_limits(updated_at);
+
 CREATE TABLE IF NOT EXISTS whatsapp_sends (
   id TEXT PRIMARY KEY,
   submission_id TEXT NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,

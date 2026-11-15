@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import {
   applyDraft,
+  classifyTakeError,
   applyStart,
   applySubmit,
   flushDirty,
@@ -1420,5 +1421,32 @@ describe("score-refresh TTL (V3.3)", () => {
       expect(second.submissions[0]).toMatchObject({ status: "awaiting_review", final_score: null });
     }
     expect(state.reads - readsBefore).toBe(0);
+  });
+  it("returns only allowlisted business errors and hides all internal TAKE_* codes", () => {
+    for (const code of [
+      "TAKE_NOT_FOUND",
+      "TAKE_NOT_PUBLISHED",
+      "TAKE_NOT_STARTED",
+      "TAKE_WINDOW_CLOSED",
+      "TAKE_NOT_ASSIGNED",
+      "TAKE_NOT_GROUP_MEMBER",
+      "TAKE_NO_ATTEMPTS_LEFT",
+    ]) {
+      expect(classifyTakeError(new Error(code))).toEqual({ error: code, status: 400 });
+    }
+    for (const code of ["TAKE_SESSION_ERROR", "TAKE_FLUSH_NO_ROW", "TAKE_SECRET_INTERNAL"]) {
+      expect(classifyTakeError(new Error(code))).toEqual({
+        error: "TAKE_SESSION_ERROR",
+        status: 500,
+      });
+    }
+    expect(classifyTakeError(new Error("D1 DB is overloaded: account=private"))).toEqual({
+      error: "TAKE_SESSION_ERROR",
+      status: 500,
+    });
+    expect(classifyTakeError("secret runtime detail")).toEqual({
+      error: "TAKE_SESSION_ERROR",
+      status: 500,
+    });
   });
 });

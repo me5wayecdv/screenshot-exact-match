@@ -135,4 +135,20 @@ describe("toCsv", () => {
     expect(csv).toContain('"قال ""نعم"""');
     expect(csv).toContain('"سطر\nثان"');
   });
+
+  it("neutralizes spreadsheet formulas in untrusted text but preserves numeric cells", () => {
+    const csv = toCsv(
+      [["=1+1", "+SUM(A1:A2)", "-1+2", "@SUM(1,2)", "  =cmd", "\t=1+1", "\r=1+1"], [-5]],
+      ["equals", "plus", "minus", "at", "space", "tab", "cr"],
+    );
+    expect(csv).toContain("'=1+1");
+    expect(csv).toContain("'+SUM(A1:A2)");
+    expect(csv).toContain("'-1+2");
+    expect(csv).toContain("'@SUM(1");
+    expect(csv).toContain("'  =cmd");
+    expect(csv).toContain("'\t=1+1");
+    expect(csv).toContain("'\r=1+1");
+    expect(csv).toContain("\n-5");
+    expect(csv).not.toContain("'-5");
+  });
 });

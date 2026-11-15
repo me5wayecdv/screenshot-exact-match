@@ -1978,6 +1978,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
   // message scan matches the first key that is a substring, and
   // "TAKE_NOT_FOUND" contains "NOT_FOUND", so this entry must win.
   TAKE_NOT_FOUND: { ar: "الاختبار ده مش موجود.", en: "That assessment was not found." },
+  LESSON_JOIN_RATE_LIMIT: {
+    ar: "حاولت تنضم لدرس مرات كتير — استنى 15 دقيقة وجرب تاني.",
+    en: "Too many lesson join attempts — wait 15 minutes and try again.",
+  },
   NOT_FOUND: { ar: "الحاجة دي مش موجودة.", en: "That item was not found." },
   INVALID_EMAIL: { ar: "البريد ده مش صحيح.", en: "That email address isn't valid." },
   INVALID_KEY: { ar: "الرابط أو المفتاح ده مش صالح.", en: "That link or key isn't valid." },

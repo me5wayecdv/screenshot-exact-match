@@ -599,7 +599,6 @@ export async function saveHandwrittenGrade(
       // per-request maxMarks, already bounded 1..1000 above.)
       maxMarks: effectiveMaxMarks,
     },
-    undefined,
     async (event) => {
       verifiedModel = event.model;
       await logAiUsageEvent(db, caller.id, {

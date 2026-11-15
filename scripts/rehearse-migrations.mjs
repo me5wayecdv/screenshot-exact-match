@@ -186,8 +186,27 @@ try {
     const sql = await readFile(join(migrationDirectory, filename), "utf8");
     await executeSql(filename, sql);
   }
+
+  // The application also has additive D1 migrations outside the historical
+  // Supabase/Postgres chain. Rehearse the new SQLite-compatible D1 migration
+  // in PGlite so its table/index DDL is validated in CI as well.
+  const d1RateLimitMigration = await readFile(
+    join(root, "schema/migrations/20261114_lesson_join_rate_limit.sql"),
+    "utf8",
+  );
+  await executeSql("D1 lesson join rate-limit migration", d1RateLimitMigration);
+  await expectRow(
+    "D1 lesson join rate-limit table",
+    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'lesson_join_rate_limits'",
+    (row) => row.table_name === "lesson_join_rate_limits",
+  );
+  await expectRow(
+    "D1 lesson join rate-limit index",
+    "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'lesson_join_rate_limits_updated_idx'",
+    (row) => row.indexname === "lesson_join_rate_limits_updated_idx",
+  );
   console.log(
-    `PASS: applied baseline and ${migrations.length} Supabase migrations in disposable PGlite.`,
+    `PASS: applied baseline, ${migrations.length} Supabase migrations, and the D1 lesson join-rate limit migration in disposable PGlite.`,
   );
 
   await db.exec(`CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$

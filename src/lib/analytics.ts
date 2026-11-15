@@ -250,11 +250,18 @@ export function computeGroupStats(
 }
 
 /** Minimal RFC 4180 CSV with a BOM so Excel opens Arabic correctly. */
+function neutralizeSpreadsheetFormula(value: string): string {
+  const firstMeaningful = value.trimStart();
+  if (/^[\t\r]/.test(value) || /^[=+\-@]/.test(firstMeaningful)) return `'${value}`;
+  return value;
+}
+
 export function toCsv(rows: (string | number | null)[][], headers: string[]): string {
   const esc = (v: string | number | null): string => {
     if (v === null || v === undefined) return "";
-    const s = String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    // Numeric values stay numeric; only untrusted text cells are neutralized.
+    const s = typeof v === "string" ? neutralizeSpreadsheetFormula(v) : String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return "\uFEFF" + [headers, ...rows].map((r) => r.map(esc).join(",")).join("\n");
 }
