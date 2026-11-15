@@ -34,7 +34,7 @@ function PrivacyPage() {
   return (
     <div className="min-h-screen">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Brand className="text-primary" />
+        <Brand onDark className="text-primary" />
         <LangToggle />
       </header>
       <main className="mx-auto max-w-3xl px-6 py-12">
