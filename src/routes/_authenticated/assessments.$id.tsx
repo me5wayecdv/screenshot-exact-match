@@ -1,3 +1,4 @@
+import { SchoolGradeSelect } from "@/components/school-grade-select";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -506,11 +507,10 @@ function MetaEditor({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="m-grade">{t("gradeLevel")}</Label>
-          <Input
+          <SchoolGradeSelect
             id="m-grade"
             value={f.grade_level}
-            maxLength={60}
-            onChange={(e) => setF({ ...f, grade_level: e.target.value })}
+            onChange={(value) => setF({ ...f, grade_level: value })}
           />
           <Label htmlFor="m-due" className="pt-2">
             {t("dueAt")}
