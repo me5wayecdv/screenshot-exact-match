@@ -475,8 +475,9 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
     }
 
     const quotaRefundKey = crypto.randomUUID();
+    const quotaConsumedAt = new Date().toISOString();
 
-    if (!(await consumeAiQuota(db, auth.userId, imageDataUrls.length))) {
+    if (!(await consumeAiQuota(db, auth.userId, imageDataUrls.length, quotaConsumedAt))) {
       return {
         ok: false,
         code: "VISION_RATE_LIMIT",
@@ -497,7 +498,13 @@ export const ocrSourceImages = createServerFn({ method: "POST" })
       if (!result.ok) {
         // AI-F5: this image and the rest were never OCR'd, so their units
         // go back (images before this one already succeeded and stay paid).
-        await refundAiQuota(db, auth.userId, imageDataUrls.length - i, undefined, quotaRefundKey);
+        await refundAiQuota(
+          db,
+          auth.userId,
+          imageDataUrls.length - i,
+          quotaConsumedAt,
+          quotaRefundKey,
+        );
         return { ok: false, code: result.code, message: result.message, imageIndex: i };
       }
       await logAiUsageEvent(db, auth.userId, {
