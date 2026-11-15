@@ -31,10 +31,11 @@ import { useMe } from "@/lib/session";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
-  beforeLoad: async () => {
+  beforeLoad: async ({ context }) => {
     // D1 cookie session: getMeD1 throws on missing/invalid sessions.
     try {
-      await getMeD1({});
+      const me = await getMeD1({});
+      context.queryClient.setQueryData(["me"], me);
     } catch {
       throw redirect({ to: "/auth" });
     }
@@ -44,7 +45,7 @@ export const Route = createFileRoute("/_authenticated")({
 
 function AppShell() {
   const { t } = useI18n();
-  const { data: me } = useMe();
+  const { data: me, isPending, isError, isFetching, refetch } = useMe();
   const qc = useQueryClient();
   const navigate = useNavigate();
   /**
@@ -115,9 +116,34 @@ function AppShell() {
 
   async function signOut() {
     await qc.cancelQueries();
-    qc.clear();
     await signOutD1({});
+    qc.clear();
     navigate({ to: "/auth", replace: true });
+  }
+
+  // Never guess a role or render a dashboard while identity is unavailable.
+  if (isPending && !isError) return <p className="p-6 text-muted-foreground">{t("loading")}</p>;
+  if (isError || !me) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 p-6">
+        <Brand />
+        <h1 className="text-xl font-semibold">{t("sessionLoadFailed")}</h1>
+        <p role="alert" className="text-muted-foreground">
+          {t("sessionLoadHelp")}
+        </p>
+        <button
+          type="button"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+          className="min-h-11 rounded-sm bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50"
+        >
+          {isFetching ? t("loading") : t("sessionRetry")}
+        </button>
+        <Link to="/auth" className="text-center text-primary underline">
+          {t("signIn")}
+        </Link>
+      </main>
+    );
   }
 
   return (
