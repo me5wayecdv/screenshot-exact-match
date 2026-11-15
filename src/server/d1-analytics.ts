@@ -260,19 +260,24 @@ export async function getAnalyticsOverview(
   requireTeacher(caller);
   const ids = assessmentIds.slice(0, 100);
   if (ids.length === 0) return [];
-  const placeholders = ids.map(() => "?").join(",");
-  const { results } = await db
-    .prepare(
-      "SELECT a.id AS assessment_id, " +
-        "SUM(CASE WHEN s.status = 'released' AND s.final_score IS NOT NULL AND s.total_possible > 0 THEN 1 ELSE 0 END) AS released, " +
-        "AVG(CASE WHEN s.status = 'released' AND s.final_score IS NOT NULL AND s.total_possible > 0 " +
-        "THEN s.final_score / s.total_possible * 100 END) AS avg_pct " +
-        "FROM assessments a LEFT JOIN submissions s ON s.assessment_id = a.id " +
-        `WHERE a.teacher_id = ? AND a.id IN (${placeholders}) GROUP BY a.id`,
-    )
-    .bind(caller.id, ...ids)
-    .all<OverviewRow>();
-  return results ?? [];
+  const rows: OverviewRow[] = [];
+  for (let offset = 0; offset < ids.length; offset += 99) {
+    const chunk = ids.slice(offset, offset + 99);
+    const placeholders = chunk.map(() => "?").join(",");
+    const { results } = await db
+      .prepare(
+        "SELECT a.id AS assessment_id, " +
+          "SUM(CASE WHEN s.status = 'released' AND s.final_score IS NOT NULL AND s.total_possible > 0 THEN 1 ELSE 0 END) AS released, " +
+          "AVG(CASE WHEN s.status = 'released' AND s.final_score IS NOT NULL AND s.total_possible > 0 " +
+          "THEN s.final_score / s.total_possible * 100 END) AS avg_pct " +
+          "FROM assessments a LEFT JOIN submissions s ON s.assessment_id = a.id " +
+          `WHERE a.teacher_id = ? AND a.id IN (${placeholders}) GROUP BY a.id`,
+      )
+      .bind(caller.id, ...chunk)
+      .all<OverviewRow>();
+    rows.push(...(results ?? []));
+  }
+  return rows;
 }
 
 export async function listAnalyticsStudentPage(
