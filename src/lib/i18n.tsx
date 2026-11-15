@@ -407,10 +407,8 @@ const dict = {
       "الامتحان ده معيّن لمجموعة محددة من طلابك، وفيه طلاب تانيين مش معيّنين. لو المفروض كل طلابك يشوفوه (بما فيهم اللي انضموا بعد النشر) اضغط الزرار ده.",
     audienceMakeEveryone: "خلّي الجمهور: كل طلابي",
     audienceEveryoneNow: "بقى متاح لكل طلابك ({count}) — وأي طالب ينضم بعد كده هيتعيّن تلقائيًا.",
-    publishReachUnknown:
-      "تم النشر، لكن تعذّر تأكيد عدد الطلاب الذين سيشاهدونه — حدّث الصفحة للتأكد.",
-    publishReachZero:
-      "تم النشر لكن مفيش أي طالب معيّن للامتحان — اضغط «خلّي الجمهور: كل طلابي» هنا.",
+    publishReachUnknown: "تم النشر، لكن تعذّر تأكيد عدد الطلاب الذين سيشاهدونه — حدّث الصفحة للتأكد.",
+    publishReachZero: "تم النشر لكن مفيش أي طالب معيّن للامتحان — اضغط «خلّي الجمهور: كل طلابي» هنا.",
     notFound: "غير موجود",
     summaryActive: "اختبارات منشورة",
     summaryPending: "بانتظار التصحيح",
@@ -869,8 +867,7 @@ const dict = {
     genDiffMedium: "متوسط",
     genDiffHard: "صعب",
     genUploadDoc: "ارفع ملف PDF أو Word",
-    genUploadDocHint:
-      "الملف يُحفظ على الخادم أولاً ثم يُستخرج نصه إلى خانة النص (حتى 10 ميجابايت).",
+    genUploadDocHint: "الملف يُحفظ على الخادم أولاً ثم يُستخرج نصه إلى خانة النص (حتى 10 ميجابايت).",
     genUploadImages: "أو ارفع صور صفحات المنهج",
     genUploadImagesHint: "حتى 5 صور؛ يُستخرج النص منها بالذكاء الاصطناعي إلى خانة النص.",
     genOcrLayout: "طريقة قراءة الصورة",
@@ -940,18 +937,16 @@ const dict = {
     whatsappSent: "تم إرسال النتيجة لولي الأمر عبر واتساب.",
     whatsappSkipped: "لم تُرسل النتيجة. تحقق من حالة الإرسال أدناه.",
     whatsappNotReleased: "النتيجة لم تُنشر بعد، لذا لا يمكن إرسالها.",
-    whatsappNotConnected: "واتساب غير متصل بعد. أضف إعدادات واتساب على الخادم ليتم الإرسال.",
+    whatsappNotConnected: "إرسال واتساب غير متاح حاليا. الخدمة لم يتم توصيلها بعد.",
     whatsappNoParentPhone: "لا يوجد رقم لولي الأمر. أضف الرقم من صفحة الطلاب ليتم الإرسال.",
     whatsappNoConsent: "إذن واتساب غير مفعّل لهذا الطالب. فعّله من صفحة الطلاب ليتم الإرسال.",
     whatsapp_sent: "تم الإرسال",
     whatsapp_failed: "فشل الإرسال",
     whatsapp_skipped: "تم التخطي",
     whatsappAutoSend: "إرسال النتيجة لولي الأمر تلقائيًا عند النشر",
-    whatsappAutoSendHint:
-      "عند التفعيل، تُرسل النتيجة عبر واتساب فور نشرها — فقط إذا كان رقم ولي الأمر مسجّلًا والإذن مفعّلًا. الإعداد الافتراضي: متوقف.",
+    whatsappAutoSendHint: "الإرسال التلقائي غير متاح حاليا. خدمة واتساب لم يتم توصيلها بعد.",
     whatsappReportTitle: "إرسال النتائج لأولياء الأمور",
-    whatsappReportHint:
-      "تُرسل النتائج المنشورة فقط. إذا لم يظهر زر الإرسال، أضف رقم ولي الأمر وفعّل الإذن من صفحة الطلاب.",
+    whatsappReportHint: "إرسال النتائج عبر واتساب غير متاح حاليا. خدمة الإرسال لم يتم توصيلها بعد.",
     termsTitle: "شروط الاستخدام",
   },
   en: {
@@ -1913,7 +1908,7 @@ const dict = {
     whatsappSkipped: "Result not sent. Check the send status below.",
     whatsappNotReleased: "The result has not been released yet, so it cannot be sent.",
     whatsappNotConnected:
-      "WhatsApp is not connected yet. Add the WhatsApp settings on the server to enable sending.",
+      "WhatsApp sending is unavailable. The delivery service is not connected yet.",
     whatsappNoParentPhone:
       "No parent number on file. Add it from the Students page to enable sending.",
     whatsappNoConsent:
@@ -1923,10 +1918,10 @@ const dict = {
     whatsapp_skipped: "Skipped",
     whatsappAutoSend: "Auto-send result to parent on release",
     whatsappAutoSendHint:
-      "When on, the result is sent via WhatsApp as soon as it is released — only if a parent number is saved and consent is on. Default: off.",
+      "Auto-send is unavailable. The WhatsApp delivery service is not connected yet.",
     whatsappReportTitle: "Send results to parents",
     whatsappReportHint:
-      "Only released results are sent. If no send button appears, add the parent number and enable consent from the Students page.",
+      "WhatsApp result delivery is unavailable. The delivery service is not connected yet.",
     termsTitle: "Terms of Use",
   },
 } as const;
