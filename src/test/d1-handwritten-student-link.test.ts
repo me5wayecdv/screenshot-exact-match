@@ -1,3 +1,4 @@
+import { saveHandwrittenGrade } from "./handwritten-preview-helper";
 /**
  * Tests for the handwritten student link (2026-11-04 gap fix):
  * a paper-graded form can link a grade to an enrolled student account,
@@ -10,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listApprovedHwStudents,
   listStudentHandwrittenGrades,
-  saveHandwrittenGrade,
   type Caller,
 } from "@/server/d1-handwritten";
 import { getStudentHome } from "@/server/d1-assessments";
