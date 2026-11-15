@@ -1978,10 +1978,6 @@ const errorMap: Record<string, { ar: string; en: string }> = {
   // message scan matches the first key that is a substring, and
   // "TAKE_NOT_FOUND" contains "NOT_FOUND", so this entry must win.
   TAKE_NOT_FOUND: { ar: "الاختبار ده مش موجود.", en: "That assessment was not found." },
-  TAKE_SESSION_ERROR: {
-    ar: "حصلت مشكلة في جلسة الاختبار — حاول تاني بعد شوية.",
-    en: "There was a problem with the exam session — try again shortly.",
-  },
   LESSON_JOIN_RATE_LIMIT: {
     ar: "حاولت تنضم لدرس مرات كتير — استنى 15 دقيقة وجرب تاني.",
     en: "Too many lesson join attempts — wait 15 minutes and try again.",
