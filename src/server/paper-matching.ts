@@ -693,7 +693,8 @@ export const matchPaperPages = createServerFn({ method: "POST" })
     }
     const textConfig = resolveAiConfig();
     const quotaRefundKey = crypto.randomUUID();
-    if (!(await consumeAiQuota(db, auth.userId, pages.length))) {
+    const quotaConsumedAt = new Date().toISOString();
+    if (!(await consumeAiQuota(db, auth.userId, pages.length, quotaConsumedAt))) {
       return {
         ok: false,
         code: "VISION_RATE_LIMIT",
@@ -704,7 +705,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
     try {
       questions = await loadQuestions(db, assessmentId);
     } catch {
-      await refundAiQuota(db, auth.userId, pages.length, undefined, quotaRefundKey);
+      await refundAiQuota(db, auth.userId, pages.length, quotaConsumedAt, quotaRefundKey);
       return {
         ok: false,
         code: "VISION_UPSTREAM",
@@ -724,7 +725,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       if (!visionRes.ok) {
         // AI-F5: this page and the rest were never matched, so their
         // units (2 per page) go back; earlier pages stay paid.
-        await refundAiQuota(db, auth.userId, pages.length - i, undefined, quotaRefundKey);
+        await refundAiQuota(db, auth.userId, pages.length - i, quotaConsumedAt, quotaRefundKey);
         return { ok: false, code: visionRes.code, message: visionRes.message, pageIndex: i };
       }
       // Pilot cost measurement (best-effort, never fails the match result).
@@ -753,7 +754,8 @@ export const matchPaperPages = createServerFn({ method: "POST" })
       }
       if (textConfig && questions.length > 0) {
         const textMatchRefundKey = crypto.randomUUID();
-        if (await consumeAiQuota(db, auth.userId, 1)) {
+        const textMatchConsumedAt = new Date().toISOString();
+        if (await consumeAiQuota(db, auth.userId, 1, textMatchConsumedAt)) {
           const ai = await callTextMatch(
             textConfig.baseUrl,
             textConfig.model,
@@ -762,7 +764,7 @@ export const matchPaperPages = createServerFn({ method: "POST" })
             visionRes.text,
           );
           if (!ai.ok) {
-            await refundAiQuota(db, auth.userId, 1, undefined, textMatchRefundKey);
+            await refundAiQuota(db, auth.userId, 1, textMatchConsumedAt, textMatchRefundKey);
           } else if (ai.index !== null) {
             out.push({
               text: visionRes.text,
