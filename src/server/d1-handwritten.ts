@@ -1,3 +1,8 @@
+import {
+  assertGradePreviewSigning,
+  signGradePreview,
+  verifyGradePreview,
+} from "./grade-preview-token";
 /**
  * D1 handwritten grading (Phase 2 port of /handwritten's persistence).
  *
@@ -21,50 +26,11 @@
  *   validateR2Key(teacherId, key) (first segment == teacher id,
  *   {teacher_id}/{uuid}/{name}, no traversal). A key that fails
  *   validation blocks the save; it is never silently cleaned.
- * - AI grade is FINAL on save (user-directed exception to the
- *   teacher-final-word rule that applies on /grading) — but the
- *   final score is NEVER a client-supplied value. On save the
- *   server re-grades the submitted corrected text against the
- *   linked question's own keys (correct answer, accepted
- *   alternatives, rubric) via suggestGradeWithAi, and the server's
- *   fresh suggestion is what is stored as ai_suggested_score,
- *   ai_feedback and final_score. The client-sent score, feedback
- *   and model are accepted in the input type only and ignored for
- *   grading, so a stale suggestion (text edited after Suggest) or
- *   a tampered client can never become a final grade. A save needs
- *   either a linked question WITH keys, or — for an ad-hoc paper
- *   with no linked question — the teacher-supplied prompt/rubric
- *   (validated with suggestGrade's bounds); the ad-hoc criteria
- *   are recorded in the audit row. An AI failure (not configured,
- *   provider error, quota spent) refuses the save and stores
- *   nothing — no handwritten grade without independent server
- *   verification. The teacher's control
- *   point is reviewing/correcting the extracted text BEFORE
- *   grading. A wrong record is deleted from history and re-graded.
- *   Quota: the server re-grade consumes 1 AI quota unit, so one
- *   Suggest + Save paper costs 2 units in total.
- * - History papers are viewed through the Worker (session-checked
- *   R2 download returning a data URL), never through a public or
- *   signed R2 URL.
- * - Student link (2026-11-04): a saved grade MAY carry student_id,
- *   set only to an APPROVED student of the saving teacher
- *   (teacher_students status = 'approved', checked server-side;
- *   anything else is refused). A linked grade is visible to that
- *   student immediately on save — handwritten grades are FINAL on
- *   save, so there is no release step. NULL student_id keeps the
- *   old behavior: paper name only, visible to the teacher alone.
- *   The student surface query (listStudentHandwrittenGrades) selects
- *   only the caller's own rows by student_id and never touches
- *   question_keys — and never selects ai_feedback either: AI
- *   feedback is teacher-only by product decision (2026-11-04), so
- *   the student view shows score + teacher feedback, never the AI
- *   feedback text.
- *
- * NOT migrated here (owned by other workstreams, left on their old
- * path): OCR (src/server/handwritten.ts), AI grading suggestions
- * (src/server/ai-grade.ts) and page matching (src/server/paper-
- * matching.ts) still validate a Supabase token. This module migrates
- * persistence only; those AI calls are unchanged by this file.
+ * - Save records the reviewed server-signed preview, never a client score.
+ *   Preview binds teacher, grading criteria, answer and image for30minutes.
+ *   Preview consumes one quota unit. Save makes no provider call or preview
+ *   storage write. Existing grade id and audit history prevent replay after
+ *   save/deletion; concurrent saves are bounded by the grade primary key.
  */
 
 import { createServerFn } from "@tanstack/react-start";
@@ -72,7 +38,7 @@ import type { D1Database } from "@/server/d1-auth-store";
 import type { R2BucketLike } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
-import { suggestGradeWithAi } from "./ai-client";
+import { suggestGradeWithAi, type AiGradeSuggestion } from "./ai-client";
 import { consumeAiQuota, logAiUsageEvent, refundAiQuota } from "@/server/d1-quota";
 import {
   buildR2Key,
@@ -166,7 +132,7 @@ type HwQuestionRow = {
   explanation: string | null;
 };
 
-/** One question with its keys, for the server-side save re-grade. */
+/** One question with its keys, for the server-side preview. */
 type HwQuestionKeyRow = {
   prompt: string;
   marks: number;
@@ -366,6 +332,8 @@ export async function uploadHandwrittenPaper(
 }
 
 export type SaveHandwrittenGradeInput = {
+  /** Signed server-owned preview token. Client scores are never authoritative. */
+  previewId?: string;
   assessmentId: string | null;
   questionId: string | null;
   /** Enrolled-student account link, or null/omitted for a paper with no account. */
@@ -376,10 +344,7 @@ export type SaveHandwrittenGradeInput = {
   correctedText: string;
   /**
    * Client-supplied suggestion, accepted for compatibility only.
-   * IGNORED for grading: the server re-grades the submitted
-   * corrected text against the linked question's keys and saves
-   * its own fresh suggestion instead, so a stale or tampered
-   * client value can never become a final grade.
+   * Ignored: Save verifies the signed preview against canonical criteria.
    */
   aiSuggestedScore: number | null;
   /** Accepted for compatibility only — ignored for grading (see above). */
@@ -402,20 +367,16 @@ export type SaveHandwrittenGradeInput = {
   teacherFeedback: string;
 };
 
-/**
- * Save a handwritten grade. The final score is the SERVER's fresh
- * re-grade of the submitted corrected text against the linked
- * question's keys — never the client-sent suggestion, which is
- * accepted in the input type only and ignored. A save without a
- * linked question (or a question without keys) is refused, and an
- * AI/quota failure refuses the save with nothing stored.
- * The image key, when present, must validate against the teacher id.
+/** Preview uses canonical server criteria once. Save accepts only that unexpired,
+ * bound preview. Client-sent scores are ignored. The image key must belong
+ * to the teacher. No new inference is made during Save.
  */
 export async function saveHandwrittenGrade(
   db: D1Database,
   caller: Caller,
   input: SaveHandwrittenGradeInput,
-): Promise<{ id: string }> {
+  options: { preview?: boolean } = {},
+): Promise<{ id: string; suggestion?: AiGradeSuggestion }> {
   requireTeacher(caller);
   if (!input.correctedText.trim()) {
     throw new HandwrittenError("INVALID_INPUT");
@@ -489,20 +450,9 @@ export async function saveHandwrittenGrade(
       studentName = (profile?.full_name ?? "").trim();
     }
   }
-  // Server-verified grading (AI-F2): a handwritten grade is never
-  // saved on a client-supplied score. The server re-grades the
-  // submitted corrected text and stores its own fresh suggestion.
-  // Criteria come from the linked question's keys when a question
-  // is linked (the marks ceiling is the question's own marks, never
-  // the client's). Without a linked question the paper is ad-hoc:
-  // the teacher-supplied prompt/rubric travel with the request and
-  // are validated here with the same bounds suggestGrade uses
-  // (ai-grade.ts validateRequest). Either way the SCORE is produced
-  // server-side by the model from the submitted text — a client can
-  // never dictate it, and a stale suggestion can never land. The
-  // ad-hoc criteria are recorded (truncated) in the audit row so
-  // the grade stays traceable; question-linked criteria live in
-  // question_keys. Any AI/quota failure refuses the save.
+  // Preview grades canonical criteria once. Save verifies the signed preview
+  // against those current criteria. Neither client score nor client keys can
+  // replace a linked question's server-owned marks or answer key.
   let questionPrompt: string;
   let correctAnswer = "";
   let explanation = "";
@@ -578,51 +528,130 @@ export async function saveHandwrittenGrade(
     effectiveMaxMarks = input.maxMarks;
     adHoc = true;
   }
-  // Quota first, fail-closed: 1 unit for the server re-grade. The
-  // client's earlier Suggest call already consumed 1 unit, so one
-  // Suggest + Save paper costs 2 units in total.
-  const quotaRefundKey = crypto.randomUUID();
-  if (!(await consumeAiQuota(db, caller.id, 1))) {
-    throw new HandwrittenError("AI_RATE_LIMIT", "AI usage limit reached. Try again later.");
+  // The signed preview travels only to its authenticated teacher. It
+  // binds the exact canonical grading criteria and answer, not client scores.
+  const fingerprintData = JSON.stringify([
+    caller.id,
+    effectiveAssessmentId,
+    input.questionId,
+    input.studentId ?? null,
+    studentName,
+    input.imagePath,
+    questionPrompt,
+    correctAnswer,
+    explanation,
+    rubric,
+    acceptedAlternatives,
+    input.correctedText.trim(),
+    effectiveMaxMarks,
+  ]);
+  const fingerprint = Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fingerprintData)),
+    ),
+  )
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  let id: string;
+  let verifiedModel: string | null;
+  let suggestion: AiGradeSuggestion;
+  if (options.preview) {
+    await assertGradePreviewSigning();
+    const quotaRefundKey = crypto.randomUUID();
+    const quotaConsumedAt = new Date().toISOString();
+    if (!(await consumeAiQuota(db, caller.id, 1, quotaConsumedAt))) {
+      throw new HandwrittenError("AI_RATE_LIMIT", "AI usage limit reached. Try again later.");
+    }
+    verifiedModel = null;
+    const regrade = await suggestGradeWithAi(
+      {
+        questionPrompt,
+        correctAnswer,
+        explanation,
+        rubric,
+        acceptedAlternatives,
+        studentAnswer: input.correctedText.trim(),
+        // The question's own marks are the ceiling — a tampered
+        // client maxMarks can never raise it. (Ad-hoc: the validated
+        // per-request maxMarks, already bounded 1..1000 above.)
+        maxMarks: effectiveMaxMarks,
+      },
+      undefined,
+      async (event) => {
+        verifiedModel = event.model;
+        await logAiUsageEvent(db, caller.id, {
+          kind: "grade",
+          provider: event.provider,
+          model: event.model,
+          inputTokens: event.usage.inputTokens,
+          outputTokens: event.usage.outputTokens,
+        });
+      },
+    );
+    if (!regrade.ok) {
+      // The preview consumed 1 unit and the AI call failed: refund it
+      // (AI-F5). Best-effort — refundAiQuota never throws.
+      await refundAiQuota(db, caller.id, 1, quotaConsumedAt, quotaRefundKey);
+      throw new HandwrittenError(
+        regrade.error.code === "AI_NOT_CONFIGURED" ? "AI_NOT_CONFIGURED" : "AI_ERROR",
+        regrade.error.message,
+      );
+    }
+
+    id = crypto.randomUUID();
+    suggestion = regrade.suggestion;
+    const token = await signGradePreview({
+      v: 1,
+      purpose: "qemmini.handwritten.preview",
+      id,
+      fingerprint,
+      suggestion,
+      model: verifiedModel,
+      expiresAt: Date.now() + 30 * 60_000,
+    });
+    return { id: token, suggestion };
   }
-  let verifiedModel: string | null = null;
-  const regrade = await suggestGradeWithAi(
-    {
-      questionPrompt,
-      correctAnswer,
-      explanation,
-      rubric,
-      acceptedAlternatives,
-      studentAnswer: input.correctedText.trim(),
-      // The question's own marks are the ceiling — a tampered
-      // client maxMarks can never raise it. (Ad-hoc: the validated
-      // per-request maxMarks, already bounded 1..1000 above.)
-      maxMarks: effectiveMaxMarks,
-    },
-    undefined,
-    async (event) => {
-      verifiedModel = event.model;
-      await logAiUsageEvent(db, caller.id, {
-        kind: "grade",
-        provider: event.provider,
-        model: event.model,
-        inputTokens: event.usage.inputTokens,
-        outputTokens: event.usage.outputTokens,
-      });
-    },
-  );
-  if (!regrade.ok) {
-    // The re-grade consumed 1 unit and the AI call failed: refund it
-    // (AI-F5). Best-effort — refundAiQuota never throws.
-    await refundAiQuota(db, caller.id, 1, undefined, quotaRefundKey);
+  if (!input.previewId)
+    throw new HandwrittenError("INVALID_INPUT", "Request a fresh grade preview before saving.");
+  let preview: Awaited<ReturnType<typeof verifyGradePreview>>;
+  try {
+    preview = await verifyGradePreview(input.previewId);
+  } catch {
     throw new HandwrittenError(
-      regrade.error.code === "AI_NOT_CONFIGURED" ? "AI_NOT_CONFIGURED" : "AI_ERROR",
-      regrade.error.message,
+      "INVALID_INPUT",
+      "Grade preview expired or invalid. Request a fresh preview.",
     );
   }
-  const verifiedScore = regrade.suggestion.suggestedScore;
-  const verifiedFeedback = regrade.suggestion.feedback;
-  const id = crypto.randomUUID();
+  id = preview.id;
+  if (preview.fingerprint !== fingerprint)
+    throw new HandwrittenError(
+      "INVALID_INPUT",
+      "The answer or grading criteria changed. Request a fresh preview.",
+    );
+  const existing = await db
+    .prepare("SELECT id FROM handwritten_grades WHERE id = ? AND teacher_id = ?")
+    .bind(id, caller.id)
+    .first<{ id: string }>();
+  if (existing) return { id };
+  const used = await db
+    .prepare(
+      "SELECT id FROM audit_log WHERE entity_id = ? AND actor_id = ? AND action = 'handwritten_grade' LIMIT 1",
+    )
+    .bind(id, caller.id)
+    .first();
+  if (used) throw new HandwrittenError("INVALID_INPUT", "This preview has already been saved.");
+  suggestion = preview.suggestion;
+  if (
+    typeof suggestion?.suggestedScore !== "number" ||
+    !Number.isFinite(suggestion.suggestedScore) ||
+    suggestion.suggestedScore < 0 ||
+    suggestion.suggestedScore > effectiveMaxMarks
+  ) {
+    throw new HandwrittenError("AI_ERROR");
+  }
+  verifiedModel = preview.model;
+  const verifiedScore = suggestion.suggestedScore;
+  const verifiedFeedback = suggestion.feedback;
   const grade = db
     .prepare(
       "INSERT INTO handwritten_grades " +
@@ -674,7 +703,8 @@ export async function saveHandwrittenGrade(
           : {}),
       }),
     );
-  await runBatchOrSequential(db, [grade, audit]);
+  if (!db.batch) throw new HandwrittenError("INVALID_INPUT", "Atomic save unavailable.");
+  await db.batch([grade, audit]);
   return { id };
 }
 
@@ -799,6 +829,17 @@ export const uploadHwPaperD1 = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) =>
     uploadHandwrittenPaper(ctxDb(context), ctxCaller(context), await papersBucket(), data),
   );
+
+export const previewHwGradeD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => data as SaveHandwrittenGradeInput)
+  .handler(async ({ data, context }) => {
+    const preview = await saveHandwrittenGrade(ctxDb(context), ctxCaller(context), data, {
+      preview: true,
+    });
+    if (!preview.suggestion) throw new HandwrittenError("AI_ERROR");
+    return { previewId: preview.id, suggestion: preview.suggestion };
+  });
 
 export const saveHwGradeD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])
