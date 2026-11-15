@@ -87,6 +87,12 @@ export const RESET_MAX_PER_EMAIL_PER_HOUR = 5;
 export const RESET_MAX_PER_IP_PER_HOUR = 5;
 
 export type SecurityStore = AuthStore & {
+  consumeResetAtomic(input: {
+    tokenId: string;
+    userId: string;
+    passwordHash: string;
+    atIso: string;
+  }): Promise<boolean>;
   countRecentFailures(input: {
     email: string;
     ip: string;
@@ -360,9 +366,16 @@ export async function consumePasswordResetToken(
     throw new AuthError("RESET_TOKEN_INVALID");
   }
   const passwordHash = await hashPassword(input.newPassword);
-  await store.setPasswordHash(row.userId, passwordHash);
-  await store.markPasswordResetTokenUsed(row.id, nowIso());
-  await store.revokeAllSessions(row.userId, nowIso());
+  if (
+    !(await store.consumeResetAtomic({
+      tokenId: row.id,
+      userId: row.userId,
+      passwordHash,
+      atIso: nowIso(),
+    }))
+  ) {
+    throw new AuthError("RESET_TOKEN_INVALID");
+  }
   return { userId: row.userId };
 }
 
