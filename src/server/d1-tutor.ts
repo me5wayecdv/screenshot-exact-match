@@ -85,18 +85,24 @@ export async function listTutorAssessments(
 ): Promise<TutorAssessment[]> {
   requireStudent(caller);
   if (assessmentIds.length === 0) return [];
-  const placeholders = assessmentIds.map(() => "?").join(",");
-  const { results } = await db
-    .prepare(
-      "SELECT a.id, a.title, a.subject_id FROM assessments a " +
-        "WHERE a.id IN (" +
-        placeholders +
-        ") AND EXISTS (SELECT 1 FROM submissions s WHERE s.assessment_id = a.id " +
-        "AND s.student_id = ? AND s.status = 'released')",
-    )
-    .bind(...assessmentIds, caller.id)
-    .all<TutorAssessment>();
-  return results ?? [];
+  const rows: TutorAssessment[] = [];
+  const ids = [...new Set(assessmentIds)];
+  for (let offset = 0; offset < ids.length; offset += 99) {
+    const chunk = ids.slice(offset, offset + 99);
+    const placeholders = chunk.map(() => "?").join(",");
+    const { results } = await db
+      .prepare(
+        "SELECT a.id, a.title, a.subject_id FROM assessments a " +
+          "WHERE a.id IN (" +
+          placeholders +
+          ") AND EXISTS (SELECT 1 FROM submissions s WHERE s.assessment_id = a.id " +
+          "AND s.student_id = ? AND s.status = 'released')",
+      )
+      .bind(...chunk, caller.id)
+      .all<TutorAssessment>();
+    rows.push(...(results ?? []));
+  }
+  return rows;
 }
 
 export type TutorQuestion = {
