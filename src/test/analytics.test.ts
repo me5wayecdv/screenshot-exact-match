@@ -148,6 +148,7 @@ describe("toCsv", () => {
     expect(csv).toContain("'  =cmd");
     expect(csv).toContain("'\t=1+1");
     expect(csv).toContain("'\r=1+1");
-    expect(csv).toContain(",-5");
+    expect(csv).toContain("\n-5");
+    expect(csv).not.toContain("'-5");
   });
 });
