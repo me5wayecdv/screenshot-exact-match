@@ -251,7 +251,7 @@ export function computeGroupStats(
 
 /** Minimal RFC 4180 CSV with a BOM so Excel opens Arabic correctly. */
 function neutralizeSpreadsheetFormula(value: string): string {
-  const firstMeaningful = value.replace(/^[\u0000-\u0020\uFEFF]+/, "");
+  const firstMeaningful = value.trimStart();
   if (/^[\t\r]/.test(value) || /^[=+\-@]/.test(firstMeaningful)) return `'${value}`;
   return value;
 }
