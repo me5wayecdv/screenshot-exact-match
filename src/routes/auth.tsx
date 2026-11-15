@@ -162,12 +162,12 @@ function AuthPage() {
       <main className="auth-main flex min-h-screen flex-col p-5 sm:p-8 md:p-10 lg:p-14">
         <div className="flex items-center justify-between">
           <Link to="/" className="rounded-sm md:invisible" aria-label={t("brand")}>
-            <Brand className="text-primary" />
+            <Brand onDark className="text-primary" />
           </Link>
           <LangToggle className="ms-auto" />
         </div>
 
-        <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-8">
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col max-md:justify-start md:justify-center py-8">
           <div className="auth-card p-5 sm:p-7 md:p-8">
             <p className="section-kicker">{t("brand")}</p>
             <h1 className="mt-3 text-2xl font-bold md:text-3xl">{modeTitle}</h1>
