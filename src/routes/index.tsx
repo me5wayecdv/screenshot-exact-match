@@ -11,7 +11,7 @@ export const Route = createFileRoute("/")({
         content: "قيمني يقترح تصحيح الامتحانات بالذكاء الاصطناعي، والمدرس يعتمد قبل ما أي درجة توصل للطالب.",
       },
       { property: "og:title", content: "قيمني — مساعد الذكاء الاصطناعي للمدرس" },
-      { property: "og:description", content: "الذكاء الاصطناعي يقترح التصحيح، وإنت تعتمد." },
+      { property: "og:description", content: "مساعدك الذكي في التدريس" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -111,7 +111,7 @@ function Landing() {
               className="mt-5 max-w-xl font-display text-[2rem] font-bold leading-[1.35] md:text-[2.75rem] md:leading-[1.3]"
               style={{ color: INK }}
             >
-              الذكاء الاصطناعي يقترح التصحيح، <span style={{ color: PINE }}>وإنت تعتمد.</span>
+              مساعدك الذكي <span style={{ color: PINE }}>في التدريس</span>
             </h1>
             <p className="mt-5 max-w-md text-[1rem] leading-8" style={{ color: MUTED }}>
               ارفع الامتحان أو ورقة الإجابة، وراجع الدرجات المقترحة قبل ما توصل للطالب.
