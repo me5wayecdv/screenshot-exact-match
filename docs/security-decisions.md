@@ -12,7 +12,7 @@ changes to production behavior.
 | Password visibility | Signup currently exposes the typed password by default. | Default to masked input with an explicit show/hide control. | This is a user-facing UX/security decision; the original review did not establish explicit approval. |
 | Take-session cache | Some access/config decisions can remain cached for up to 60 seconds. | Preserve the current bound until release/revocation invalidation is tested; then prefer event-driven invalidation over a smaller polling TTL. | The cache protects D1 under synchronized exam load; shortening it can reintroduce overload. |
 | Publish audience | `auto_all` can include newly linked/approved students when publishing or topping up. | Show the exact audience count and require explicit confirmation whenever publication expands the audience. | Changing the rule without checking all publish flows can strand students or silently widen access. |
-| Retention and deletion | `docs/retention-policy.md` still contains 21 `[DECISION NEEDED]` markers; full account deletion is not yet verified end-to-end. | Approve a retention schedule per data category, deletion SLA, backup expiry, and documented exception process before public launch. | These are legal/product commitments; inventing durations in code would be unsafe. |
+| Retention and deletion | `docs/retention-policy.md` still contains 22 `[DECISION NEEDED]` markers; full account deletion is not yet verified end-to-end. | Approve a retention schedule per data category (including the new lesson-join counters), deletion SLA, backup expiry, and documented exception process before public launch. | These are legal/product commitments; inventing durations in code would be unsafe. |
 
 ## Operational gates before production
 
