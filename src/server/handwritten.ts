@@ -797,7 +797,8 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
       };
     }
     const quotaRefundKey = crypto.randomUUID();
-    if (!(await consumeAiQuota(db, auth.userId, 1))) {
+    const quotaConsumedAt = new Date().toISOString();
+    if (!(await consumeAiQuota(db, auth.userId, 1, quotaConsumedAt))) {
       return {
         ok: false,
         code: "VISION_RATE_LIMIT",
@@ -807,7 +808,7 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
     const result = await callVisionOcr(config, request.imageDataUrl);
     if (!result.ok) {
       // AI-F5: the OCR call failed, so the unit consumed above goes back.
-      await refundAiQuota(db, auth.userId, 1, undefined, quotaRefundKey);
+      await refundAiQuota(db, auth.userId, 1, quotaConsumedAt, quotaRefundKey);
       return { ok: false, code: result.code, message: result.message };
     }
     // Pilot cost measurement (best-effort, never fails the OCR result).
