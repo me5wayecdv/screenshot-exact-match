@@ -22,9 +22,9 @@ export function BrandMark({
   /** `false` draws the bare glyph in currentColor (single colour). */
   tile?: boolean;
 }) {
-  const glyph = tile ? (onDark ? "stroke-sidebar" : "stroke-white") : "stroke-current";
-  const firstDot = tile ? (onDark ? "fill-sidebar" : "fill-white") : "fill-current";
-  const lastDot = tile ? "fill-accent" : "fill-current";
+  const glyph = tile ? (onDark ? "stroke-[#0d1420]" : "stroke-white") : "stroke-current";
+  const firstDot = tile ? (onDark ? "fill-[#0d1420]" : "fill-white") : "fill-current";
+  const lastDot = tile ? "fill-[#ff6b4a]" : "fill-current";
   return (
     <svg
       viewBox="0 0 64 64"
@@ -33,7 +33,7 @@ export function BrandMark({
       className={`h-8 w-8 shrink-0 ${className}`}
     >
       {tile && (
-        <rect width="64" height="64" rx="14" className={onDark ? "fill-card" : "fill-sidebar"} />
+        <rect width="64" height="64" rx="14" className={onDark ? "fill-white" : "fill-[#132038]"} />
       )}
       <g
         transform="translate(4 -1.5)"
