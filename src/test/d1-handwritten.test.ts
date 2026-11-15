@@ -1,3 +1,4 @@
+import { saveHandwrittenGrade } from "./handwritten-preview-helper";
 /**
  * Tests for D1 handwritten grading (src/server/d1-handwritten.ts),
  * using dispatch fakes for D1Database and a fake R2 bucket object.
@@ -10,7 +11,6 @@ import {
   getHandwrittenPaper,
   listHandwrittenHistory,
   listHandwrittenQuestions,
-  saveHandwrittenGrade,
   uploadHandwrittenPaper,
   type Caller,
 } from "@/server/d1-handwritten";
