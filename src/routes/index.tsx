@@ -1,24 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, ClipboardCheck, ClipboardList, LineChart } from "lucide-react";
-import { Brand, LangToggle } from "@/components/Brand";
-import { HeroGradeCard } from "@/components/hero-grade-card";
-import { Button } from "@/components/ui/button";
-import { useI18n } from "@/lib/i18n";
+import { ArrowLeft, BadgeCheck, PencilLine, Sparkles } from "lucide-react";
+import { Brand } from "@/components/Brand";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Qayyimni · قَيّمني — Assessment review for teachers" },
+      { title: "قيمني — مساعد الذكاء الاصطناعي للمدرس" },
       {
         name: "description",
-        content:
-          "Build classroom assessments, review grading evidence, and approve results before students see them.",
+        content: "قيمني يقترح تصحيح الامتحانات بالذكاء الاصطناعي، والمدرس يعتمد قبل ما أي درجة توصل للطالب.",
       },
-      { property: "og:title", content: "Qayyimni · قَيّمني" },
-      {
-        property: "og:description",
-        content: "A teacher's workspace for assessment and answer review.",
-      },
+      { property: "og:title", content: "قيمني — مساعد الذكاء الاصطناعي للمدرس" },
+      { property: "og:description", content: "الذكاء الاصطناعي يقترح التصحيح، وإنت تعتمد." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -26,191 +19,183 @@ export const Route = createFileRoute("/")({
   component: Landing,
 });
 
-function Landing() {
-  const { t } = useI18n();
-  // Highlight the final word of the headline without touching the copy.
-  const heroWords = t("heroTitle").trim().split(/\s+/);
-  const heroLast = heroWords.at(-1) ?? "";
-  const heroLead = heroWords.slice(0, -1).join(" ");
-  const features = [
-    { icon: ClipboardList, title: t("feature1"), body: t("feature1b") },
-    { icon: ClipboardCheck, title: t("feature2"), body: t("feature2b") },
-    { icon: LineChart, title: t("feature3"), body: t("feature3b") },
-  ];
+const INK = "#eef2f8";
+const PINE = "#ff6b4a";
+const PINE_DARK = "#e04a2a";
+const PAPER = "#0d1420";
+const TINT = "#1b2436";
+const LINE = "#26324a";
+const MUTED = "#93a2b8";
+const PANEL = "#141e30";
+const CARD_BG = "#ffffff";
+const CARD_SOFT = "#f7f6fb";
+const CARD_INK = "#1e1b34";
+const CARD_MUTED = "#5b5870";
+const CARD_LINE = "#e4e2f0";
+const CARD_TINT = "#eeedfb";
+const DARKLOGO = true;
 
+function Landing() {
   return (
-    <div className="landing-page min-h-screen">
-      <header className="landing-header mx-auto flex max-w-7xl items-center justify-between px-5 py-4 md:px-8">
-        <Link to="/" aria-label={t("brand")} className="rounded-sm">
-          <Brand className="text-primary" />
-        </Link>
-        <nav className="hidden items-center gap-8 text-sm font-medium text-muted-foreground md:flex">
-          <a href="#workflow" className="transition-colors hover:text-foreground">
-            {t("workflowTitle")}
-          </a>
-          <a href="#product" className="transition-colors hover:text-foreground">
-            {t("feature2")}
-          </a>
-        </nav>
-        <div className="flex items-center gap-2">
-          <LangToggle />
-          <Button asChild variant="outline" className="hidden sm:inline-flex">
-            <Link to="/auth">{t("signIn")}</Link>
-          </Button>
+    <div style={{ background: PAPER, color: INK }}>
+      {/* Header */}
+      <header className="border-b" style={{ borderColor: LINE, background: PAPER }}>
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5 md:px-8">
+          <Link to="/" aria-label="قيمني" className="rounded-sm" style={{ color: PINE }}>
+            <Brand onDark={DARKLOGO} />
+          </Link>
+          <div className="flex items-center gap-2.5">
+            <Link
+              to="/auth"
+              className="hidden rounded-lg px-4 py-2 text-sm font-semibold sm:inline-flex"
+              style={{ color: PINE }}
+            >
+              تسجيل الدخول
+            </Link>
+            <Link
+              to="/auth"
+              className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              style={{ background: PINE }}
+            >
+              إنشاء حساب
+              <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+            </Link>
+          </div>
         </div>
       </header>
 
       <main>
-        <section className="mx-auto max-w-7xl px-4 pb-12 md:px-8 md:pb-16">
-          <div className="landing-hero grid items-center gap-9 px-6 py-9 md:grid-cols-[1.04fr_0.96fr] md:gap-10 md:px-12 md:py-12 lg:px-14">
-            <div className="landing-hero-copy relative z-10">
-              {/* Two restraint cues: a bordered caption for the eyebrow and a
-                  bronze rule under the last two words of the headline. */}
-              <p className="mb-5">
-                <span className="chip-glow">{t("heroEyebrow")}</span>
-              </p>
-              <h1 className="max-w-2xl text-[1.75rem] font-bold leading-[1.3] text-sidebar-foreground md:text-4xl lg:text-[2.9rem]">
-                {heroLead} <span className="signal text-sidebar-foreground">{heroLast}</span>
-              </h1>
-              <p className="mt-5 max-w-xl text-[0.95rem] leading-8 text-sidebar-foreground/80 md:text-base">
-                {t("heroBody")}
-              </p>
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Button
-                  asChild
-                  size="lg"
-                  className="h-12 gap-2 bg-accent px-5 text-accent-foreground hover:bg-accent/90"
-                >
-                  <Link to="/auth">
-                    {t("getStarted")}
-                    <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-                  </Link>
-                </Button>
-                <span className="text-sm text-sidebar-foreground/65">{t("brandPromise")}</span>
-              </div>
-              <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2 border-t border-sidebar-border pt-5 text-xs font-medium text-sidebar-foreground/65">
-                <span>{t("heroReviewNote")}</span>
-                <span>{t("heroReleaseNote")}</span>
-              </div>
-            </div>
-            <div className="landing-demo relative z-10 mx-auto w-full max-w-md">
-              <HeroGradeCard />
-            </div>
-            <span className="landing-hero-index" aria-hidden>
-              01
-            </span>
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-7xl px-5 pb-4 md:px-8">
-          <div className="rounded-xl border bg-card px-6 py-6 md:px-10">
-            <h2 className="text-xl font-bold md:text-2xl">{t("journeyTitle")}</h2>
-            <ol className="mt-5 grid gap-5 md:grid-cols-3">
-              {[
-                { title: t("journey1Title"), body: t("journey1Body") },
-                { title: t("journey2Title"), body: t("journey2Body") },
-                { title: t("journey3Title"), body: t("journey3Body") },
-              ].map((step, index) => (
-                <li key={step.title} className="flex gap-3">
-                  <span className="font-display text-sm font-bold text-primary">0{index + 1}</span>
-                  <div>
-                    <p className="font-semibold">{step.title}</p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{step.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
-        <section
-          id="workflow"
-          className="mx-auto max-w-7xl scroll-mt-8 px-5 py-12 md:px-8 md:py-16"
-        >
-          <div className="mb-8 flex flex-col justify-between gap-3 border-b pb-6 md:flex-row md:items-end">
-            <div>
-              <p className="section-kicker">{t("workflowKicker")}</p>
-              <h2 className="mt-2 text-3xl font-bold md:text-4xl">{t("workflowTitle")}</h2>
-            </div>
-            <p className="max-w-md text-sm leading-7 text-muted-foreground">{t("workflowIntro")}</p>
-          </div>
-          <div className="grid md:grid-cols-3 md:divide-x md:rtl:divide-x-reverse">
-            {[t("step1Label"), t("step2Label"), t("step3Label")].map((label, index) => {
-              const detail = [t("step1Body"), t("step2Body"), t("step3Body")][index];
-              return (
-                <article
-                  key={label}
-                  className="workflow-step border-b py-6 md:border-b-0 md:px-7 md:py-4 first:md:ps-0 last:md:pe-0"
-                >
-                  <span className="font-display text-sm font-bold text-primary">0{index + 1}</span>
-                  <h3 className="mt-4 text-xl font-semibold">{label}</h3>
-                  <p className="mt-3 max-w-sm text-sm leading-7 text-muted-foreground">{detail}</p>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section id="product" className="mx-auto max-w-7xl scroll-mt-8 px-5 py-12 md:px-8 md:py-16">
-          <div className="mb-8 max-w-2xl">
-            <p className="section-kicker">{t("featuresKicker")}</p>
-            <h2 className="mt-2 text-3xl font-bold md:text-4xl">{t("featuresTitle")}</h2>
-          </div>
-          <div className="grid border-y md:grid-cols-3 md:divide-x md:rtl:divide-x-reverse">
-            {features.map((feature, index) => (
-              <article
-                key={feature.title}
-                className="feature-panel border-b p-5 md:border-b-0 md:p-7"
-              >
-                <div className="flex items-center justify-between">
-                  <feature.icon className="size-5 text-primary" aria-hidden />
-                  <span className="font-display text-xs font-semibold text-muted-foreground">
-                    0{index + 1}
-                  </span>
-                </div>
-                <h3 className="mt-7 text-lg font-semibold leading-snug">{feature.title}</h3>
-                <p className="mt-3 text-sm leading-7 text-muted-foreground">{feature.body}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="mx-auto max-w-7xl px-4 pb-14 md:px-8 md:pb-20">
-          <div className="landing-close flex flex-col justify-between gap-6 px-6 py-8 md:flex-row md:items-center md:px-10 md:py-10">
-            <div className="max-w-2xl">
-              <p className="section-kicker section-kicker-light">{t("brand")}</p>
-              <h2 className="mt-3 text-2xl font-bold leading-snug text-sidebar-foreground md:text-3xl">
-                {t("closingTitle")}
-              </h2>
-              <p className="mt-3 text-sm leading-7 text-sidebar-foreground/70">
-                {t("closingBody")}
-              </p>
-            </div>
-            <Button
-              asChild
-              size="lg"
-              className="h-12 shrink-0 gap-2 bg-accent px-5 text-accent-foreground hover:bg-accent/90"
+        <section className="mx-auto grid w-full max-w-6xl items-center gap-10 px-5 py-12 md:grid-cols-[1.05fr_0.95fr] md:px-8 md:py-16">
+          <div>
+            <p
+              className="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[0.8rem] font-semibold"
+              style={{ borderColor: LINE, background: PANEL, color: PINE }}
             >
-              <Link to="/auth">
-                {t("getStarted")}
+              <Sparkles className="size-3.5" aria-hidden />
+              مساعد الذكاء الاصطناعي للمدرس
+            </p>
+            <h1
+              className="mt-5 max-w-xl font-display text-[2rem] font-bold leading-[1.35] md:text-[2.75rem] md:leading-[1.3]"
+              style={{ color: INK }}
+            >
+              الذكاء الاصطناعي يقترح التصحيح، <span style={{ color: PINE }}>وإنت تعتمد.</span>
+            </h1>
+            <p className="mt-5 max-w-md text-[1rem] leading-8" style={{ color: MUTED }}>
+              ارفع الامتحان أو ورقة الإجابة، وراجع الدرجات المقترحة قبل ما توصل للطالب.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link
+                to="/auth"
+                className="inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[0.95rem] font-bold text-white transition-opacity hover:opacity-90"
+                style={{ background: PINE }}
+              >
+                ابدأ دلوقتي
                 <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
               </Link>
-            </Button>
+              <span className="text-[0.85rem]" style={{ color: MUTED }}>
+                النتيجة متتنشرش غير بموافقتك
+              </span>
+            </div>
+          </div>
+
+          {/* Product mock: AI suggestion -> teacher approval */}
+          <div className="relative">
+            <div
+              className="rounded-2xl border p-5 shadow-[0_18px_50px_-24px_rgba(49,46,129,0.35)] md:p-6"
+              style={{ background: CARD_BG, borderColor: CARD_LINE }}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-[0.8rem] font-semibold" style={{ color: CARD_MUTED }}>
+                  اقتراح تصحيح · السؤال ٣
+                </p>
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-bold"
+                  style={{ background: CARD_TINT, color: PINE }}
+                >
+                  <Sparkles className="size-3" aria-hidden />
+                  اقتراح AI
+                </span>
+              </div>
+              <div
+                className="mt-4 rounded-xl border p-4 text-[0.85rem] leading-7"
+                style={{ borderColor: CARD_LINE, background: CARD_SOFT, color: CARD_INK }}
+              >
+                «تتبخر مياه البحر بفعل حرارة الشمس، وتتكاثف مرة أخرى على هيئة أمطار…»
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <div>
+                  <p className="text-[0.72rem] font-semibold" style={{ color: CARD_MUTED }}>
+                    الدرجة المقترحة
+                  </p>
+                  <p className="font-display text-2xl font-bold" style={{ color: PINE }}>
+                    <span>٤ من ٥</span>
+                  </p>
+                </div>
+                <p className="max-w-[55%] text-[0.75rem] leading-5" style={{ color: CARD_MUTED }}>
+                  الدليل: ذكر التبخر والتكاثف، لكن لم يشرح دورة الماء كاملة.
+                </p>
+              </div>
+              <div className="mt-5 flex gap-2.5">
+                <button
+                  type="button"
+                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl text-[0.9rem] font-bold text-white"
+                  style={{ background: PINE }}
+                >
+                  <BadgeCheck className="size-4" aria-hidden />
+                  اعتماد الدرجة
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 text-[0.9rem] font-bold"
+                  style={{ borderColor: CARD_LINE, color: PINE }}
+                >
+                  <PencilLine className="size-4" aria-hidden />
+                  تعديل
+                </button>
+              </div>
+            </div>
           </div>
         </section>
       </main>
 
-      <footer className="landing-footer border-t">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-8">
-          <Brand className="text-foreground" />
+      {/* Slim capability strip */}
+      <section className="border-t" style={{ borderColor: LINE, background: PANEL }}>
+        <div
+          className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-2 px-5 py-4 text-[0.85rem] font-semibold md:px-8"
+          style={{ color: MUTED }}
+        >
+          <span>امتحان من ملف PDF</span>
+          <span aria-hidden style={{ color: LINE }}>
+            •
+          </span>
+          <span>تصحيح أوراق PDF وWord</span>
+          <span aria-hidden style={{ color: LINE }}>
+            •
+          </span>
+          <span>امتحانات بمواعيد</span>
+          <span aria-hidden style={{ color: LINE }}>
+            •
+          </span>
+          <span>ربط الطلاب بكود</span>
+        </div>
+      </section>
+
+      <footer className="border-t" style={{ borderColor: LINE }}>
+        <div
+          className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-5 text-[0.8rem] md:px-8"
+          style={{ color: MUTED }}
+        >
+          <span style={{ color: PINE }}>
+            <Brand onDark={DARKLOGO} />
+          </span>
           <div className="flex items-center gap-5">
-            <Link to="/terms" className="hover:text-foreground hover:underline">
-              {t("terms")}
+            <Link to="/terms" className="hover:opacity-70">
+              الشروط
             </Link>
-            <Link to="/privacy" className="hover:text-foreground hover:underline">
-              {t("privacy")}
+            <Link to="/privacy" className="hover:opacity-70">
+              الخصوصية
             </Link>
-            <span dir="ltr">© {new Date().getFullYear()}</span>
+            <span>© ٢٠٢٦ قيمني</span>
           </div>
         </div>
       </footer>
