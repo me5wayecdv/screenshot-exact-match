@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowUpLeft, Check, ClipboardCheck, ClipboardList, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +46,7 @@ function AuthPage() {
   // from signup (2026-11-06, user request); the server stores null.
   const [teacherPhone, setTeacherPhone] = useState("");
   const [busy, setBusy] = useState(false);
+  const qc = useQueryClient();
 
   useEffect(() => {
     // D1 cookie session: getMeD1 throws when there is no valid session.
@@ -63,6 +65,8 @@ function AuthPage() {
     try {
       if (mode === "signin") {
         await signInD1({ data: { email, password } });
+        await qc.cancelQueries();
+        qc.clear();
         navigate({ to: "/dashboard", replace: true });
       } else if (mode === "signup") {
         if (password !== confirmPassword) {
