@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, BadgeCheck, PencilLine, Sparkles } from "lucide-react";
+import { ArrowLeft, BadgeCheck, CalendarClock, Eye, FileText, KeyRound, ListChecks, PencilLine, ScanLine, Sparkles } from "lucide-react";
 import { Brand } from "@/components/Brand";
 
 export const Route = createFileRoute("/")({
@@ -35,9 +35,42 @@ const CARD_LINE = "#e4e2f0";
 const CARD_TINT = "#eeedfb";
 const DARKLOGO = true;
 
+const FEATURES = [
+  {
+    icon: FileText,
+    title: "امتحان من ملف",
+    body: "حول ملف PDF أو Word أو صورة إلى امتحان جاهز من غير إعادة كتابة.",
+  },
+  {
+    icon: ScanLine,
+    title: "تصحيح الأوراق",
+    body: "ارفع أوراق الطلاب، والمساعد يقترح الدرجة مع الدليل من إجابة الطالب.",
+  },
+  {
+    icon: ListChecks,
+    title: "أسئلة متنوعة",
+    body: "اختيار من متعدد، صح وخطأ، قصيرة ومقالية، بمفاتيح إجابة ومعايير تصحيح.",
+  },
+  {
+    icon: KeyRound,
+    title: "ربط الطلاب بكود",
+    body: "شارك كود الانضمام مع طلابك، وراجع طلباتهم في مكان واحد.",
+  },
+  {
+    icon: CalendarClock,
+    title: "امتحانات بمواعيد",
+    body: "حدد موعد نهائي لكل امتحان، وتابع التسليمات أول بأول.",
+  },
+  {
+    icon: Eye,
+    title: "نتائج واضحة للطالب",
+    body: "الدرجة والملاحظات تظهر للطالب بعد اعتمادك فقط.",
+  },
+];
+
 function Landing() {
   return (
-    <div style={{ background: PAPER, color: INK }}>
+    <div className="flex min-h-screen flex-col" style={{ background: PAPER, color: INK }}>
       {/* Header */}
       <header className="border-b" style={{ borderColor: LINE, background: PAPER }}>
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5 md:px-8">
@@ -65,7 +98,7 @@ function Landing() {
       </header>
 
       <main>
-        <section className="mx-auto grid w-full max-w-6xl items-center gap-10 px-5 py-12 md:grid-cols-[1.05fr_0.95fr] md:px-8 md:py-16">
+        <section className="mx-auto grid w-full max-w-6xl items-center gap-8 px-5 py-9 md:gap-10 md:grid-cols-[1.05fr_0.95fr] md:px-8 md:py-16">
           <div>
             <p
               className="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[0.8rem] font-semibold"
@@ -158,25 +191,35 @@ function Landing() {
         </section>
       </main>
 
-      {/* Slim capability strip */}
+      {/* Features */}
       <section className="border-t" style={{ borderColor: LINE, background: PANEL }}>
-        <div
-          className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-2 px-5 py-4 text-[0.85rem] font-semibold md:px-8"
-          style={{ color: MUTED }}
-        >
-          <span>امتحان من ملف PDF</span>
-          <span aria-hidden style={{ color: LINE }}>
-            •
-          </span>
-          <span>تصحيح أوراق PDF وWord</span>
-          <span aria-hidden style={{ color: LINE }}>
-            •
-          </span>
-          <span>امتحانات بمواعيد</span>
-          <span aria-hidden style={{ color: LINE }}>
-            •
-          </span>
-          <span>ربط الطلاب بكود</span>
+        <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
+          <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
+            المميزات
+          </p>
+          <h2 className="mt-3 font-display text-2xl font-bold leading-snug md:text-3xl">
+            كل خطوات التقييم، من الملف للدرجة المعتمدة
+          </h2>
+          <div className="mt-7 grid gap-3 sm:grid-cols-2 md:mt-8 md:gap-4 lg:grid-cols-3">
+            {FEATURES.map(({ icon: Icon, title, body }) => (
+              <div
+                key={title}
+                className="rounded-xl border p-4 md:p-5"
+                style={{ borderColor: LINE, background: PAPER }}
+              >
+                <span
+                  className="grid size-10 place-items-center rounded-lg"
+                  style={{ background: TINT, color: PINE }}
+                >
+                  <Icon className="size-5" aria-hidden />
+                </span>
+                <h3 className="mt-4 text-[1rem] font-bold">{title}</h3>
+                <p className="mt-1.5 text-[0.85rem] leading-6" style={{ color: MUTED }}>
+                  {body}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
