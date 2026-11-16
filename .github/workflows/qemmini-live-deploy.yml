@@ -60,6 +60,9 @@ jobs:
           const payload = await response.json();
           if (!payload.success || !Array.isArray(payload.result?.bindings)) throw new Error('LIVE_SETTINGS_READ_INVALID');
           const bindings = payload.result.bindings;
+          if (!bindings.some((b) => b.name === 'GRADE_PREVIEW_SIGNING_KEY' && b.type === 'secret_text')) {
+            throw new Error('EXISTING_SIGNING_KEY_REQUIRED_NO_KEY_CHANGES_ALLOWED');
+          }
           for (const name of ['AI_REQUESTS_ENABLED','AI_PROVIDER_DAILY_REQUEST_LIMIT','AI_ATTEMPT_LOG_ENABLED']) {
             const binding = bindings.find((b) => b.name === name);
             if (binding && (binding.type !== 'plain_text' || String(binding.text ?? '').trim() !== '')) {
