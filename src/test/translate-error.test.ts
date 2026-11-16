@@ -284,6 +284,18 @@ describe("translateError — CQ-F1: every thrown code has an Arabic sentence", (
       ar: "لازم تكون عضو في مجموعة الاختبار ده عشان تدخله.",
       en: "You need to be a member of this assessment's group to take it.",
     },
+    INVALID_PHONE: {
+      ar: "رقم الموبايل مش صحيح — لازم يكون رقم مصري.",
+      en: "That mobile number is not valid — it must be an Egyptian mobile.",
+    },
+    TAKE_PARENT_PHONE_REQUIRED: {
+      ar: "سجّل رقم هاتف ولي الأمر أولاً من لوحة التحكم قبل بدء الامتحان.",
+      en: "Add a parent phone number from your dashboard before starting the exam.",
+    },
+    PARENT_PHONE_REQUIRED: {
+      ar: "رقم هاتف ولي الأمر مطلوب لإنشاء حساب الطالب.",
+      en: "A parent phone number is required to create a student account.",
+    },
     TAKE_SESSION_ERROR: {
       ar: "حصلت مشكلة في جلسة الاختبار — حاول تاني.",
       en: "There was a problem with the exam session — try again.",
@@ -314,5 +326,48 @@ describe("translateError — CQ-F1: every thrown code has an Arabic sentence", (
       expect(en).not.toBe(code);
       expect(en).not.toContain(code);
     }
+  });
+});
+
+describe("translateError — CQ-F2: a substring code never steals another code's message", () => {
+  // translateError first tries the error's `code` property, then falls
+  // back to scanning the MESSAGE for the first errorMap key that is a
+  // substring of it. "TAKE_PARENT_PHONE_REQUIRED" contains
+  // "PARENT_PHONE_REQUIRED", so the map order decides which sentence
+  // the student sees. The exam-start message (add the number from the
+  // dashboard) must win over the sign-up message (create an account).
+  //
+  // Same trap as the CQ-F1 pair TAKE_NOT_FOUND / NOT_FOUND.
+  it("the exam-start message wins over the sign-up message", () => {
+    expect(translateError(new Error("TAKE_PARENT_PHONE_REQUIRED"), "en")).toBe(
+      "Add a parent phone number from your dashboard before starting the exam.",
+    );
+    expect(translateError(new Error("TAKE_PARENT_PHONE_REQUIRED"), "ar")).toBe(
+      "سجّل رقم هاتف ولي الأمر أولاً من لوحة التحكم قبل بدء الامتحان.",
+    );
+  });
+
+  it("the sign-up message still wins for the sign-up code", () => {
+    expect(translateError(new Error("PARENT_PHONE_REQUIRED"), "en")).toBe(
+      "A parent phone number is required to create a student account.",
+    );
+    expect(translateError(new Error("PARENT_PHONE_REQUIRED"), "ar")).toBe(
+      "رقم هاتف ولي الأمر مطلوب لإنشاء حساب الطالب.",
+    );
+  });
+
+  it("the code property resolves the same way as the message scan", () => {
+    expect(translateError({ code: "TAKE_PARENT_PHONE_REQUIRED" }, "en")).toBe(
+      "Add a parent phone number from your dashboard before starting the exam.",
+    );
+    expect(translateError({ code: "PARENT_PHONE_REQUIRED" }, "en")).toBe(
+      "A parent phone number is required to create a student account.",
+    );
+  });
+
+  it("a malformed number is NOT reported as a missing one", () => {
+    expect(translateError(new Error("INVALID_PHONE"), "en")).toBe(
+      "That mobile number is not valid — it must be an Egyptian mobile.",
+    );
   });
 });

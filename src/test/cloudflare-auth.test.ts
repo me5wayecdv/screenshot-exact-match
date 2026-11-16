@@ -211,6 +211,7 @@ describe("custom auth core", () => {
       password: "correct-horse-battery",
       fullName: "Test Student",
       role: "student",
+      parentPhone: "01012345678",
       iterations: 1000,
     });
     store.approveUser(created.userId);

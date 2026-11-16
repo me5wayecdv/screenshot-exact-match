@@ -74,11 +74,19 @@ function AuthPage() {
           return;
         }
         // Parent phone is required for student accounts and must be an
-        // Egyptian mobile.
+        // Egyptian mobile. A missing number and a malformed one are
+        // different mistakes — same split as the server's
+        // PARENT_PHONE_REQUIRED / INVALID_PHONE.
         const cleanedPhone = normalizePhoneInput(parentPhone);
-        if (role === "student" && !isValidEgyptianMobile(cleanedPhone)) {
-          toast.error(t("parentPhoneInvalid"));
-          return;
+        if (role === "student") {
+          if (cleanedPhone === "") {
+            toast.error(t("parentPhoneRequired"));
+            return;
+          }
+          if (!isValidEgyptianMobile(cleanedPhone)) {
+            toast.error(t("parentPhoneInvalid"));
+            return;
+          }
         }
         // Teacher phone is required (same Egyptian-mobile rule) so the
         // admin can contact the teacher and verify they are real.

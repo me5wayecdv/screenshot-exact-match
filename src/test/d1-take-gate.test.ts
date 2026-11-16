@@ -4,6 +4,11 @@
  * which rows exist, and the fake answers the gate's four queries.
  * This proves the gate's logic (published + window + assignment +
  * group-membership defence in depth) without a Worker binding.
+ *
+ * The parent phone is NOT part of this gate — it is a requirement of a
+ * NEW attempt, checked on the start path (d1-parent-phone.ts). The
+ * start-path rule has its own tests (d1-take-routes.test.ts and
+ * take-session-logic.test.ts).
  */
 import { describe, expect, it } from "vitest";
 import { canTakeAssessment } from "@/server/d1-take-gate";

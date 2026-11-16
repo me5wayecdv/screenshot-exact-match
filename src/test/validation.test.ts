@@ -5,6 +5,10 @@
  * parse, an invalid one must throw the same AuthError code signUp
  * would throw. Phone cases cover the exact formats
  * normalizePhoneInput + isValidEgyptianMobile accept/reject.
+ *
+ * A student's parent phone is REQUIRED (the exam report goes to the
+ * parent): a missing number is PARENT_PHONE_REQUIRED, a malformed one
+ * is INVALID_PHONE.
  */
 import { describe, expect, it } from "vitest";
 import { AuthError } from "@/lib/cloudflare-auth";
@@ -39,6 +43,7 @@ const validStudent = {
   password: "12345678",
   fullName: "Test Student",
   role: "student",
+  parentPhone: "01012345678",
 };
 
 describe("signUpSchema — valid inputs", () => {
@@ -51,8 +56,10 @@ describe("signUpSchema — valid inputs", () => {
     expect(parsed.teacherPhone).toBe("01012345678");
   });
 
-  it("parses a valid student sign-up with no phone at all", () => {
-    expect(signUpSchema.parse(validStudent).teacherPhone).toBeUndefined();
+  it("parses a valid student sign-up with a parent phone", () => {
+    const parsed = signUpSchema.parse(validStudent);
+    expect(parsed.parentPhone).toBe("01012345678");
+    expect(parsed.teacherPhone).toBeUndefined();
   });
 
   it("ignores teacherPhone for students, even when it is garbage", () => {
@@ -73,6 +80,20 @@ describe("signUpSchema — valid inputs", () => {
     expect(signUpSchema.parse({ ...validTeacher, teacherPhone })).toBeTruthy();
   });
 
+  it.each([
+    "01012345678",
+    "01112345678",
+    "01212345678",
+    "01512345678",
+    "+201012345678",
+    "201012345678",
+    "010 1234 5678",
+    "(010) 1234-5678",
+    "010-1234-5678",
+  ])("accepts student parent phone %s", (parentPhone) => {
+    expect(signUpSchema.parse({ ...validStudent, parentPhone })).toBeTruthy();
+  });
+
   it("accepts a password of exactly 8 characters", () => {
     expect(signUpSchema.parse({ ...validTeacher, password: "12345678" })).toBeTruthy();
   });
@@ -85,8 +106,7 @@ describe("signUpSchema — valid inputs", () => {
   it("accepts null/omitted optional fields", () => {
     expect(
       signUpSchema.parse({
-        ...validStudent,
-        parentPhone: null,
+        ...validTeacher,
         subjects: null,
         school: null,
       }),
@@ -135,8 +155,33 @@ describe("signUpSchema — invalid inputs", () => {
     expect(thrownCode(() => validateSignUpInput(input))).toBe("INVALID_PHONE");
   });
 
-  it("does not require a phone for students", () => {
-    expect(thrownCode(() => validateSignUpInput(validStudent))).toBe("NO_THROW");
+  it("requires a parent phone for students (the report goes to the parent)", () => {
+    const { parentPhone: _omitted, ...rest } = validStudent;
+    expect(thrownCode(() => validateSignUpInput(rest))).toBe("PARENT_PHONE_REQUIRED");
+    expect(thrownCode(() => validateSignUpInput({ ...rest, parentPhone: "" }))).toBe(
+      "PARENT_PHONE_REQUIRED",
+    );
+    expect(thrownCode(() => validateSignUpInput({ ...rest, parentPhone: null }))).toBe(
+      "PARENT_PHONE_REQUIRED",
+    );
+    expect(thrownCode(() => validateSignUpInput({ ...rest, parentPhone: "   " }))).toBe(
+      "PARENT_PHONE_REQUIRED",
+    );
+  });
+
+  it.each([
+    ["10-digit local number", "0101234567"],
+    ["12-digit local number", "010123456789"],
+    ["019 prefix", "01912345678"],
+    ["+20 019 prefix", "+201912345678"],
+    ["short number", "12345"],
+    ["wrong country code", "+2101012345678"],
+    ["letter in number", "0101234567a"],
+    ["US number", "+15551234567"],
+  ])("rejects student parent phone (%s) as INVALID_PHONE", (_label, parentPhone) => {
+    expect(thrownCode(() => validateSignUpInput({ ...validStudent, parentPhone }))).toBe(
+      "INVALID_PHONE",
+    );
   });
 
   it("keeps signUp's check priority on doubly-invalid payloads", () => {
@@ -152,6 +197,11 @@ describe("signUpSchema — invalid inputs", () => {
         validateSignUpInput({ ...validTeacher, role: "admin", teacherPhone: "bad" }),
       ),
     ).toBe("INVALID_ROLE");
+    // The name is checked before the phone in signUp, so it wins too.
+    const { parentPhone: _omitted, ...student } = validStudent;
+    expect(thrownCode(() => validateSignUpInput({ ...student, fullName: "" }))).toBe(
+      "INVALID_INPUT",
+    );
   });
 
   it("throws INVALID_INPUT (not a crash) for a missing fullName", () => {

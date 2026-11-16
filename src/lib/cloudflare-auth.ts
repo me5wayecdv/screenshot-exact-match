@@ -40,6 +40,12 @@
  *   hiding UI alone is never the protection. Existing accounts are
  *   backfilled to 'approved' by migration. A rejected account can
  *   never sign in again (until an admin re-approves it).
+ * - Phone numbers: a student's parent phone and a teacher's own phone
+ *   are REQUIRED at sign-up, normalized to the +20… E.164 form
+ *   (010… / 201… → +20…), and must be Egyptian mobiles. The stored
+ *   value is always the normalized one, so the WhatsApp send path
+ *   never has to re-parse a local form. A DB CHECK constraint is the
+ *   last line of defense (see schema/d1-schema.sql).
  * - Timestamps are UTC ISO strings; expiry comparisons are string
  *   comparisons on that format, which is safe only because the format
  *   is fixed (see schema/d1-schema.sql).
@@ -138,6 +144,7 @@ export class AuthError extends Error {
       | "ACCOUNT_PENDING"
       | "ACCOUNT_REJECTED"
       | "INVALID_PHONE"
+      | "PARENT_PHONE_REQUIRED"
       | "INVALID_INPUT"
       | "NOT_PASSWORDLESS",
     message?: string,
@@ -302,6 +309,22 @@ export async function signUp(
     }
   }
 
+  // Students need a parent phone on file: the exam report is sent to
+  // that number, so an account without one can never be reported.
+  // The client check is never trusted — normalize first (local 010…
+  // forms become +20…), then require a valid Egyptian mobile. The
+  // number is STORED in its normalized form, so every later read
+  // (WhatsApp send, admin list, parent-contact form) sees the same
+  // E.164 string. A missing phone and a malformed one are different
+  // errors: the first says "add it", the second says "fix it".
+  let parentPhone: string | null = null;
+  if (input.role === "student") {
+    const cleaned = normalizePhoneInput(input.parentPhone ?? "");
+    if (cleaned === "") throw new AuthError("PARENT_PHONE_REQUIRED");
+    if (!isValidEgyptianMobile(cleaned)) throw new AuthError("INVALID_PHONE");
+    parentPhone = cleaned;
+  }
+
   const userId = newId();
   const passwordHash = await hashPassword(input.password, input.iterations);
   try {
@@ -311,7 +334,7 @@ export async function signUp(
       passwordHash,
       fullName: input.fullName.trim(),
       role: input.role as SignUpRole,
-      parentPhone: isTeacherSignUpRole(input.role) ? null : input.parentPhone?.trim() || null,
+      parentPhone,
       teacherPhone,
       subjects: (input.subjects ?? "").trim().slice(0, 200) || null,
       school: (input.school ?? "").trim().slice(0, 200) || null,

@@ -24,6 +24,12 @@
  *   normalizePhoneInput (local 010… / 201… forms -> +20…), then it
  *   must be a valid Egyptian mobile (+20 + 010/011/012/015 + 8 digits).
  *   Students: teacherPhone is ignored entirely (stored null today).
+ * - students: parentPhone REQUIRED and must be a valid Egyptian mobile
+ *   (same rule as the teacher phone). The exam report goes to the
+ *   parent, so an account without a parent number can never be
+ *   reported — the server refuses to create it. A missing number and
+ *   a malformed one are different errors (PARENT_PHONE_REQUIRED vs
+ *   INVALID_PHONE) so the form can say which one to fix.
  * - sign-in has NO format rules today: any string email/password
  *   reaches the lookup and a miss becomes INVALID_CREDENTIALS. The
  *   sign-in schema only enforces the types, so a malformed payload
@@ -65,6 +71,24 @@ export const signUpSchema = z
         });
       }
     }
+    // Student parent phone rule, same as signUp in cloudflare-auth.ts:
+    // required (the report goes to the parent) and an Egyptian mobile.
+    if (data.role === "student") {
+      const phone = normalizePhoneInput(data.parentPhone ?? "");
+      if (phone === "") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["parentPhone"],
+          message: "parent_phone_required",
+        });
+      } else if (!isValidEgyptianMobile(phone)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["parentPhone"],
+          message: "invalid_parent_phone",
+        });
+      }
+    }
   });
 
 export type SignUpInput = z.infer<typeof signUpSchema>;
@@ -90,8 +114,25 @@ export function signUpValidationError(error: z.ZodError): Error {
   if (paths.has("email")) return new AuthError("INVALID_EMAIL");
   if (paths.has("password")) return new AuthError("WEAK_PASSWORD");
   if (paths.has("role")) return new AuthError("INVALID_ROLE");
+  // The name is checked before the phone in signUp, so it wins here too.
+  if (paths.has("fullName")) return new Error("INVALID_INPUT");
   if (paths.has("teacherPhone")) {
     return new AuthError("INVALID_PHONE");
+  }
+  if (paths.has("parentPhone")) {
+    // Missing number and malformed number are different mistakes: the
+    // first says "add it", the second says "fix it". A wrong TYPE (a
+    // number instead of a string) is neither — it stays INVALID_INPUT.
+    const custom = error.issues.filter(
+      (issue) => issue.path[0] === "parentPhone" && issue.code === "custom",
+    );
+    if (custom.some((issue) => issue.message === "parent_phone_required")) {
+      return new AuthError("PARENT_PHONE_REQUIRED");
+    }
+    if (custom.some((issue) => issue.message === "invalid_parent_phone")) {
+      return new AuthError("INVALID_PHONE");
+    }
+    return new Error("INVALID_INPUT");
   }
   return new Error("INVALID_INPUT");
 }

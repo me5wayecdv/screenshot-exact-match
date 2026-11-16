@@ -310,7 +310,22 @@ function Take() {
       }
       freshDraftIds.current.add(finalId);
     } catch (err) {
-      toast.error(translateError(err, lang));
+      // A missing parent phone has its own message: the exam report is
+      // sent to the parent, so the student adds the number from the
+      // dashboard and starts again. Everything else goes through the
+      // shared error map.
+      //
+      // `includes` (not `===`): the error crosses the server-function
+      // boundary, so the code can arrive with a prefix. The map also
+      // resolves this code correctly (TAKE_PARENT_PHONE_REQUIRED is
+      // ordered before PARENT_PHONE_REQUIRED — see src/lib/i18n.tsx),
+      // so this branch is a belt-and-braces guard that does not depend
+      // on the map order.
+      toast.error(
+        err instanceof Error && err.message.includes("TAKE_PARENT_PHONE_REQUIRED")
+          ? t("parentPhoneRequiredForExam")
+          : translateError(err, lang),
+      );
     } finally {
       // Refetch BEFORE clearing `starting`: clearing it first would
       // briefly render the history view (latest submitted attempt)
@@ -589,7 +604,10 @@ function Take() {
   if (error || !data) return <Empty>{t("takeNotAssigned")}</Empty>;
 
   // Gate failure: the server loaded nothing (no questions, answers,
-  // or submissions), so this message is the whole page.
+  // or submissions), so this message is the whole page. The parent
+  // phone is NOT a load-time rule — the exam page opens normally and
+  // the START fails with TAKE_PARENT_PHONE_REQUIRED (see
+  // startAttemptAndWait), so the student adds the number and retries.
   if (!data.allowed || !data.assessment) return <Empty>{t("takeNotAssigned")}</Empty>;
   const { assessment } = data;
   const questions = displayOrder

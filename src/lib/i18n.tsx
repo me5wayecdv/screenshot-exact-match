@@ -194,6 +194,7 @@ const dict = {
     heroStudentIdle: "مفيش امتحان مفتوح لك دلوقتي. أول ما معلمك ينشر، هيظهر هنا.",
     heroStudentHint: "تقدر ترجع لنفس المحاولة من أي جهاز.",
     optional: "اختياري",
+    required: "مطلوب",
     navAssistant: "المساعد الذكي",
     navFollow: "المتابعة",
     navAccount: "حسابي",
@@ -934,6 +935,7 @@ const dict = {
     parentPhoneHint: "رقم مصري: يبدأ بـ 010 أو 011 أو 012 أو 015، أو بالصيغة الدولية +20…",
     parentPhoneInvalid: "رقم غير صحيح. لازم رقم موبايل مصري يبدأ بـ 010 أو 011 أو 012 أو 015.",
     parentPhoneRequired: "رقم ولي الأمر مطلوب.",
+    parentPhoneRequiredForExam: "سجّل رقم هاتف ولي الأمر أولاً من لوحة التحكم قبل بدء الامتحان.",
     whatsappConsent: "أوافق على إرسال نتيجة الطالب لولي الأمر عبر واتساب",
     whatsappConsentHint: "لن تُرسل أي نتيجة بدون هذا الإذن، حتى لو كان الرقم مسجّلًا.",
     whatsappSendToParent: "إرسال النتيجة لولي الأمر",
@@ -1146,6 +1148,7 @@ const dict = {
       "No exam is open for you right now. It appears here as soon as your teacher publishes.",
     heroStudentHint: "You can resume the same attempt from any device.",
     optional: "optional",
+    required: "required",
     navAssistant: "AI assistant",
     navFollow: "Follow-up",
     navAccount: "My account",
@@ -1904,6 +1907,8 @@ const dict = {
     parentPhoneInvalid:
       "Invalid number. It must be an Egyptian mobile starting with 010, 011, 012 or 015.",
     parentPhoneRequired: "Parent phone number is required.",
+    parentPhoneRequiredForExam:
+      "Add a parent phone number from your dashboard before starting the exam.",
     whatsappConsent: "I agree to send the student's result to the parent via WhatsApp",
     whatsappConsentHint: "No result is sent without this consent, even if a number is saved.",
     whatsappSendToParent: "Send result to parent",
@@ -1972,6 +1977,20 @@ const errorMap: Record<string, { ar: string; en: string }> = {
   INVALID_PHONE: {
     ar: "رقم الموبايل مش صحيح — لازم يكون رقم مصري.",
     en: "That mobile number is not valid — it must be an Egyptian mobile.",
+  },
+  // CQ-F2: placed BEFORE PARENT_PHONE_REQUIRED on purpose — same rule
+  // as TAKE_NOT_FOUND below: translateError's message scan matches the
+  // first key that is a substring, and "TAKE_PARENT_PHONE_REQUIRED"
+  // contains "PARENT_PHONE_REQUIRED". The exam-start message (add the
+  // number from the dashboard) must win over the sign-up message
+  // (create a student account).
+  TAKE_PARENT_PHONE_REQUIRED: {
+    ar: "سجّل رقم هاتف ولي الأمر أولاً من لوحة التحكم قبل بدء الامتحان.",
+    en: "Add a parent phone number from your dashboard before starting the exam.",
+  },
+  PARENT_PHONE_REQUIRED: {
+    ar: "رقم هاتف ولي الأمر مطلوب لإنشاء حساب الطالب.",
+    en: "A parent phone number is required to create a student account.",
   },
   INVALID_INPUT: {
     ar: "البيانات مش مكتملة أو مش صحيحة — راجع الحقول وحاول تاني.",
@@ -2248,6 +2267,9 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     ar: "لازم تكون عضو في مجموعة الاختبار ده عشان تدخله.",
     en: "You need to be a member of this assessment's group to take it.",
   },
+  // TAKE_PARENT_PHONE_REQUIRED lives near PARENT_PHONE_REQUIRED (above)
+  // — the message scan matches the first key that is a substring, so it
+  // must come BEFORE PARENT_PHONE_REQUIRED, not here.
   TAKE_SESSION_ERROR: {
     ar: "حصلت مشكلة في جلسة الاختبار — حاول تاني.",
     en: "There was a problem with the exam session — try again.",

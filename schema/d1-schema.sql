@@ -88,7 +88,16 @@ CREATE TABLE IF NOT EXISTS profiles (
   id TEXT PRIMARY KEY REFERENCES auth_users(id) ON DELETE CASCADE,
   full_name TEXT NOT NULL DEFAULT '',
   join_code TEXT UNIQUE,
-  parent_phone TEXT,
+  -- Parent phone: Egyptian mobile only, in the normalized +20… form.
+  -- The app always normalizes before it writes (normalizePhoneInput
+  -- in src/lib/whatsapp.ts), so a local "010…" form never lands here.
+  -- GLOB is SQLite's exact-match glob: '+20' + '1' + (0|1|2|5) +
+  -- 8 digits. NULL stays allowed (a teacher profile has no parent
+  -- phone; a legacy student row is repaired by the app, never
+  -- rewritten by a migration).
+  parent_phone TEXT CHECK (
+    parent_phone IS NULL OR parent_phone GLOB '+201[0125][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+  ),
   whatsapp_consent INTEGER NOT NULL DEFAULT 0 CHECK (whatsapp_consent IN (0,1)),
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   CHECK (join_code IS NULL OR length(join_code) = 12)
@@ -107,7 +116,12 @@ CREATE TABLE IF NOT EXISTS teacher_profiles (
   bio TEXT NOT NULL DEFAULT '',
   subjects_text TEXT NOT NULL DEFAULT '',
   type TEXT NOT NULL DEFAULT '',
-  phone TEXT,
+  -- Teacher phone: Egyptian mobile only, in the normalized +20… form
+  -- (same rule as profiles.parent_phone above). NULL stays allowed
+  -- for accounts created before the teacher-phone rule.
+  phone TEXT CHECK (
+    phone IS NULL OR phone GLOB '+201[0125][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'
+  ),
   school TEXT
 );
 
