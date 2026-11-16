@@ -557,7 +557,11 @@ function Generate() {
     <>
       <PageHeader
         title={t("genTitle")}
-        subtitle={t("genSubtitle")}
+        subtitle={
+          lang === "ar"
+            ? "من ملف الدرس إلى أسئلة تراجعها بنفسك."
+            : "From lesson file to questions you review yourself."
+        }
         actions={
           <Button variant="outline" onClick={() => navigate({ to: "/assessments" })}>
             {t("genBackToAssessments")}
@@ -568,7 +572,7 @@ function Generate() {
       {result ? (
         <Panel className="space-y-4">
           <p className="flex flex-wrap items-center gap-2">
-            <Pill>{t("st_draft")}</Pill>
+            <Pill>{lang === "ar" ? "قيد الإعداد" : "In preparation"}</Pill>
             <span className="font-semibold">{result.title}</span>
           </p>
           <p className="text-sm text-muted-foreground">
@@ -582,10 +586,16 @@ function Generate() {
               })}
             </p>
           ) : null}
-          <p className="text-sm">{t("genDraftNote")}</p>
+          <p className="text-sm">
+            {lang === "ar"
+              ? "الاختبار محفوظ عندك فقط. راجعه وحدد الطلاب قبل إتاحته."
+              : "Saved for you only. Review it and choose students before making it available."}
+          </p>
           <div className="flex flex-wrap gap-2">
             <Link to="/assessments/$id" params={{ id: result.id }}>
-              <Button>{t("genOpenBuilder")}</Button>
+              <Button>
+                {lang === "ar" ? "مراجعة الاختبار وإتاحته" : "Review exam and make available"}
+              </Button>
             </Link>
             <Button variant="outline" onClick={() => setResult(null)}>
               {t("genGenerateAnother")}
@@ -601,54 +611,6 @@ function Generate() {
                 {genError}
               </p>
             ) : null}
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="g-title">{t("genTitleOptional")}</Label>
-                <Input
-                  id="g-title"
-                  value={title}
-                  maxLength={200}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={t("title")}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="g-subj">{t("subject")}</Label>
-                <select
-                  id="g-subj"
-                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                  value={subjectId}
-                  onChange={(e) => setSubjectId(e.target.value)}
-                >
-                  <option value="">—</option>
-                  {(subjects ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="g-grade">{t("gradeLevel")}</Label>
-                <SchoolGradeSelect id="g-grade" value={gradeLevel} onChange={setGradeLevel} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="g-source">{t("genSourceText")}</Label>
-              <Textarea
-                id="g-source"
-                rows={10}
-                value={sourceText}
-                onChange={(e) => setSourceText(e.target.value)}
-                placeholder={t("genSourcePlaceholder")}
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("genSourceHint")} · {sourceLen} / {MAX_SOURCE_CHARS}
-              </p>
-              <p className="text-xs text-muted-foreground">{t("genFileNote")}</p>
-            </div>
-
             <div className="space-y-3 rounded-md border p-3">
               <div className="space-y-1.5">
                 <Label>{t("genUploadDoc")}</Label>
@@ -664,43 +626,51 @@ function Generate() {
                 />
                 <p className="text-xs text-muted-foreground">{t("genUploadDocHint")}</p>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="g-ocr-layout">{t("genOcrLayout")}</Label>
-                <select
-                  id="g-ocr-layout"
-                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                  value={ocrLayout}
-                  onChange={(event) =>
-                    setOcrLayout(event.target.value as "full" | "sections" | "columns")
-                  }
-                >
-                  <option value="full">{t("genOcrNormal")}</option>
-                  <option value="sections">{t("genOcrDetailed")}</option>
-                  <option value="columns">{t("genOcrColumns")}</option>
-                </select>
-                {ocrLayout !== "full" && (
-                  <p className="text-xs text-muted-foreground">
-                    {ocrLayout === "columns" ? t("genOcrColumnsHint") : t("genOcrDetailedHint")}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <Label>{t("genUploadImages")}</Label>
-                <Input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  disabled={fileBusy || visionOk === false}
-                  onChange={(e) => {
-                    const fs = [...(e.target.files ?? [])];
-                    e.target.value = "";
-                    if (fs.length) void handleImageFiles(fs);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {visionOk === false ? t("genVisionMissing") : t("genUploadImagesHint")}
-                </p>
-              </div>
+              <details>
+                <summary className="cursor-pointer text-sm">
+                  {lang === "ar" ? "أو ارفع صور الدرس" : "Or upload lesson images"}
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {" "}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="g-ocr-layout">{t("genOcrLayout")}</Label>
+                    <select
+                      id="g-ocr-layout"
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      value={ocrLayout}
+                      onChange={(event) =>
+                        setOcrLayout(event.target.value as "full" | "sections" | "columns")
+                      }
+                    >
+                      <option value="full">{t("genOcrNormal")}</option>
+                      <option value="sections">{t("genOcrDetailed")}</option>
+                      <option value="columns">{t("genOcrColumns")}</option>
+                    </select>
+                    {ocrLayout !== "full" && (
+                      <p className="text-xs text-muted-foreground">
+                        {ocrLayout === "columns" ? t("genOcrColumnsHint") : t("genOcrDetailedHint")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>{t("genUploadImages")}</Label>
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      disabled={fileBusy || visionOk === false}
+                      onChange={(e) => {
+                        const fs = [...(e.target.files ?? [])];
+                        e.target.value = "";
+                        if (fs.length) void handleImageFiles(fs);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {visionOk === false ? t("genVisionMissing") : t("genUploadImagesHint")}
+                    </p>
+                  </div>
+                </div>
+              </details>{" "}
               {fileBusy && <p className="text-sm text-muted-foreground">{t("genExtracting")}</p>}
               {fileNote && <p className="text-sm text-muted-foreground">{fileNote}</p>}
               {ocrError && (
@@ -722,7 +692,72 @@ function Generate() {
                 </Button>
               )}
             </div>
-
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm">
+                {lang === "ar"
+                  ? "عنوان الاختبار والمادة والصف (اختياري)"
+                  : "Title, subject and grade (optional)"}
+              </summary>
+              <div className="mt-4">
+                {" "}
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="g-title">{t("genTitleOptional")}</Label>
+                    <Input
+                      id="g-title"
+                      value={title}
+                      maxLength={200}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder={t("title")}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="g-subj">{t("subject")}</Label>
+                    <select
+                      id="g-subj"
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      value={subjectId}
+                      onChange={(e) => setSubjectId(e.target.value)}
+                    >
+                      <option value="">—</option>
+                      {(subjects ?? []).map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="g-grade">{t("gradeLevel")}</Label>
+                    <SchoolGradeSelect id="g-grade" value={gradeLevel} onChange={setGradeLevel} />
+                  </div>
+                </div>
+              </div>
+            </details>
+            <details open={!!sourceText} className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm">
+                {lang === "ar"
+                  ? "نص الدرس: للصق النص أو مراجعته بعد الرفع"
+                  : "Lesson text: paste or review after upload"}
+              </summary>
+              <div className="mt-3">
+                {" "}
+                <div className="space-y-1.5">
+                  <Label htmlFor="g-source">{t("genSourceText")}</Label>
+                  <Textarea
+                    id="g-source"
+                    rows={5}
+                    value={sourceText}
+                    onChange={(e) => setSourceText(e.target.value)}
+                    placeholder={t("genSourcePlaceholder")}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t("genSourceHint")} · {sourceLen} / {MAX_SOURCE_CHARS}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t("genFileNote")}</p>
+                </div>
+              </div>
+            </details>{" "}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="g-count">{t("genQuestionCount")}</Label>
@@ -764,7 +799,6 @@ function Generate() {
                 ))}
               </fieldset>
             </div>
-
             {!formValid && sourceText && (
               <p className="text-sm text-destructive">
                 {sourceLen < 50
