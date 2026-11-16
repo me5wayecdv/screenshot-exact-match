@@ -24,6 +24,8 @@ import { PageHeader, Panel, Pill, Empty, Hero, StatChip, statusTone } from "@/co
 import { Button } from "@/components/ui/button";
 import { ParentContactForm } from "@/components/parent-contact-form";
 import { Input } from "@/components/ui/input";
+import { studentNextStep } from "@/lib/student-next-step";
+import { StudentNextStepHero } from "@/components/student-next-step";
 import { DataPager } from "@/components/data-pager";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -452,9 +454,6 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
     setLessonCode("");
     qc.invalidateQueries();
   }
-  const activeAssessment = data?.assessments.find((a) =>
-    data.submissions.some((sub) => sub.assessment_id === a.id && sub.status === "in_progress"),
-  );
   // A request is a third state: not "no teacher", not "nothing assigned yet".
   const pendingRows = data?.pendingRows ?? [];
   const waiting = waitingOn(pendingRows);
@@ -463,34 +462,16 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
   return (
     <>
       {/* Student home asks one question: what is the next thing to do? */}
-      <Hero
-        kicker={t("heroKicker")}
-        title={waiting > 0 && !activeAssessment ? t("waitingApprovalTitle") : t("studentHomeTitle")}
-        body={
-          activeAssessment
-            ? t("heroStudentActive", { title: activeAssessment.title })
-            : waiting > 0
-              ? waitingNames.length > 0
-                ? t("waitingApprovalBody", { name: waitingNames[0]! })
-                : t("waitingApprovalBodyNoName")
-              : (data?.teacherLinks ?? 0) === 0
-                ? t("noTeacherLinked")
-                : t("heroStudentIdle")
-        }
-        actions={
-          activeAssessment ? (
-            <Button asChild size="lg" className="lift">
-              <Link to="/assessments/take/$id" params={{ id: activeAssessment.id }}>
-                {t("continueAttempt")}
-              </Link>
-            </Button>
-          ) : (
-            <Button asChild size="lg" className="lift" variant="secondary">
-              <a href="#join">{t("joinTeacher")}</a>
-            </Button>
-          )
-        }
-        hint={t("heroStudentHint")}
+      <StudentNextStepHero
+        step={studentNextStep({
+          assessments: data?.assessments ?? [],
+          submissions: data?.submissions ?? [],
+          teacherLinks: data?.teacherLinks ?? 0,
+          pending: waiting,
+          loaded: !!data,
+          error: !!studentError,
+        })}
+        waitingName={waitingNames[0]}
       />
       {/* (1) Teacher work — assessments assigned by teachers. */}
       <h2 className="mb-3 text-lg font-semibold">{t("schoolWork")}</h2>
@@ -555,7 +536,9 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           </Button>
         </form>
       </Panel>
-      <h3 className="mb-3 text-base font-semibold">{t("myAssessments")}</h3>
+      <h3 id="student-assessments" className="mb-3 scroll-mt-4 text-base font-semibold">
+        {t("myAssessments")}
+      </h3>
       {/* A failed read must never look like "nothing was assigned to me". */}
       {studentError ? (
         <p role="alert" className="mb-4 rounded-md bg-destructive/15 p-3 text-sm">
