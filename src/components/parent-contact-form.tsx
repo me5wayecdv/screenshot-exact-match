@@ -28,30 +28,39 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { isValidEgyptianMobile, normalizePhoneInput } from "@/lib/whatsapp";
 
-export function ParentContactForm({
-  studentId,
-  initialPhone,
-  initialConsent,
-  onSaved,
-}: {
+type ParentContactProps = {
   studentId: string;
   initialPhone: string | null;
   initialConsent: boolean;
   onSaved?: () => void;
-}) {
+};
+
+// A different student is a different draft, even when this form is reused.
+export function ParentContactForm(props: ParentContactProps) {
+  return <ParentContactEditor key={props.studentId} {...props} />;
+}
+
+function ParentContactEditor({
+  studentId,
+  initialPhone,
+  initialConsent,
+  onSaved,
+}: ParentContactProps) {
   const { t, lang } = useI18n();
-  const [phone, setPhone] = useState(initialPhone ?? "");
-  const [consent, setConsent] = useState(initialConsent);
+  // Null means untouched: late profile data may fill that field. Once
+  // edited, each field keeps its own draft until the server echoes it.
+  const [phoneDraft, setPhone] = useState<{ value: string; saved: boolean } | null>(null);
+  const [consentDraft, setConsent] = useState<{ value: boolean; saved: boolean } | null>(null);
+  const phone = phoneDraft?.value ?? initialPhone ?? "";
+  const consent = consentDraft?.value ?? initialConsent;
   const [busy, setBusy] = useState(false);
   const [formatError, setFormatError] = useState(false);
   const [requiredError, setRequiredError] = useState(false);
 
   useEffect(() => {
-    setPhone(initialPhone ?? "");
-    setConsent(initialConsent);
-    setFormatError(false);
-    setRequiredError(false);
-  }, [studentId, initialPhone, initialConsent]);
+    if (phoneDraft?.saved && phoneDraft.value === (initialPhone ?? "")) setPhone(null);
+    if (consentDraft?.saved && consentDraft.value === initialConsent) setConsent(null);
+  }, [phoneDraft, consentDraft, initialPhone, initialConsent]);
 
   async function save() {
     const cleaned = normalizePhoneInput(phone);
@@ -80,7 +89,12 @@ export function ParentContactForm({
       setBusy(false);
       return void toast.error(translateError(error, lang));
     }
-    setPhone(cleaned);
+    // A save may finish after another keystroke. Normalize only the
+    // submitted draft, never replace a newer edit with the old response.
+    setPhone((current) => (current?.value === phone ? { value: cleaned, saved: true } : current));
+    setConsent((current) =>
+      current?.value === consent ? { value: consent, saved: true } : current,
+    );
     setBusy(false);
     toast.success(t("save"));
     onSaved?.();
@@ -100,7 +114,7 @@ export function ParentContactForm({
           required
           aria-required="true"
           onChange={(e) => {
-            setPhone(e.target.value);
+            setPhone({ value: e.target.value, saved: false });
             setFormatError(false);
             setRequiredError(false);
           }}
@@ -116,7 +130,7 @@ export function ParentContactForm({
         <Checkbox
           id={`wa-consent-${studentId}`}
           checked={consent}
-          onCheckedChange={(v) => setConsent(!!v)}
+          onCheckedChange={(v) => setConsent({ value: !!v, saved: false })}
         />
         <label htmlFor={`wa-consent-${studentId}`} className="text-sm">
           {t("whatsappConsent")}
