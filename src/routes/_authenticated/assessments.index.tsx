@@ -64,25 +64,41 @@ function AssessmentsList() {
         title={t("assessments")}
         actions={
           <Link to="/assessments/generate">
-            <Button variant="outline">{t("genTitle")}</Button>
+            <Button>
+              {lang === "ar" ? "رفع PDF وتوليد الأسئلة" : "Upload PDF and generate questions"}
+            </Button>
           </Link>
         }
       />
       <Panel className="mb-8">
-        <form onSubmit={create} className="flex flex-wrap items-end gap-3">
-          <div className="min-w-60 flex-1 space-y-1.5">
-            <Label htmlFor="title">{t("newAssessment")}</Label>
-            <Input
-              id="title"
-              required
-              maxLength={200}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t("title")}
-            />
+        <p className="mb-4 text-sm text-muted-foreground">
+          {lang === "ar"
+            ? "ارفع ملف الدرس لتوليد أسئلة تراجعها، أو ابدأ بالكتابة اليدوية. الاختبار لا يظهر للطلاب قبل إتاحته."
+            : "Upload a lesson to generate questions for review, or write questions manually. Students cannot see it until you make it available."}
+        </p>
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">
+            {lang === "ar" ? "أو كتابة الأسئلة يدويا" : "Or write questions manually"}
+          </summary>
+          <div className="mt-4">
+            <form onSubmit={create} className="flex flex-wrap items-end gap-3">
+              <div className="min-w-60 flex-1 space-y-1.5">
+                <Label htmlFor="title">{t("newAssessment")}</Label>
+                <Input
+                  id="title"
+                  required
+                  maxLength={200}
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={t("title")}
+                />
+              </div>
+              <Button disabled={busy || !title.trim()}>
+                {lang === "ar" ? "بدء إعداد الاختبار" : "Start preparing exam"}
+              </Button>
+            </form>
           </div>
-          <Button disabled={busy || !title.trim()}>{t("create")}</Button>
-        </form>
+        </details>
       </Panel>
       {isLoading ? (
         <p className="text-sm text-muted-foreground">{t("loading")}</p>
@@ -116,7 +132,13 @@ function AssessmentsList() {
               </Link>
               <span className="flex items-center gap-3 text-sm text-muted-foreground">
                 {t("dueAt")}: {formatDate(a.due_at, lang)}
-                <Pill t={statusTone[a.status]}>{t(`st_${a.status}` as never)}</Pill>
+                <Pill t={statusTone[a.status]}>
+                  {a.status === "draft"
+                    ? lang === "ar"
+                      ? "قيد الإعداد"
+                      : "In preparation"
+                    : t(`st_${a.status}` as never)}
+                </Pill>
                 <Link
                   to="/assessments/report/$id"
                   params={{ id: a.id }}
