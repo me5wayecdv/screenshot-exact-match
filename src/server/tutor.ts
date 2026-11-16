@@ -1,3 +1,5 @@
+import { aiProviderFetch } from "@/server/ai-provider-fetch";
+
 /**
  * Server functions for the Phase 5 smart tutor (student-facing) —
  * D1 port (Phase 2b). Behavior preserved from the Supabase original;
@@ -206,11 +208,11 @@ async function callChat(
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
-    const res = await fetch(`${config.baseUrl}/chat/completions`, {
+    const res = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
       headers,
-      body: JSON.stringify({ model: config.model, temperature, messages }),
+      body: JSON.stringify({ model: config.model, temperature, max_tokens: 2_400, messages }),
     });
     if (!res.ok) {
       return {
@@ -223,6 +225,13 @@ async function callChat(
       choices?: Array<{ message?: { content?: string | null } }>;
       usage?: unknown;
     };
+    if (logUsage) {
+      await logUsage({
+        provider: openAiProvider(config.baseUrl),
+        model: config.model,
+        usage: extractOpenAiUsage(payload),
+      }).catch(() => undefined);
+    }
     const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
     if (!reply) {
       return {
@@ -230,13 +239,6 @@ async function callChat(
         code: "TUTOR_UPSTREAM",
         message: "AI provider returned an empty response.",
       };
-    }
-    if (logUsage) {
-      await logUsage({
-        provider: openAiProvider(config.baseUrl),
-        model: config.model,
-        usage: extractOpenAiUsage(payload),
-      }).catch(() => undefined);
     }
     return { ok: true, reply, model: config.model };
   } catch (error) {
