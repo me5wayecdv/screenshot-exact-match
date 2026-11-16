@@ -1,3 +1,5 @@
+import { aiProviderFetch } from "@/server/ai-provider-fetch";
+
 /**
  * Server functions for Phase 2 generation sources: OCR of curriculum
  * page photos into source text for assessment generation.
@@ -246,19 +248,19 @@ export async function callVisionOcr(
           max_tokens: 4000,
         }),
       };
-      let res = await fetch(runUrl, nativeInit);
+      let res = await aiProviderFetch(runUrl, nativeInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         const lowered = body.toLowerCase();
         if (lowered.includes("model agreement") || lowered.includes("submit the prompt")) {
-          const agreeRes = await fetch(runUrl, {
+          const agreeRes = await aiProviderFetch(runUrl, {
             method: "POST",
             signal: controller.signal,
             headers,
             body: JSON.stringify({ prompt: "agree" }),
           }).catch(() => null);
           if (agreeRes && agreeRes.ok) {
-            res = await fetch(runUrl, nativeInit);
+            res = await aiProviderFetch(runUrl, nativeInit);
             if (!res.ok) {
               const retryBody = await res.text().catch(() => "");
               return {
@@ -348,7 +350,7 @@ export async function callVisionOcr(
         ],
       }),
     };
-    let res = await fetch(`${baseUrl}/chat/completions`, compatInit);
+    let res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
     if (!res.ok) {
       let failBody = await res.text().catch(() => "");
       // Same documented prompt-form agreement as the handwritten path:
@@ -363,14 +365,14 @@ export async function callVisionOcr(
         /\/v1\/?$/.test(baseUrl)
       ) {
         const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
-        const agreeRes = await fetch(runUrl, {
+        const agreeRes = await aiProviderFetch(runUrl, {
           method: "POST",
           signal: controller.signal,
           headers,
           body: JSON.stringify({ prompt: "agree" }),
         }).catch(() => null);
         if (agreeRes && agreeRes.ok) {
-          res = await fetch(`${baseUrl}/chat/completions`, compatInit);
+          res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
           if (!res.ok) failBody = await res.text().catch(() => "");
         }
       }

@@ -444,12 +444,8 @@ export const suggestGrade = createServerFn({ method: "POST" })
         usageEvent = event;
       },
     );
-    if (!result.ok) {
-      // AI-F5: the AI call failed, so the unit consumed above goes back.
-      // Best-effort: a failed refund never changes this failure result.
-      await refundAiQuota(db, auth.userId, 1, quotaConsumedAt, quotaRefundKey);
-      return { ok: false, code: result.error.code, message: result.error.message };
-    }
+    // A parsed HTTP-success response may consume paid tokens even when the
+    // reply is empty or malformed. Measure it before any product-quota refund.
     if (usageEvent) {
       try {
         await logAiUsageEvent(db, auth.userId, {
@@ -460,11 +456,15 @@ export const suggestGrade = createServerFn({ method: "POST" })
           outputTokens: usageEvent.usage.outputTokens,
           assessmentId: effectiveRequest.assessmentId,
           questionId: effectiveRequest.questionId,
-          suggestedScore: result.suggestion.suggestedScore,
+          suggestedScore: result.ok ? result.suggestion.suggestedScore : null,
         });
       } catch {
         // Best-effort measurement: never fails the suggestion.
       }
+    }
+    if (!result.ok) {
+      await refundAiQuota(db, auth.userId, 1, quotaConsumedAt, quotaRefundKey);
+      return { ok: false, code: result.error.code, message: result.error.message };
     }
     // Best-effort measurement write; never fails the suggestion.
     // persistAiSuggestion itself never throws, and it no-ops when no

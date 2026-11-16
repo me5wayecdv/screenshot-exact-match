@@ -1,3 +1,5 @@
+import { aiProviderFetch } from "@/server/ai-provider-fetch";
+
 /**
  * Lesson explanation — D1 port (Phase 2b). Behavior preserved from the
  * Supabase original; only the auth, quota, and usage plumbing changed:
@@ -98,7 +100,7 @@ export const explainLesson = createServerFn({ method: "POST" })
     try {
       const headers: Record<string, string> = { "content-type": "application/json" };
       if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
-      const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      const response = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
         method: "POST",
         signal: controller.signal,
         headers,
@@ -131,13 +133,6 @@ export const explainLesson = createServerFn({ method: "POST" })
         choices?: Array<{ message?: { content?: string | null } }>;
         usage?: unknown;
       };
-      const explanation = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
-      if (!explanation || explanation.length > MAX_REPLY_CHARS) {
-        // AI-F5: empty/oversized reply — no usable result, unit goes back.
-        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
-        return { ok: false, code: "AI_UPSTREAM" };
-      }
-
       // Usage rows store token counts/model only, never prompts or replies.
       const usage = extractOpenAiUsage(payload);
       await logAiUsageEvent(db, session.userId, {
@@ -147,6 +142,13 @@ export const explainLesson = createServerFn({ method: "POST" })
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
       }).catch(() => undefined);
+      const explanation = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
+      if (!explanation || explanation.length > MAX_REPLY_CHARS) {
+        // AI-F5: empty/oversized reply — no usable result, unit goes back.
+        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
+        return { ok: false, code: "AI_UPSTREAM" };
+      }
+
       return {
         ok: true,
         explanation,

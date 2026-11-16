@@ -1,3 +1,5 @@
+import { aiProviderFetch } from "@/server/ai-provider-fetch";
+
 // Server function for assessment generation (slice 2) — D1 port
 // (Phase 2b). Behavior preserved from the Supabase original; only the
 // auth, quota, usage, and draft-persistence plumbing changed:
@@ -224,7 +226,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
       // without auth, e.g. Ollama).
       const headers: Record<string, string> = { "content-type": "application/json" };
       if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
-      const res = await fetch(`${baseUrl}/chat/completions`, {
+      const res = await aiProviderFetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -261,14 +263,6 @@ export const generateAssessment = createServerFn({ method: "POST" })
         );
       }
       const json = (await res.json()) as AiChatResponse;
-      replyText = json.choices?.[0]?.message?.content ?? "";
-      finishReason =
-        (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
-      if (!replyText.trim()) {
-        // AI-F5: empty reply — no usable result, so the units go back.
-        await refundAiQuota(db, userId, quotaUnits, quotaConsumedAt, quotaRefundKey);
-        return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
-      }
       // Pilot cost measurement (best-effort, never fails generation):
       // one row per successful generation call, attributed to the teacher.
       const usage = extractOpenAiUsage(json);
@@ -279,6 +273,14 @@ export const generateAssessment = createServerFn({ method: "POST" })
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
       }).catch(() => undefined);
+      replyText = json.choices?.[0]?.message?.content ?? "";
+      finishReason =
+        (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
+      if (!replyText.trim()) {
+        // AI-F5: empty reply — no usable result, so the units go back.
+        await refundAiQuota(db, userId, quotaUnits, quotaConsumedAt, quotaRefundKey);
+        return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
+      }
     } catch (e) {
       const name = e instanceof Error ? e.name : "";
       // AI-F5: the generation call failed, so the units consumed above go back.

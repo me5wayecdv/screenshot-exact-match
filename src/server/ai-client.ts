@@ -1,3 +1,5 @@
+import { aiProviderFetch } from "@/server/ai-provider-fetch";
+
 /**
  * Server-only provider-agnostic chat client for AI grading suggestions.
  *
@@ -160,13 +162,14 @@ export async function suggestGradeWithAi(
     // is classified once via the shared taxonomy and returned as-is.
     let res: Response | null = null;
     for (let attempt = 1; attempt <= AI_MAX_ATTEMPTS; attempt++) {
-      const attemptRes = await fetch(`${config.baseUrl}/chat/completions`, {
+      const attemptRes = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
         method: "POST",
         signal: controller.signal,
         headers,
         body: JSON.stringify({
           model: config.model,
           temperature: 0.2,
+          max_tokens: 1_200,
           messages: [
             { role: "system", content: system },
             { role: "user", content: user },
@@ -212,6 +215,13 @@ export async function suggestGradeWithAi(
         error: { code: "AI_ERROR", message: "AI provider returned an unreadable response." },
       };
     }
+    if (onUsage) {
+      await onUsage({
+        provider: openAiProvider(config.baseUrl),
+        model: config.model,
+        usage: extractOpenAiUsage(payload),
+      }).catch(() => undefined);
+    }
     const content = payload.choices?.[0]?.message?.content ?? "";
     if (!content) {
       return {
@@ -229,13 +239,6 @@ export async function suggestGradeWithAi(
         ok: false,
         error: { code: "AI_ERROR", message: "AI provider returned an unusable response." },
       };
-    }
-    if (onUsage) {
-      await onUsage({
-        provider: openAiProvider(config.baseUrl),
-        model: config.model,
-        usage: extractOpenAiUsage(payload),
-      }).catch(() => undefined);
     }
     return { ok: true, suggestion };
   } catch (error) {
