@@ -1,7 +1,7 @@
 import { SchoolGradeSelect } from "@/components/school-grade-select";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ArrowUp, ArrowDown, Trash2, Plus } from "lucide-react";
 import {
@@ -67,6 +67,17 @@ function useBuilderData(id: string) {
 
 function Builder() {
   const { id } = Route.useParams();
+  const [step, setStep] = useState(0);
+  const [dirtySections, setDirtySections] = useState<Set<string>>(new Set());
+  const onDirty = useCallback((id: string, dirty: boolean) => {
+    setDirtySections((prev) => {
+      if (prev.has(id) === dirty) return prev;
+      const next = new Set(prev);
+      if (dirty) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
   const { t, lang } = useI18n();
   const qc = useQueryClient();
   const { data, isLoading, error } = useBuilderData(id);
@@ -76,6 +87,44 @@ function Builder() {
   if (error || !data) return <p>{t("notFound")}</p>;
   const { a, questions } = data;
   const locked = data.submissionCount > 0;
+  const isDraft = a.status === "draft";
+  const flow =
+    lang === "ar"
+      ? {
+          details: "تفاصيل الاختبار",
+          questions: "الأسئلة",
+          audience: "إتاحة للطلاب",
+          preparing: "قيد الإعداد - لا يظهر للطلاب",
+          next: "حفظ التفاصيل والمتابعة",
+          continue: "اختيار الطلاب",
+          publish: "إتاحة الاختبار للطلاب",
+          dirty: "احفظ التعديلات أولا قبل المتابعة.",
+          back: "رجوع",
+          ready: "راجع الأسئلة والطلاب، ثم اختر إتاحة الاختبار. لن يظهر لهم قبل هذه الخطوة.",
+          empty: "أضف سؤالا واحفظه أولا.",
+          saved: "حفظ السؤال",
+          settings: "الوقت والمحاولات والتعليمات",
+          settingsHint: "إعدادات إضافية",
+          basics: "تفاصيل الاختبار",
+        }
+      : {
+          details: "Exam details",
+          questions: "Questions",
+          audience: "Make available",
+          preparing: "In preparation - hidden from students",
+          next: "Save details and continue",
+          continue: "Choose students",
+          publish: "Make exam available to students",
+          dirty: "Save your changes before continuing.",
+          back: "Back",
+          ready:
+            "Review questions and students, then make the exam available. It stays hidden until then.",
+          empty: "Add and save a question first.",
+          saved: "Save question",
+          settings: "Time, attempts and instructions",
+          settingsHint: "Additional settings",
+          basics: "Exam details",
+        };
   const total = questions.reduce((s, q) => s + Number(q.marks), 0);
   // Bound once, after the guard: hoisted function declarations below do not
   // see the narrowing of `data`, but these consts carry it.
@@ -100,6 +149,10 @@ function Builder() {
     // a.audience_mode (its DB default is 'explicit', which used to be
     // mistaken for a deliberate choice).
     const plan = planPublishAudience({ linkedIds: linkedStudentIds, assignedIds });
+    if (s === "published" && dirtySections.size > 0) {
+      toast.error(flow.dirty);
+      return;
+    }
     if (s === "published") {
       if (plan.blocked === "no_students") {
         toast.error(t("publishNoStudents"));
@@ -202,52 +255,148 @@ function Builder() {
         title={a.title}
         subtitle={
           <span className="flex items-center gap-2">
-            <Pill t={statusTone[a.status]}>{t(`st_${a.status}` as never)}</Pill>
+            <Pill t={statusTone[a.status]}>
+              {isDraft ? flow.preparing : t(`st_${a.status}` as never)}
+            </Pill>
             {t("totalMarks")}: {total} · {t("questions")}: {questions.length}
           </span>
         }
         actions={
           <>
-            {transitions[a.status].map((tr) => (
-              <Button key={tr.to} variant={tr.variant} onClick={() => setStatus(tr.to)}>
-                {tr.label}
-              </Button>
-            ))}
+            {!isDraft &&
+              transitions[a.status].map((tr) => (
+                <Button key={tr.to} variant={tr.variant} onClick={() => setStatus(tr.to)}>
+                  {tr.label}
+                </Button>
+              ))}
           </>
         }
       />
-      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="space-y-6">
-          <MetaEditor a={a} subjects={data.subjects} onSaved={refresh} />
-          {locked && <p className="rounded-md bg-warning/20 p-3 text-sm">{t("lockedNote")}</p>}
-          {questions.map((q, i) => (
-            <QuestionEditor
-              key={q.id}
-              q={q}
-              index={i}
-              count={questions.length}
-              locked={locked}
-              onMove={(d) => move(i, d)}
-              onChanged={refresh}
-            />
+      {isDraft && (
+        <nav
+          aria-label={lang === "ar" ? "خطوات إعداد الاختبار" : "Exam setup steps"}
+          className="mb-6 grid grid-cols-3 gap-2"
+        >
+          {[flow.details, flow.questions, flow.audience].map((label, index) => (
+            <button
+              key={label}
+              type="button"
+              aria-current={step === index ? "step" : undefined}
+              disabled={
+                (index !== step && dirtySections.size > 0) ||
+                (index === 2 && questions.length === 0)
+              }
+              onClick={() => setStep(index)}
+              className={`min-h-14 rounded-lg border px-2 py-3 text-sm font-medium ${step === index ? "border-primary bg-primary/10 text-primary" : "bg-card text-muted-foreground"} disabled:opacity-40`}
+            >
+              <span className="mb-1 block text-xs">{index + 1}</span>
+              {label}
+            </button>
           ))}
-          {!locked && (
-            <>
+        </nav>
+      )}
+      <div className={isDraft ? "space-y-6" : "grid gap-6 lg:grid-cols-[1fr_320px]"}>
+        <div className="space-y-6">
+          <div hidden={isDraft && step !== 0}>
+            <MetaEditor
+              key={JSON.stringify([
+                a.title,
+                a.instructions,
+                a.grade_level,
+                a.subject_id,
+                a.due_at,
+                a.starts_at,
+                a.duration_minutes,
+                a.max_attempts,
+              ])}
+              a={a}
+              subjects={data.subjects}
+              onSaved={refresh}
+              onContinue={isDraft ? () => setStep(1) : undefined}
+              onDirty={onDirty}
+            />
+          </div>
+          <div hidden={isDraft && step !== 1} className="space-y-6">
+            {locked && <p className="rounded-md bg-warning/20 p-3 text-sm">{t("lockedNote")}</p>}
+            {isDraft && questions.length === 0 && (
               <Panel>
-                <p className="mb-3 text-sm font-medium">{t("addQuestion")}</p>
-                <div className="flex flex-wrap gap-2">
-                  {(["mcq", "true_false", "short_answer", "written"] as QType[]).map((ty) => (
-                    <Button key={ty} variant="outline" size="sm" onClick={() => addQuestion(ty)}>
-                      <Plus className="h-4 w-4" aria-hidden /> {t(`q_${ty}` as never)}
-                    </Button>
-                  ))}
-                </div>
+                <p className="mb-3 text-sm">
+                  {lang === "ar"
+                    ? "عندك ملف الدرس؟ ابدأ اختبارا جديدا منه، أو أضف الأسئلة يدويا هنا."
+                    : "Have a lesson file? Start a new exam from it, or add questions manually here."}
+                </p>
+                <Button asChild variant="outline">
+                  <Link to="/assessments/generate">
+                    {lang === "ar" ? "رفع PDF وتوليد الأسئلة" : "Upload PDF and generate questions"}
+                  </Link>
+                </Button>
               </Panel>
-              <QuestionBank assessmentId={id} positionBase={questions.length} onAdded={refresh} />
-            </>
-          )}
+            )}
+            {questions.map((q, i) => (
+              <QuestionEditor
+                key={q.id}
+                q={q}
+                index={i}
+                count={questions.length}
+                locked={locked}
+                onMove={(d) => move(i, d)}
+                onChanged={refresh}
+                onDirty={onDirty}
+              />
+            ))}
+            {!locked && (
+              <>
+                <Panel>
+                  <p className="mb-3 text-sm font-medium">{t("addQuestion")}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(["mcq", "true_false", "short_answer", "written"] as QType[]).map((ty) => (
+                      <Button key={ty} variant="outline" size="sm" onClick={() => addQuestion(ty)}>
+                        <Plus className="h-4 w-4" aria-hidden /> {t(`q_${ty}` as never)}
+                      </Button>
+                    ))}
+                  </div>
+                </Panel>
+                <details className="rounded-lg border bg-card p-4">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    {lang === "ar" ? "استخدام سؤال سابق" : "Reuse a previous question"}
+                  </summary>
+                  <div className="mt-4">
+                    <QuestionBank
+                      assessmentId={id}
+                      positionBase={questions.length}
+                      onAdded={refresh}
+                    />
+                  </div>
+                </details>
+              </>
+            )}
+            {isDraft && (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  variant="outline"
+                  disabled={dirtySections.size > 0}
+                  onClick={() => setStep(0)}
+                >
+                  {flow.back}
+                </Button>
+                <Button
+                  disabled={questions.length === 0 || dirtySections.size > 0}
+                  onClick={() => setStep(2)}
+                >
+                  {flow.continue}
+                </Button>
+                {dirtySections.size > 0 ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    {flow.dirty}
+                  </p>
+                ) : questions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">{flow.empty}</p>
+                ) : null}
+              </div>
+            )}
+          </div>
         </div>
-        <aside>
+        <aside hidden={isDraft && step !== 2}>
           <Panel>
             <h2 className="mb-3 font-semibold">{t("assignTo")}</h2>
             {/* Why a "missing" assessment is usually not a bug: RLS only
@@ -261,7 +410,7 @@ function Builder() {
             ) : null}
             {a.status === "draft" ? (
               <p className="mb-3 rounded-md bg-muted p-3 text-sm text-muted-foreground">
-                {t("draftNotVisible")}
+                {flow.ready}
               </p>
             ) : null}
             {data.students.length === 0 ? (
@@ -282,7 +431,18 @@ function Builder() {
                 ))}
               </ul>
             )}
-            {data.students.length > 0 ? (
+            {isDraft && data.students.length > 0 && (
+              <p className="mt-3 rounded-md bg-muted p-3 text-sm">
+                {data.assigned.size === 0
+                  ? lang === "ar"
+                    ? `سيظهر لكل طلابك المرتبطين (${data.students.length}). حدد أسماء فقط لو عايز مجموعة محددة.`
+                    : `Available to all linked students (${data.students.length}). Select names only for a specific group.`
+                  : lang === "ar"
+                    ? `سيظهر للطلاب المحددين فقط (${data.assigned.size}).`
+                    : `Available only to selected students (${data.assigned.size}).`}
+              </p>
+            )}
+            {!isDraft && data.students.length > 0 ? (
               <p className="mt-3 text-xs text-muted-foreground">
                 {t("assignedCount", {
                   assigned: String(data.assigned.size),
@@ -314,9 +474,41 @@ function Builder() {
                 )}
               </div>
             ) : null}
-            <p className="mt-4 text-xs text-muted-foreground">
-              {t("dueAt")}: {formatDate(a.due_at, lang)}
-            </p>
+            {a.due_at && (
+              <p className="mt-4 text-xs text-muted-foreground">
+                {t("dueAt")}: {formatDate(a.due_at, lang)}
+              </p>
+            )}
+            {isDraft && (
+              <div className="mt-6 space-y-3 border-t pt-4">
+                <p className="text-sm">
+                  {t("questions")}: {questions.length} · {t("totalMarks")}: {total}
+                </p>
+                {dirtySections.size > 0 && (
+                  <p role="status" className="text-sm text-destructive">
+                    {flow.dirty}
+                  </p>
+                )}
+                {data.students.length === 0 && (
+                  <Button asChild variant="outline">
+                    <Link to="/students">{lang === "ar" ? "إضافة طلاب" : "Add students"}</Link>
+                  </Button>
+                )}
+                <div className="flex flex-wrap gap-3">
+                  <Button variant="outline" onClick={() => setStep(1)}>
+                    {flow.back}
+                  </Button>
+                  <Button
+                    disabled={
+                      questions.length === 0 || dirtySections.size > 0 || data.students.length === 0
+                    }
+                    onClick={() => setStatus("published")}
+                  >
+                    {flow.publish}
+                  </Button>
+                </div>
+              </div>
+            )}
           </Panel>
         </aside>
       </div>
@@ -421,10 +613,14 @@ function MetaEditor({
   a,
   subjects,
   onSaved,
+  onContinue,
+  onDirty,
 }: {
   a: A;
   subjects: { id: string; name: string }[];
   onSaved: () => void;
+  onContinue?: (() => void) | undefined;
+  onDirty: (id: string, dirty: boolean) => void;
 }) {
   const { t, lang } = useI18n();
   const [f, setF] = useState({
@@ -437,7 +633,22 @@ function MetaEditor({
     duration_minutes: a.duration_minutes != null ? String(a.duration_minutes) : "",
     max_attempts: String(a.max_attempts ?? 1),
   });
+  const original = {
+    title: a.title,
+    instructions: a.instructions,
+    grade_level: a.grade_level,
+    subject_id: a.subject_id ?? "",
+    due_at: toLocalInput(a.due_at),
+    starts_at: toLocalInput(a.starts_at),
+    duration_minutes: a.duration_minutes != null ? String(a.duration_minutes) : "",
+    max_attempts: String(a.max_attempts ?? 1),
+  };
   const [newSubject, setNewSubject] = useState("");
+  const dirty = JSON.stringify(f) !== JSON.stringify(original) || !!newSubject.trim();
+  useEffect(() => {
+    onDirty("meta", dirty);
+    return () => onDirty("meta", false);
+  }, [dirty, onDirty]);
   const [busy, setBusy] = useState(false);
   async function save() {
     if (!f.title.trim()) return;
@@ -470,6 +681,7 @@ function MetaEditor({
     setBusy(false);
     toast.success(t("save"));
     onSaved();
+    onContinue?.();
   }
   return (
     <Panel className="space-y-4">
@@ -512,66 +724,85 @@ function MetaEditor({
             value={f.grade_level}
             onChange={(value) => setF({ ...f, grade_level: value })}
           />
-          <Label htmlFor="m-due" className="pt-2">
-            {t("dueAt")}
-          </Label>
-          <Input
-            id="m-due"
-            type="datetime-local"
-            dir="ltr"
-            value={f.due_at}
-            onChange={(e) => setF({ ...f, due_at: e.target.value })}
-          />
-          <Label htmlFor="m-starts" className="pt-2">
-            {t("startsAt")}
-          </Label>
-          <Input
-            id="m-starts"
-            type="datetime-local"
-            dir="ltr"
-            value={f.starts_at}
-            onChange={(e) => setF({ ...f, starts_at: e.target.value })}
-          />
-          <Label htmlFor="m-duration" className="pt-2">
-            {t("durationMinutes")}
-          </Label>
-          <Input
-            id="m-duration"
-            type="number"
-            min={1}
-            placeholder={t("durationUnlimited")}
-            value={f.duration_minutes}
-            onChange={(e) => setF({ ...f, duration_minutes: e.target.value })}
-          />
-          <Label htmlFor="m-attempts" className="pt-2">
-            {t("maxAttempts")}
-          </Label>
-          <Input
-            id="m-attempts"
-            type="number"
-            min={1}
-            value={f.max_attempts}
-            onChange={(e) => setF({ ...f, max_attempts: e.target.value })}
-          />
-        </div>
-        <div className="space-y-1.5 md:col-span-2">
-          <Label htmlFor="m-ins">{t("instructions")}</Label>
-          <Textarea
-            id="m-ins"
-            rows={3}
-            value={f.instructions}
-            maxLength={4000}
-            onChange={(e) => setF({ ...f, instructions: e.target.value })}
-          />
         </div>
       </div>
-      <Button onClick={save} disabled={busy}>
-        {busy ? t("saving") : t("save")}
+      <details className="rounded-md border p-3">
+        <summary className="cursor-pointer text-sm font-medium">
+          {lang === "ar" ? "الوقت والمحاولات والتعليمات" : "Time, attempts and instructions"}
+        </summary>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="m-due" className="pt-2">
+              {t("dueAt")}
+            </Label>
+            <Input
+              id="m-due"
+              type="datetime-local"
+              dir="ltr"
+              value={f.due_at}
+              onChange={(e) => setF({ ...f, due_at: e.target.value })}
+            />
+            <Label htmlFor="m-starts" className="pt-2">
+              {t("startsAt")}
+            </Label>
+            <Input
+              id="m-starts"
+              type="datetime-local"
+              dir="ltr"
+              value={f.starts_at}
+              onChange={(e) => setF({ ...f, starts_at: e.target.value })}
+            />
+            <Label htmlFor="m-duration" className="pt-2">
+              {t("durationMinutes")}
+            </Label>
+            <Input
+              id="m-duration"
+              type="number"
+              min={1}
+              placeholder={t("durationUnlimited")}
+              value={f.duration_minutes}
+              onChange={(e) => setF({ ...f, duration_minutes: e.target.value })}
+            />
+            <Label htmlFor="m-attempts" className="pt-2">
+              {t("maxAttempts")}
+            </Label>
+            <Input
+              id="m-attempts"
+              type="number"
+              min={1}
+              value={f.max_attempts}
+              onChange={(e) => setF({ ...f, max_attempts: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5 md:col-span-2">
+            <Label htmlFor="m-ins">{t("instructions")}</Label>
+            <Textarea
+              id="m-ins"
+              rows={3}
+              value={f.instructions}
+              maxLength={4000}
+              onChange={(e) => setF({ ...f, instructions: e.target.value })}
+            />
+          </div>
+        </div>
+      </details>
+      <Button onClick={save} disabled={busy || !f.title.trim()}>
+        {busy
+          ? t("saving")
+          : onContinue
+            ? lang === "ar"
+              ? "حفظ التفاصيل والمتابعة"
+              : "Save details and continue"
+            : lang === "ar"
+              ? "حفظ التفاصيل"
+              : "Save details"}
       </Button>
       {/* Per-assessment WhatsApp auto-send (default OFF). The builder
           query selects assessments.* so the new column arrives without
           a query change, once the migration + types land. */}
-      <WhatsAppAutoSendToggle assessmentId={a.id} initialValue={a.auto_whatsapp_send === 1} />
+      {!onContinue && (
+        <WhatsAppAutoSendToggle assessmentId={a.id} initialValue={a.auto_whatsapp_send === 1} />
+      )}
     </Panel>
   );
 }
@@ -585,6 +816,7 @@ function QuestionEditor({
   locked,
   onMove,
   onChanged,
+  onDirty,
 }: {
   q: Q;
   index: number;
@@ -592,6 +824,7 @@ function QuestionEditor({
   locked: boolean;
   onMove: (d: -1 | 1) => void;
   onChanged: () => void;
+  onDirty: (id: string, dirty: boolean) => void;
 }) {
   const { t, lang } = useI18n();
   const key = q.question_keys;
@@ -610,6 +843,10 @@ function QuestionEditor({
     [prompt, marks, objective, options, correct, alts, rubric, explanation, difficulty],
   );
   useEffect(() => setDirty(false), []);
+  useEffect(() => {
+    onDirty(q.id, dirty);
+    return () => onDirty(q.id, false);
+  }, [q.id, dirty, onDirty]);
 
   async function save() {
     const m = Number(marks);
@@ -799,40 +1036,56 @@ function QuestionEditor({
               onChange={(e) => setMarks(e.target.value)}
             />
           </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <Label>{t("objective")}</Label>
-            <Input
-              value={objective}
-              maxLength={300}
-              onChange={(e) => setObjective(e.target.value)}
-            />
-          </div>
         </div>
-        <div className="space-y-1.5">
-          <Label>{t("difficulty")}</Label>
-          <select
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            value={difficulty}
-            onChange={(e) => setDifficulty(e.target.value)}
-          >
-            <option value="easy">{t("genDiffEasy")}</option>
-            <option value="medium">{t("genDiffMedium")}</option>
-            <option value="hard">{t("genDiffHard")}</option>
-          </select>
-        </div>
-        {q.type !== "written" && (
-          <div className="space-y-1.5">
-            <Label>{t("explanation")}</Label>
-            <Input
-              value={explanation}
-              maxLength={1000}
-              onChange={(e) => setExplanation(e.target.value)}
-            />
+        <details className="rounded-md border p-3">
+          <summary className="cursor-pointer text-sm font-medium">
+            {lang === "ar"
+              ? "هدف السؤال والصعوبة والشرح"
+              : "Learning objective, difficulty and explanation"}
+          </summary>
+          <div className="mt-4 space-y-4">
+            {" "}
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>{t("objective")}</Label>
+              <Input
+                value={objective}
+                maxLength={300}
+                onChange={(e) => setObjective(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("difficulty")}</Label>
+              <select
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+              >
+                <option value="easy">{t("genDiffEasy")}</option>
+                <option value="medium">{t("genDiffMedium")}</option>
+                <option value="hard">{t("genDiffHard")}</option>
+              </select>
+            </div>
+            {q.type !== "written" && (
+              <div className="space-y-1.5">
+                <Label>{t("explanation")}</Label>
+                <Input
+                  value={explanation}
+                  maxLength={1000}
+                  onChange={(e) => setExplanation(e.target.value)}
+                />
+              </div>
+            )}
           </div>
-        )}
+        </details>
         {!locked && (
-          <Button onClick={save} variant={dirty ? "default" : "secondary"}>
-            {t("save")}
+          <Button onClick={save} disabled={!dirty} variant={dirty ? "default" : "secondary"}>
+            {dirty
+              ? lang === "ar"
+                ? "حفظ السؤال"
+                : "Save question"
+              : lang === "ar"
+                ? "السؤال محفوظ"
+                : "Question saved"}
           </Button>
         )}
       </fieldset>
