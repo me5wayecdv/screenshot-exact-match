@@ -1,3 +1,5 @@
+import { aiProviderFetch } from "@/server/ai-provider-fetch";
+
 /**
  * Server function for Phase 3 smart question-matching.
  *
@@ -359,19 +361,19 @@ export async function callVisionMatch(
           max_tokens: 4000,
         }),
       };
-      let res = await fetch(runUrl, nativeInit);
+      let res = await aiProviderFetch(runUrl, nativeInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         const lowered = body.toLowerCase();
         if (lowered.includes("model agreement") || lowered.includes("submit the prompt")) {
-          const agreeRes = await fetch(runUrl, {
+          const agreeRes = await aiProviderFetch(runUrl, {
             method: "POST",
             signal: controller.signal,
             headers,
             body: JSON.stringify({ prompt: "agree" }),
           }).catch(() => null);
           if (agreeRes && agreeRes.ok) {
-            res = await fetch(runUrl, nativeInit);
+            res = await aiProviderFetch(runUrl, nativeInit);
             if (!res.ok) {
               const retryBody = await res.text().catch(() => "");
               return {
@@ -463,7 +465,7 @@ export async function callVisionMatch(
         ],
       }),
     };
-    let res = await fetch(`${baseUrl}/chat/completions`, compatInit);
+    let res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
     if (!res.ok) {
       let failBody = await res.text().catch(() => "");
       // Same documented prompt-form agreement as the handwritten path
@@ -476,14 +478,14 @@ export async function callVisionMatch(
         /\/v1\/?$/.test(baseUrl)
       ) {
         const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
-        const agreeRes = await fetch(runUrl, {
+        const agreeRes = await aiProviderFetch(runUrl, {
           method: "POST",
           signal: controller.signal,
           headers,
           body: JSON.stringify({ prompt: "agree" }),
         }).catch(() => null);
         if (agreeRes && agreeRes.ok) {
-          res = await fetch(`${baseUrl}/chat/completions`, compatInit);
+          res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
           if (!res.ok) failBody = await res.text().catch(() => "");
         }
       }
@@ -580,7 +582,7 @@ async function callTextMatch(
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await aiProviderFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
       headers,
