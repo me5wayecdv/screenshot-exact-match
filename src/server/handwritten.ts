@@ -1,3 +1,5 @@
+import { aiProviderFetch } from "@/server/ai-provider-fetch";
+
 /**
  * Server functions for handwritten paper grading (OCR slice).
  *
@@ -268,7 +270,7 @@ export async function runImageToTextModel(
 ): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
   const base64 = imageDataUrl.split(",", 2)[1] ?? "";
   const bytes = Buffer.from(base64, "base64");
-  const res = await fetch(runUrl, {
+  const res = await aiProviderFetch(runUrl, {
     method: "POST",
     signal,
     headers,
@@ -328,7 +330,7 @@ export async function runMoondreamQuery(
 ): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
   const base64 = imageDataUrl.split(",", 2)[1] ?? "";
   const bytes = Buffer.from(base64, "base64");
-  const res = await fetch(runUrl, {
+  const res = await aiProviderFetch(runUrl, {
     method: "POST",
     signal,
     headers,
@@ -449,7 +451,7 @@ export async function runGeminiQuery(
 
   let res: Response;
   for (let attempt = 0; ; attempt++) {
-    res = await fetch(url, requestInit);
+    res = await aiProviderFetch(url, requestInit);
     if (res.status !== 503 || attempt >= GEMINI_503_RETRY_DELAYS_MS.length) break;
 
     const delayMs = geminiRetryDelayMs(res, GEMINI_503_RETRY_DELAYS_MS[attempt]!);
@@ -599,7 +601,7 @@ export async function callVisionOcr(
           max_tokens: 4000,
         }),
       };
-      let res = await fetch(runUrl, visionInit);
+      let res = await aiProviderFetch(runUrl, visionInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         const lowered = body.toLowerCase();
@@ -612,14 +614,14 @@ export async function callVisionOcr(
           // form with the right token is the one combination never
           // tried. One attempt, then one vision retry; if the gate
           // still holds, fall back to the dashboard hint below.
-          const agreeRes = await fetch(runUrl, {
+          const agreeRes = await aiProviderFetch(runUrl, {
             method: "POST",
             signal: controller.signal,
             headers,
             body: JSON.stringify({ prompt: "agree" }),
           }).catch(() => null);
           if (agreeRes && agreeRes.ok) {
-            res = await fetch(runUrl, visionInit);
+            res = await aiProviderFetch(runUrl, visionInit);
             if (!res.ok) {
               const retryBody = await res.text().catch(() => "");
               return {
@@ -689,7 +691,7 @@ export async function callVisionOcr(
         usage: { inputTokens: null, outputTokens: null },
       };
     }
-    const res = await fetch(`${config.baseUrl}/chat/completions`, {
+    const res = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
       method: "POST",
       signal: controller.signal,
       headers,
