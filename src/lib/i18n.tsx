@@ -191,6 +191,10 @@ const dict = {
     heroTutorBody: "ابدأ بدرس جديد، أو تابع طلابك.",
     heroTutorHint: "خطوة واحدة في المرة — الباقي تحت.",
     heroStudentActive: "عندك محاولة مفتوحة في «{title}» — كمّلها.",
+    heroStudentAvailable: "عندك امتحان متاح: «{title}» - تقدر تبدأه دلوقتي.",
+    heroStudentReview: "سلّمت «{title}» - مستني مراجعة المعلم.",
+    heroStudentReleased: "نتيجة «{title}» جاهزة - شوف درجتك تحت.",
+    heroStudentAssigned: "مواعيد وحالة اختباراتك موجودة تحت. افتح الاختبار لما يبقى متاح.",
     heroStudentIdle: "مفيش امتحان مفتوح لك دلوقتي. أول ما معلمك ينشر، هيظهر هنا.",
     heroStudentHint: "تقدر ترجع لنفس المحاولة من أي جهاز.",
     optional: "اختياري",
@@ -1142,6 +1146,10 @@ const dict = {
     heroTutorBody: "Start a new lesson, or check on your students.",
     heroTutorHint: "One step at a time — the rest is below.",
     heroStudentActive: "You have an open attempt in “{title}” — finish it.",
+    heroStudentAvailable: 'You can start "{title}" now.',
+    heroStudentReview: 'You submitted "{title}". Your teacher is reviewing it.',
+    heroStudentReleased: 'Your result for "{title}" is ready. See your score below.',
+    heroStudentAssigned: "Your assessment dates and status are below. Start when one is available.",
     heroStudentIdle:
       "No exam is open for you right now. It appears here as soon as your teacher publishes.",
     heroStudentHint: "You can resume the same attempt from any device.",
@@ -2344,4 +2352,4 @@ export function formatDate(d: string | null | undefined, lang: Lang) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(d));
-}
+    }
