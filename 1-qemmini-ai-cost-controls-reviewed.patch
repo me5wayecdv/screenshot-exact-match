@@ -1,0 +1,1108 @@
+diff --git a/docs/ai-cost-controls.md b/docs/ai-cost-controls.md
+new file mode 100644
+index 0000000..f23f502
+--- /dev/null
++++ b/docs/ai-cost-controls.md
+@@ -0,0 +1,80 @@
++# AI cost controls (2026-11-16)
++
++## Defaults and scope
++
++No commercial plan, subscription price, trial allowance or student cap is enabled.
++The existing 30 weighted units/minute and 500/day per-user technical quotas remain.
++Grading now explicitly caps output at 1,200 tokens. Other provider paths retain
++existing output limits. Provider token usage is measured before validating text
++reply content in grading, generation, teacher chat and lesson explanation.
++
++All eight AI modules route provider network attempts through `aiProviderFetch`.
++This includes student tutor calls, OCR fallbacks, provider retries and model
++agreement requests. This does not merge student product quotas into a teacher
++subscription pool. No such commercial pool has been approved.
++
++## Emergency pause
++
++`AI_REQUESTS_ENABLED=false` blocks all AI provider requests before network access.
++Unset or `true` preserves the existing service. A misspelled value fails closed.
++This is a technical emergency switch, not a per-customer plan control.
++
++## Optional global request budget, NOT a dollar spending cap
++
++`AI_PROVIDER_DAILY_REQUEST_LIMIT` is unset by default. No new request cap is
++active until the operator explicitly chooses and configures one. An integer
++zero pauses all provider requests. A positive integer reserves one global
++attempt before each provider network request, using an atomic conditional
++SQLite UPSERT. Each retry/fallback needs another reservation. Failed, timed-out
++or malformed attempts are never refunded from this global counter: the
++provider may have billed them. Existing per-user product refunds are separate.
++
++Apply `schema/migrations/20261116_ai_provider_budget.sql` to the selected
++isolated/staging database before configuring the limit. The additive table
++holds only UTC day and request count; it contains no user/student/prompt data.
++Without the table/binding or on DB/config errors, an enabled limit fails closed.
++No migration is required while the daily limit is unset.
++
++Configuring a value only in Cloudflare dashboard is not durable: deployment
++replaces plain vars using `wrangler.jsonc`. Persist an approved value there (or
++use the supported deployment-secret route) before activating it. Do not put
++credentials into committed configuration. Keep the limit unset until chosen.
++
++Counts do NOT prove exact dollars. Calls vary by model, input and output size;
++HTTP/network failures may have unknown billing, vision can omit token counts,
++and other Workers/account workloads may incur charges outside this app. No
++account-wide dollar cap is claimed. Reconcile actual vendor billing separately
++before approving any commercial price or allowance. A per-request ceiling and
++a request budget cannot substitute for that reconciliation.
++
++## Validation
++
++Automated checks: atomic SQL reservations, concurrency, UTC rollover, repeated
++migration, zero budget, pause switch, invalid config, missing table, permanent
++failed-attempt accounting, per-retry reservation, paid unusable replies, and
++no direct `fetch` bypass across eight provider modules. The isolated SQLite
++journey covers signup approval, teacher join approval, exam publish, draft
++resume, submission, cross-user denial, teacher review, release and result read.
++These are not substitutes for browser/Cloudflare authenticated flow testing.
++
++No production migration, budget activation, customer price, WhatsApp send,
++production data change, or visual redesign is included in this patch.
++
++## Review follow-up
++
++Tutor output is now explicitly capped at 2,400 tokens and tutor usage is measured
++before empty-reply validation. A second abort check prevents a request cancelled
++while reserving in D1 from reaching fetch. The conservative reservation remains.
++The bypass regression now detects every direct `fetch(` in the eight modules,
++not only `await fetch(`. Retry-budget tests exercise both 2 and 3 attempts.
++
++An optional `AI_ATTEMPT_LOG_ENABLED=true` ledger records each actual network
++attempt after its response/failure, including OCR/fallback, non-OK HTTP,
++malformed JSON and unknown token counts. It is OFF by default and requires the
++same additive migration first. No production tracking is activated. Rows store
++only random attempt ID, UTC start, provider host, model, response/network outcome,
++HTTP status, reported input/output tokens, and whether the call was a model
++agreement. No user identifier, prompt, reply, image or credential is stored.
++A content-free warning signals a failed ledger write. This does not promise
++complete accounting or exact dollars; reconciliation and retention policy still
++need operator decisions before enabling it for live use.
+diff --git a/schema/d1-schema.sql b/schema/d1-schema.sql
+index da3fb79..0011125 100644
+--- a/schema/d1-schema.sql
++++ b/schema/d1-schema.sql
+@@ -463,3 +463,22 @@ WHEN NEW.marks <= 0
+ BEGIN
+   SELECT RAISE(ABORT, 'question_marks_must_be_positive');
+ END;
++-- Additive, contains only one aggregate count per UTC day.
++-- No effect on user limits/plans. Apply before configuring a request budget.
++CREATE TABLE IF NOT EXISTS ai_provider_daily_budget (
++  day TEXT PRIMARY KEY,
++  request_count INTEGER NOT NULL DEFAULT 0 CHECK (request_count >= 0)
++);
++
++-- Optional per-network-attempt ledger. No user/student/content columns.
++CREATE TABLE IF NOT EXISTS ai_provider_attempts (
++  id TEXT PRIMARY KEY,
++  started_at TEXT NOT NULL,
++  provider TEXT NOT NULL,
++  model TEXT NOT NULL,
++  outcome TEXT NOT NULL CHECK (outcome IN ('response','network_error')),
++  http_status INTEGER,
++  input_tokens INTEGER,
++  output_tokens INTEGER,
++  agreement_request INTEGER NOT NULL DEFAULT 0 CHECK (agreement_request IN (0,1))
++);
+diff --git a/schema/migrations/20261116_ai_provider_budget.sql b/schema/migrations/20261116_ai_provider_budget.sql
+new file mode 100644
+index 0000000..1a24479
+--- /dev/null
++++ b/schema/migrations/20261116_ai_provider_budget.sql
+@@ -0,0 +1,19 @@
++-- Additive, contains only one aggregate count per UTC day.
++-- No effect on user limits/plans. Apply before configuring a request budget.
++CREATE TABLE IF NOT EXISTS ai_provider_daily_budget (
++  day TEXT PRIMARY KEY,
++  request_count INTEGER NOT NULL DEFAULT 0 CHECK (request_count >= 0)
++);
++
++-- Optional per-network-attempt ledger. No user/student/content columns.
++CREATE TABLE IF NOT EXISTS ai_provider_attempts (
++  id TEXT PRIMARY KEY,
++  started_at TEXT NOT NULL,
++  provider TEXT NOT NULL,
++  model TEXT NOT NULL,
++  outcome TEXT NOT NULL CHECK (outcome IN ('response','network_error')),
++  http_status INTEGER,
++  input_tokens INTEGER,
++  output_tokens INTEGER,
++  agreement_request INTEGER NOT NULL DEFAULT 0 CHECK (agreement_request IN (0,1))
++);
+diff --git a/src/lib/generate-assessment.ts b/src/lib/generate-assessment.ts
+index 20f9747..506d97a 100644
+--- a/src/lib/generate-assessment.ts
++++ b/src/lib/generate-assessment.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ // Server function for assessment generation (slice 2) — D1 port
+ // (Phase 2b). Behavior preserved from the Supabase original; only the
+ // auth, quota, usage, and draft-persistence plumbing changed:
+@@ -224,7 +226,7 @@ export const generateAssessment = createServerFn({ method: "POST" })
+       // without auth, e.g. Ollama).
+       const headers: Record<string, string> = { "content-type": "application/json" };
+       if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
+-      const res = await fetch(`${baseUrl}/chat/completions`, {
++      const res = await aiProviderFetch(`${baseUrl}/chat/completions`, {
+         method: "POST",
+         headers,
+         body: JSON.stringify({
+@@ -261,14 +263,6 @@ export const generateAssessment = createServerFn({ method: "POST" })
+         );
+       }
+       const json = (await res.json()) as AiChatResponse;
+-      replyText = json.choices?.[0]?.message?.content ?? "";
+-      finishReason =
+-        (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
+-      if (!replyText.trim()) {
+-        // AI-F5: empty reply — no usable result, so the units go back.
+-        await refundAiQuota(db, userId, quotaUnits, quotaConsumedAt, quotaRefundKey);
+-        return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
+-      }
+       // Pilot cost measurement (best-effort, never fails generation):
+       // one row per successful generation call, attributed to the teacher.
+       const usage = extractOpenAiUsage(json);
+@@ -279,6 +273,14 @@ export const generateAssessment = createServerFn({ method: "POST" })
+         inputTokens: usage.inputTokens,
+         outputTokens: usage.outputTokens,
+       }).catch(() => undefined);
++      replyText = json.choices?.[0]?.message?.content ?? "";
++      finishReason =
++        (json as { choices?: { finish_reason?: string }[] }).choices?.[0]?.finish_reason ?? "";
++      if (!replyText.trim()) {
++        // AI-F5: empty reply — no usable result, so the units go back.
++        await refundAiQuota(db, userId, quotaUnits, quotaConsumedAt, quotaRefundKey);
++        return fail("AI_EMPTY_REPLY", finishReason ? `finish_reason=${finishReason}` : "");
++      }
+     } catch (e) {
+       const name = e instanceof Error ? e.name : "";
+       // AI-F5: the generation call failed, so the units consumed above go back.
+diff --git a/src/server/ai-attempt-log.ts b/src/server/ai-attempt-log.ts
+new file mode 100644
+index 0000000..6178d32
+--- /dev/null
++++ b/src/server/ai-attempt-log.ts
+@@ -0,0 +1,64 @@
++/** Optional operational ledger, no user IDs, prompts, replies or credentials.
++ * Inactive until explicitly enabled AFTER its additive migration. Unknown
++ * usage stays NULL, never zero or an invented dollar estimate.
++ */
++import { getD1Async } from "@/server/d1";
++import { extractGeminiUsage, extractOpenAiUsage } from "./ai-usage";
++
++export async function recordProviderAttempt(input: {
++  id: string;
++  url: string;
++  init: RequestInit;
++  startedAt: string;
++  response?: Response;
++  outcome: "response" | "network_error";
++}): Promise<void> {
++  if (process.env["AI_ATTEMPT_LOG_ENABLED"] !== "true") return;
++  try {
++    const endpoint = new URL(input.url);
++    let model = "unknown";
++    let body: Record<string, unknown> = {};
++    try {
++      body = typeof input.init.body === "string" ? JSON.parse(input.init.body) : {};
++      const fromUrl = endpoint.pathname.match(/\/models\/([^/:]+):|\/run\/(.+)$/);
++      model =
++        typeof body["model"] === "string"
++          ? body["model"]
++          : (fromUrl?.[1] ?? fromUrl?.[2] ?? "unknown");
++    } catch {
++      /* Metadata is optional; never copy the request body. */
++    }
++    let usage = { inputTokens: null as number | null, outputTokens: null as number | null };
++    if (input.response?.ok) {
++      try {
++        const payload: unknown = await input.response.clone().json();
++        usage =
++          endpoint.hostname === "generativelanguage.googleapis.com"
++            ? extractGeminiUsage(payload)
++            : extractOpenAiUsage(payload);
++      } catch {
++        /* Failed JSON can still be a paid attempt; keep NULL usage. */
++      }
++    }
++    const db = await getD1Async();
++    await db
++      .prepare(
++        "INSERT INTO ai_provider_attempts (id, started_at, provider, model, outcome, http_status, input_tokens, output_tokens, agreement_request) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
++      )
++      .bind(
++        input.id,
++        input.startedAt,
++        endpoint.hostname,
++        model.slice(0, 200),
++        input.outcome,
++        input.response?.status ?? null,
++        usage.inputTokens,
++        usage.outputTokens,
++        body["prompt"] === "agree" ? 1 : 0,
++      )
++      .run();
++  } catch {
++    // Content-free signal: missing telemetry must not silently look complete.
++    console.warn("AI_ATTEMPT_LOG_FAILED");
++  }
++}
+diff --git a/src/server/ai-client.ts b/src/server/ai-client.ts
+index 5e1019f..0e3e68e 100644
+--- a/src/server/ai-client.ts
++++ b/src/server/ai-client.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ /**
+  * Server-only provider-agnostic chat client for AI grading suggestions.
+  *
+@@ -160,13 +162,14 @@ export async function suggestGradeWithAi(
+     // is classified once via the shared taxonomy and returned as-is.
+     let res: Response | null = null;
+     for (let attempt = 1; attempt <= AI_MAX_ATTEMPTS; attempt++) {
+-      const attemptRes = await fetch(`${config.baseUrl}/chat/completions`, {
++      const attemptRes = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
+         method: "POST",
+         signal: controller.signal,
+         headers,
+         body: JSON.stringify({
+           model: config.model,
+           temperature: 0.2,
++          max_tokens: 1_200,
+           messages: [
+             { role: "system", content: system },
+             { role: "user", content: user },
+@@ -212,6 +215,13 @@ export async function suggestGradeWithAi(
+         error: { code: "AI_ERROR", message: "AI provider returned an unreadable response." },
+       };
+     }
++    if (onUsage) {
++      await onUsage({
++        provider: openAiProvider(config.baseUrl),
++        model: config.model,
++        usage: extractOpenAiUsage(payload),
++      }).catch(() => undefined);
++    }
+     const content = payload.choices?.[0]?.message?.content ?? "";
+     if (!content) {
+       return {
+@@ -230,13 +240,6 @@ export async function suggestGradeWithAi(
+         error: { code: "AI_ERROR", message: "AI provider returned an unusable response." },
+       };
+     }
+-    if (onUsage) {
+-      await onUsage({
+-        provider: openAiProvider(config.baseUrl),
+-        model: config.model,
+-        usage: extractOpenAiUsage(payload),
+-      }).catch(() => undefined);
+-    }
+     return { ok: true, suggestion };
+   } catch (error) {
+     // The fetch itself threw (network failure, or the 60s timeout above):
+diff --git a/src/server/ai-grade.ts b/src/server/ai-grade.ts
+index 61e4dd5..56fa6bf 100644
+--- a/src/server/ai-grade.ts
++++ b/src/server/ai-grade.ts
+@@ -444,12 +444,8 @@ export const suggestGrade = createServerFn({ method: "POST" })
+         usageEvent = event;
+       },
+     );
+-    if (!result.ok) {
+-      // AI-F5: the AI call failed, so the unit consumed above goes back.
+-      // Best-effort: a failed refund never changes this failure result.
+-      await refundAiQuota(db, auth.userId, 1, quotaConsumedAt, quotaRefundKey);
+-      return { ok: false, code: result.error.code, message: result.error.message };
+-    }
++    // A parsed HTTP-success response may consume paid tokens even when the
++    // reply is empty or malformed. Measure it before any product-quota refund.
+     if (usageEvent) {
+       try {
+         await logAiUsageEvent(db, auth.userId, {
+@@ -460,12 +456,16 @@ export const suggestGrade = createServerFn({ method: "POST" })
+           outputTokens: usageEvent.usage.outputTokens,
+           assessmentId: effectiveRequest.assessmentId,
+           questionId: effectiveRequest.questionId,
+-          suggestedScore: result.suggestion.suggestedScore,
++          suggestedScore: result.ok ? result.suggestion.suggestedScore : null,
+         });
+       } catch {
+         // Best-effort measurement: never fails the suggestion.
+       }
+     }
++    if (!result.ok) {
++      await refundAiQuota(db, auth.userId, 1, quotaConsumedAt, quotaRefundKey);
++      return { ok: false, code: result.error.code, message: result.error.message };
++    }
+     // Best-effort measurement write; never fails the suggestion.
+     // persistAiSuggestion itself never throws, and it no-ops when no
+     // ids were supplied (e.g. the handwritten path, which has no
+diff --git a/src/server/ai-provider-fetch.ts b/src/server/ai-provider-fetch.ts
+new file mode 100644
+index 0000000..37e8f24
+--- /dev/null
++++ b/src/server/ai-provider-fetch.ts
+@@ -0,0 +1,81 @@
++import { recordProviderAttempt } from "./ai-attempt-log";
++/** Server-only guard for EVERY provider attempt, including retries and OCR fallbacks.
++ * Product quota refunds never refund this budget: attempted work may be billed
++ * even when the network times out or the model's reply is unusable.
++ * No commercial quota or monetary allowance is implied by a request count.
++ */
++import { getD1Async } from "@/server/d1";
++import type { D1Database } from "@/server/d1-auth-store";
++
++export type AiProviderPolicy = { enabled: boolean; dailyRequests: number | null };
++
++export function readAiProviderPolicy(env: Record<string, string | undefined>): AiProviderPolicy {
++  const enabled = env["AI_REQUESTS_ENABLED"]?.trim().toLowerCase();
++  if (enabled !== undefined && enabled !== "" && enabled !== "true" && enabled !== "false") {
++    throw new Error("AI_PROVIDER_POLICY_INVALID");
++  }
++  const raw = env["AI_PROVIDER_DAILY_REQUEST_LIMIT"]?.trim();
++  if (!raw) return { enabled: enabled !== "false", dailyRequests: null };
++  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw))) {
++    throw new Error("AI_PROVIDER_POLICY_INVALID");
++  }
++  return { enabled: enabled !== "false", dailyRequests: Number(raw) };
++}
++
++/** One atomic SQLite UPSERT, not a read-then-write check. No per-user rows,
++ * prompts, answers, images, tokens or credentials are stored in this counter.
++ * UTC reset matches the existing daily technical quota. Invalid configuration,
++ * missing migration, binding failure or an unexpected result all fail closed.
++ */
++export async function reserveProviderAttempt(
++  db: D1Database,
++  limit: number,
++  now = new Date(),
++): Promise<boolean> {
++  if (!Number.isSafeInteger(limit) || limit <= 0 || !Number.isFinite(now.getTime())) return false;
++  try {
++    const day = now.toISOString().slice(0, 10);
++    const result = (await db
++      .prepare(
++        "INSERT INTO ai_provider_daily_budget (day, request_count) VALUES (?, 1) " +
++          "ON CONFLICT(day) DO UPDATE SET request_count = request_count + 1 " +
++          "WHERE request_count < ?",
++      )
++      .bind(day, limit)
++      .run()) as { meta?: { changes?: number } };
++    return result?.meta?.changes === 1;
++  } catch {
++    return false;
++  }
++}
++
++/** Disabled/configurable foundation: absent limit preserves current service.
++ * AI_REQUESTS_ENABLED=false stops ALL AI network requests, no schema needed.
++ * A configured daily limit requires the additive budget-table migration first.
++ * All decisions happen before fetch, never after spending provider work.
++ */
++export async function aiProviderFetch(url: string, init: RequestInit): Promise<Response> {
++  const policy = readAiProviderPolicy(process.env);
++  if (!policy.enabled) throw new Error("AI_PROVIDER_PAUSED");
++  if (init.signal?.aborted) throw new DOMException("Request aborted", "AbortError");
++  if (policy.dailyRequests !== null) {
++    if (policy.dailyRequests === 0) throw new Error("AI_PROVIDER_BUDGET_EXCEEDED");
++    const db = await getD1Async();
++    if (!(await reserveProviderAttempt(db, policy.dailyRequests))) {
++      throw new Error("AI_PROVIDER_BUDGET_EXCEEDED");
++    }
++  }
++  // Cancellation while D1 was reserving must not reach the network. Keep
++  // the conservative reservation: never race a later request with a refund.
++  if (init.signal?.aborted) throw new DOMException("Request aborted", "AbortError");
++  const id = crypto.randomUUID();
++  const startedAt = new Date().toISOString();
++  try {
++    const response = await fetch(url, init);
++    await recordProviderAttempt({ id, url, init, startedAt, response, outcome: "response" });
++    return response;
++  } catch (error) {
++    await recordProviderAttempt({ id, url, init, startedAt, outcome: "network_error" });
++    throw error;
++  }
++}
+diff --git a/src/server/handwritten.ts b/src/server/handwritten.ts
+index 521a622..7d82ba5 100644
+--- a/src/server/handwritten.ts
++++ b/src/server/handwritten.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ /**
+  * Server functions for handwritten paper grading (OCR slice).
+  *
+@@ -268,7 +270,7 @@ export async function runImageToTextModel(
+ ): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+   const base64 = imageDataUrl.split(",", 2)[1] ?? "";
+   const bytes = Buffer.from(base64, "base64");
+-  const res = await fetch(runUrl, {
++  const res = await aiProviderFetch(runUrl, {
+     method: "POST",
+     signal,
+     headers,
+@@ -328,7 +330,7 @@ export async function runMoondreamQuery(
+ ): Promise<{ ok: true; text: string } | { ok: false; code: OcrErrorCode; message: string }> {
+   const base64 = imageDataUrl.split(",", 2)[1] ?? "";
+   const bytes = Buffer.from(base64, "base64");
+-  const res = await fetch(runUrl, {
++  const res = await aiProviderFetch(runUrl, {
+     method: "POST",
+     signal,
+     headers,
+@@ -449,7 +451,7 @@ export async function runGeminiQuery(
+ 
+   let res: Response;
+   for (let attempt = 0; ; attempt++) {
+-    res = await fetch(url, requestInit);
++    res = await aiProviderFetch(url, requestInit);
+     if (res.status !== 503 || attempt >= GEMINI_503_RETRY_DELAYS_MS.length) break;
+ 
+     const delayMs = geminiRetryDelayMs(res, GEMINI_503_RETRY_DELAYS_MS[attempt]!);
+@@ -599,7 +601,7 @@ export async function callVisionOcr(
+           max_tokens: 4000,
+         }),
+       };
+-      let res = await fetch(runUrl, visionInit);
++      let res = await aiProviderFetch(runUrl, visionInit);
+       if (!res.ok) {
+         const body = await res.text().catch(() => "");
+         const lowered = body.toLowerCase();
+@@ -612,14 +614,14 @@ export async function callVisionOcr(
+           // form with the right token is the one combination never
+           // tried. One attempt, then one vision retry; if the gate
+           // still holds, fall back to the dashboard hint below.
+-          const agreeRes = await fetch(runUrl, {
++          const agreeRes = await aiProviderFetch(runUrl, {
+             method: "POST",
+             signal: controller.signal,
+             headers,
+             body: JSON.stringify({ prompt: "agree" }),
+           }).catch(() => null);
+           if (agreeRes && agreeRes.ok) {
+-            res = await fetch(runUrl, visionInit);
++            res = await aiProviderFetch(runUrl, visionInit);
+             if (!res.ok) {
+               const retryBody = await res.text().catch(() => "");
+               return {
+@@ -689,7 +691,7 @@ export async function callVisionOcr(
+         usage: { inputTokens: null, outputTokens: null },
+       };
+     }
+-    const res = await fetch(`${config.baseUrl}/chat/completions`, {
++    const res = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
+       method: "POST",
+       signal: controller.signal,
+       headers,
+diff --git a/src/server/lesson-explain.ts b/src/server/lesson-explain.ts
+index b5dd620..02077ed 100644
+--- a/src/server/lesson-explain.ts
++++ b/src/server/lesson-explain.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ /**
+  * Lesson explanation — D1 port (Phase 2b). Behavior preserved from the
+  * Supabase original; only the auth, quota, and usage plumbing changed:
+@@ -98,7 +100,7 @@ export const explainLesson = createServerFn({ method: "POST" })
+     try {
+       const headers: Record<string, string> = { "content-type": "application/json" };
+       if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
+-      const response = await fetch(`${config.baseUrl}/chat/completions`, {
++      const response = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
+         method: "POST",
+         signal: controller.signal,
+         headers,
+@@ -131,13 +133,6 @@ export const explainLesson = createServerFn({ method: "POST" })
+         choices?: Array<{ message?: { content?: string | null } }>;
+         usage?: unknown;
+       };
+-      const explanation = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
+-      if (!explanation || explanation.length > MAX_REPLY_CHARS) {
+-        // AI-F5: empty/oversized reply — no usable result, unit goes back.
+-        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
+-        return { ok: false, code: "AI_UPSTREAM" };
+-      }
+-
+       // Usage rows store token counts/model only, never prompts or replies.
+       const usage = extractOpenAiUsage(payload);
+       await logAiUsageEvent(db, session.userId, {
+@@ -147,6 +142,13 @@ export const explainLesson = createServerFn({ method: "POST" })
+         inputTokens: usage.inputTokens,
+         outputTokens: usage.outputTokens,
+       }).catch(() => undefined);
++      const explanation = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
++      if (!explanation || explanation.length > MAX_REPLY_CHARS) {
++        // AI-F5: empty/oversized reply — no usable result, unit goes back.
++        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
++        return { ok: false, code: "AI_UPSTREAM" };
++      }
++
+       return {
+         ok: true,
+         explanation,
+diff --git a/src/server/paper-matching.ts b/src/server/paper-matching.ts
+index 83775d8..ff4b679 100644
+--- a/src/server/paper-matching.ts
++++ b/src/server/paper-matching.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ /**
+  * Server function for Phase 3 smart question-matching.
+  *
+@@ -359,19 +361,19 @@ export async function callVisionMatch(
+           max_tokens: 4000,
+         }),
+       };
+-      let res = await fetch(runUrl, nativeInit);
++      let res = await aiProviderFetch(runUrl, nativeInit);
+       if (!res.ok) {
+         const body = await res.text().catch(() => "");
+         const lowered = body.toLowerCase();
+         if (lowered.includes("model agreement") || lowered.includes("submit the prompt")) {
+-          const agreeRes = await fetch(runUrl, {
++          const agreeRes = await aiProviderFetch(runUrl, {
+             method: "POST",
+             signal: controller.signal,
+             headers,
+             body: JSON.stringify({ prompt: "agree" }),
+           }).catch(() => null);
+           if (agreeRes && agreeRes.ok) {
+-            res = await fetch(runUrl, nativeInit);
++            res = await aiProviderFetch(runUrl, nativeInit);
+             if (!res.ok) {
+               const retryBody = await res.text().catch(() => "");
+               return {
+@@ -463,7 +465,7 @@ export async function callVisionMatch(
+         ],
+       }),
+     };
+-    let res = await fetch(`${baseUrl}/chat/completions`, compatInit);
++    let res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
+     if (!res.ok) {
+       let failBody = await res.text().catch(() => "");
+       // Same documented prompt-form agreement as the handwritten path
+@@ -476,14 +478,14 @@ export async function callVisionMatch(
+         /\/v1\/?$/.test(baseUrl)
+       ) {
+         const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+-        const agreeRes = await fetch(runUrl, {
++        const agreeRes = await aiProviderFetch(runUrl, {
+           method: "POST",
+           signal: controller.signal,
+           headers,
+           body: JSON.stringify({ prompt: "agree" }),
+         }).catch(() => null);
+         if (agreeRes && agreeRes.ok) {
+-          res = await fetch(`${baseUrl}/chat/completions`, compatInit);
++          res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
+           if (!res.ok) failBody = await res.text().catch(() => "");
+         }
+       }
+@@ -580,7 +582,7 @@ async function callTextMatch(
+   try {
+     const headers: Record<string, string> = { "content-type": "application/json" };
+     if (apiKey) headers["authorization"] = `Bearer ${apiKey}`;
+-    const res = await fetch(`${baseUrl}/chat/completions`, {
++    const res = await aiProviderFetch(`${baseUrl}/chat/completions`, {
+       method: "POST",
+       signal: controller.signal,
+       headers,
+diff --git a/src/server/source-ocr.ts b/src/server/source-ocr.ts
+index 05aac0f..6a5c41b 100644
+--- a/src/server/source-ocr.ts
++++ b/src/server/source-ocr.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ /**
+  * Server functions for Phase 2 generation sources: OCR of curriculum
+  * page photos into source text for assessment generation.
+@@ -246,19 +248,19 @@ export async function callVisionOcr(
+           max_tokens: 4000,
+         }),
+       };
+-      let res = await fetch(runUrl, nativeInit);
++      let res = await aiProviderFetch(runUrl, nativeInit);
+       if (!res.ok) {
+         const body = await res.text().catch(() => "");
+         const lowered = body.toLowerCase();
+         if (lowered.includes("model agreement") || lowered.includes("submit the prompt")) {
+-          const agreeRes = await fetch(runUrl, {
++          const agreeRes = await aiProviderFetch(runUrl, {
+             method: "POST",
+             signal: controller.signal,
+             headers,
+             body: JSON.stringify({ prompt: "agree" }),
+           }).catch(() => null);
+           if (agreeRes && agreeRes.ok) {
+-            res = await fetch(runUrl, nativeInit);
++            res = await aiProviderFetch(runUrl, nativeInit);
+             if (!res.ok) {
+               const retryBody = await res.text().catch(() => "");
+               return {
+@@ -348,7 +350,7 @@ export async function callVisionOcr(
+         ],
+       }),
+     };
+-    let res = await fetch(`${baseUrl}/chat/completions`, compatInit);
++    let res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
+     if (!res.ok) {
+       let failBody = await res.text().catch(() => "");
+       // Same documented prompt-form agreement as the handwritten path:
+@@ -363,14 +365,14 @@ export async function callVisionOcr(
+         /\/v1\/?$/.test(baseUrl)
+       ) {
+         const runUrl = `${baseUrl.replace(/\/v1\/?$/, "")}/run/${model}`;
+-        const agreeRes = await fetch(runUrl, {
++        const agreeRes = await aiProviderFetch(runUrl, {
+           method: "POST",
+           signal: controller.signal,
+           headers,
+           body: JSON.stringify({ prompt: "agree" }),
+         }).catch(() => null);
+         if (agreeRes && agreeRes.ok) {
+-          res = await fetch(`${baseUrl}/chat/completions`, compatInit);
++          res = await aiProviderFetch(`${baseUrl}/chat/completions`, compatInit);
+           if (!res.ok) failBody = await res.text().catch(() => "");
+         }
+       }
+diff --git a/src/server/teacher-assistant.ts b/src/server/teacher-assistant.ts
+index 24307ab..895df51 100644
+--- a/src/server/teacher-assistant.ts
++++ b/src/server/teacher-assistant.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ /**
+  * Teacher assistant chat — D1 port (Phase 2b). Behavior preserved from
+  * the Supabase original; only the auth, data, quota, and usage
+@@ -191,7 +193,7 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
+     try {
+       const headers: Record<string, string> = { "content-type": "application/json" };
+       if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
+-      const response = await fetch(`${config.baseUrl}/chat/completions`, {
++      const response = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
+         method: "POST",
+         signal: controller.signal,
+         headers,
+@@ -221,13 +223,6 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
+         choices?: Array<{ message?: { content?: string | null } }>;
+         usage?: unknown;
+       };
+-      const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
+-      if (!reply || reply.length > 10_000) {
+-        // AI-F5: empty/oversized reply — no usable result, unit goes back.
+-        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
+-        return { ok: false, code: "AI_UPSTREAM" };
+-      }
+-
+       // Usage rows store token counts/model only, never prompts or replies.
+       const usage = extractOpenAiUsage(payload);
+       await logAiUsageEvent(db, session.userId, {
+@@ -237,6 +232,13 @@ export const askTeacherAssistant = createServerFn({ method: "POST" })
+         inputTokens: usage.inputTokens,
+         outputTokens: usage.outputTokens,
+       }).catch(() => undefined);
++      const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
++      if (!reply || reply.length > 10_000) {
++        // AI-F5: empty/oversized reply — no usable result, unit goes back.
++        await refundAiQuota(db, session.userId, 1, quotaConsumedAt, quotaRefundKey);
++        return { ok: false, code: "AI_UPSTREAM" };
++      }
++
+       return { ok: true, reply };
+     } catch (error) {
+       const timedOut = error instanceof Error && error.name === "AbortError";
+diff --git a/src/server/tutor.ts b/src/server/tutor.ts
+index 162105e..58c0845 100644
+--- a/src/server/tutor.ts
++++ b/src/server/tutor.ts
+@@ -1,3 +1,5 @@
++import { aiProviderFetch } from "@/server/ai-provider-fetch";
++
+ /**
+  * Server functions for the Phase 5 smart tutor (student-facing) —
+  * D1 port (Phase 2b). Behavior preserved from the Supabase original;
+@@ -206,11 +208,11 @@ async function callChat(
+   try {
+     const headers: Record<string, string> = { "content-type": "application/json" };
+     if (config.apiKey) headers["authorization"] = `Bearer ${config.apiKey}`;
+-    const res = await fetch(`${config.baseUrl}/chat/completions`, {
++    const res = await aiProviderFetch(`${config.baseUrl}/chat/completions`, {
+       method: "POST",
+       signal: controller.signal,
+       headers,
+-      body: JSON.stringify({ model: config.model, temperature, messages }),
++      body: JSON.stringify({ model: config.model, temperature, max_tokens: 2_400, messages }),
+     });
+     if (!res.ok) {
+       return {
+@@ -223,6 +225,13 @@ async function callChat(
+       choices?: Array<{ message?: { content?: string | null } }>;
+       usage?: unknown;
+     };
++    if (logUsage) {
++      await logUsage({
++        provider: openAiProvider(config.baseUrl),
++        model: config.model,
++        usage: extractOpenAiUsage(payload),
++      }).catch(() => undefined);
++    }
+     const reply = cleanAiOutputText(payload.choices?.[0]?.message?.content ?? "");
+     if (!reply) {
+       return {
+@@ -231,13 +240,6 @@ async function callChat(
+         message: "AI provider returned an empty response.",
+       };
+     }
+-    if (logUsage) {
+-      await logUsage({
+-        provider: openAiProvider(config.baseUrl),
+-        model: config.model,
+-        usage: extractOpenAiUsage(payload),
+-      }).catch(() => undefined);
+-    }
+     return { ok: true, reply, model: config.model };
+   } catch (error) {
+     const timedOut = error instanceof Error && error.name === "AbortError";
+diff --git a/src/test/ai-provider-budget.test.ts b/src/test/ai-provider-budget.test.ts
+new file mode 100644
+index 0000000..c4d5e5e
+--- /dev/null
++++ b/src/test/ai-provider-budget.test.ts
+@@ -0,0 +1,212 @@
++// @vitest-environment node
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { readFileSync } from "node:fs";
++import { auditDb } from "./audit-sqlite-helper";
++import {
++  aiProviderFetch,
++  readAiProviderPolicy,
++  reserveProviderAttempt,
++} from "@/server/ai-provider-fetch";
++import { setD1Binding } from "@/server/d1";
++import { suggestGradeWithAi } from "@/server/ai-client";
++
++const request = {
++  questionPrompt: "Capital?",
++  rubric: "",
++  acceptedAlternatives: [],
++  studentAnswer: "Cairo",
++  maxMarks: 10,
++};
++afterEach(() => {
++  vi.unstubAllGlobals();
++  vi.unstubAllEnvs();
++  setD1Binding(null);
++});
++function localConfig() {
++  vi.stubEnv("AI_BASE_URL", "http://localhost:11434/v1");
++  vi.stubEnv("AI_MODEL", "test");
++}
++describe("Provider attempt safety and cost measurement", () => {
++  it("preserves current service by default and rejects malformed policy", () => {
++    expect(readAiProviderPolicy({})).toEqual({ enabled: true, dailyRequests: null });
++    for (const raw of ["-1", "1.2", "NaN", "5x", "Infinity", "9007199254740992"]) {
++      expect(() => readAiProviderPolicy({ AI_PROVIDER_DAILY_REQUEST_LIMIT: raw })).toThrow();
++    }
++    expect(() => readAiProviderPolicy({ AI_REQUESTS_ENABLED: "flase" })).toThrow();
++    expect(readAiProviderPolicy({ AI_PROVIDER_DAILY_REQUEST_LIMIT: "0" }).dailyRequests).toBe(0);
++  });
++  it("uses actual SQLite to bound concurrent reservations, rollover and migration replay", async () => {
++    const { db, sql } = auditDb();
++    const migration = readFileSync("schema/migrations/20261116_ai_provider_budget.sql", "utf8");
++    sql.exec(migration);
++    sql.exec(migration);
++    const date = new Date("2026-11-16T12:00:00Z");
++    const results = await Promise.all(
++      Array.from({ length: 30 }, () => reserveProviderAttempt(db, 7, date)),
++    );
++    expect(results.filter(Boolean)).toHaveLength(7);
++    expect(
++      sql.prepare("SELECT request_count FROM ai_provider_daily_budget").get()?.["request_count"],
++    ).toBe(7);
++    expect(await reserveProviderAttempt(db, 7, new Date("2026-11-17T00:00:00Z"))).toBe(true);
++    expect(await reserveProviderAttempt(db, 0, date)).toBe(false);
++    sql.close();
++  });
++  it("kill switch and zero budget perform no network request or DB access", async () => {
++    const network = vi.fn();
++    vi.stubGlobal("fetch", network);
++    vi.stubEnv("AI_REQUESTS_ENABLED", "false");
++    await expect(aiProviderFetch("https://example.invalid", {})).rejects.toThrow(
++      "AI_PROVIDER_PAUSED",
++    );
++    vi.stubEnv("AI_REQUESTS_ENABLED", "true");
++    vi.stubEnv("AI_PROVIDER_DAILY_REQUEST_LIMIT", "0");
++    await expect(aiProviderFetch("https://example.invalid", {})).rejects.toThrow(
++      "AI_PROVIDER_BUDGET_EXCEEDED",
++    );
++    expect(network).not.toHaveBeenCalled();
++  });
++  it("fails closed when the budget table is missing", async () => {
++    const { db, sql } = auditDb();
++    sql.exec("DROP TABLE ai_provider_daily_budget");
++    setD1Binding(db);
++    vi.stubEnv("AI_PROVIDER_DAILY_REQUEST_LIMIT", "4");
++    const network = vi.fn();
++    vi.stubGlobal("fetch", network);
++    await expect(aiProviderFetch("https://example.invalid", {})).rejects.toThrow(
++      "AI_PROVIDER_BUDGET_EXCEEDED",
++    );
++    expect(network).not.toHaveBeenCalled();
++    sql.close();
++  });
++  it("counts a failed network attempt permanently, even when product quota would refund", async () => {
++    const { db, sql } = auditDb();
++    setD1Binding(db);
++    vi.stubEnv("AI_PROVIDER_DAILY_REQUEST_LIMIT", "1");
++    const network = vi.fn().mockRejectedValue(new Error("network"));
++    vi.stubGlobal("fetch", network);
++    await expect(aiProviderFetch("https://example.invalid", {})).rejects.toThrow("network");
++    await expect(aiProviderFetch("https://example.invalid", {})).rejects.toThrow(
++      "AI_PROVIDER_BUDGET_EXCEEDED",
++    );
++    expect(network).toHaveBeenCalledTimes(1);
++    sql.close();
++  });
++  it("retries must each reserve budget and never exceed the configured bound", async () => {
++    const { db, sql } = auditDb();
++    setD1Binding(db);
++    localConfig();
++    vi.stubEnv("AI_PROVIDER_DAILY_REQUEST_LIMIT", "1");
++    const network = vi.fn().mockResolvedValue(new Response("", { status: 503 }));
++    vi.stubGlobal("fetch", network);
++    expect((await suggestGradeWithAi(request)).ok).toBe(false);
++    expect(network).toHaveBeenCalledTimes(1);
++    sql.close();
++  });
++  it.each(["", "bad json", '{"suggested_score":null}'])(
++    "measures paid unusable reply %j and caps grading output",
++    async (content) => {
++      localConfig();
++      const usage = vi.fn().mockResolvedValue(undefined);
++      const network = vi.fn().mockResolvedValue(
++        new Response(
++          JSON.stringify({
++            choices: [{ message: { content } }],
++            usage: { prompt_tokens: 42, completion_tokens: 12 },
++          }),
++        ),
++      );
++      vi.stubGlobal("fetch", network);
++      expect((await suggestGradeWithAi(request, usage)).ok).toBe(false);
++      expect(usage).toHaveBeenCalledWith(
++        expect.objectContaining({ usage: { inputTokens: 42, outputTokens: 12 } }),
++      );
++      expect(JSON.parse(network.mock.calls[0]![1].body).max_tokens).toBe(1200);
++    },
++  );
++  it("measurement failure never discards a valid suggestion", async () => {
++    localConfig();
++    vi.stubGlobal(
++      "fetch",
++      vi
++        .fn()
++        .mockResolvedValue(
++          new Response(
++            JSON.stringify({ choices: [{ message: { content: '{"suggested_score":8}' } }] }),
++          ),
++        ),
++    );
++    expect(
++      (
++        await suggestGradeWithAi(request, async () => {
++          throw new Error("sink");
++        })
++      ).ok,
++    ).toBe(true);
++  });
++  it("all eight AI modules use the common gate, with no direct provider fetch bypass", () => {
++    for (const file of [
++      "src/server/ai-client.ts",
++      "src/server/handwritten.ts",
++      "src/server/source-ocr.ts",
++      "src/server/paper-matching.ts",
++      "src/server/tutor.ts",
++      "src/server/teacher-assistant.ts",
++      "src/server/lesson-explain.ts",
++      "src/lib/generate-assessment.ts",
++    ]) {
++      const code = readFileSync(file, "utf8");
++      expect(code).toContain("await aiProviderFetch(");
++      expect(code).not.toMatch(/\bfetch\s*\(/);
++    }
++  });
++  it.each([2, 3])("reserves every retry up to a budget of %i", async (limit) => {
++    const { db, sql } = auditDb();
++    setD1Binding(db);
++    localConfig();
++    vi.stubEnv("AI_PROVIDER_DAILY_REQUEST_LIMIT", String(limit));
++    const network = vi.fn().mockImplementation(async () => new Response("", { status: 503 }));
++    vi.stubGlobal("fetch", network);
++    expect((await suggestGradeWithAi(request)).ok).toBe(false);
++    expect(network).toHaveBeenCalledTimes(limit);
++    expect(
++      sql.prepare("SELECT request_count FROM ai_provider_daily_budget").get()!["request_count"],
++    ).toBe(limit);
++    sql.close();
++  });
++  it("opt-in ledger records unknown usage, network failures and paid malformed responses without content", async () => {
++    const { db, sql } = auditDb();
++    setD1Binding(db);
++    vi.stubEnv("AI_ATTEMPT_LOG_ENABLED", "true");
++    const network = vi
++      .fn()
++      .mockResolvedValueOnce(new Response("not-json"))
++      .mockResolvedValueOnce(
++        new Response(
++          JSON.stringify({
++            usage: { prompt_tokens: 20, completion_tokens: 4 },
++            choices: [{ message: { content: "private answer" } }],
++          }),
++        ),
++      )
++      .mockRejectedValueOnce(new Error("secret body"));
++    vi.stubGlobal("fetch", network);
++    const init = {
++      method: "POST",
++      body: JSON.stringify({ model: "test", messages: [{ content: "private prompt" }] }),
++    };
++    await aiProviderFetch("https://example.invalid/chat/completions", init);
++    const response = await aiProviderFetch("https://example.invalid/chat/completions", init);
++    expect((await response.json()).choices[0].message.content).toBe("private answer");
++    await expect(
++      aiProviderFetch("https://example.invalid/chat/completions", init),
++    ).rejects.toThrow();
++    const rows = sql.prepare("SELECT * FROM ai_provider_attempts ORDER BY rowid").all();
++    expect(rows).toHaveLength(3);
++    expect(rows[0]!["input_tokens"]).toBe(null);
++    expect(rows[1]!["input_tokens"]).toBe(20);
++    expect(rows[2]!["outcome"]).toBe("network_error");
++    expect(JSON.stringify(rows)).not.toMatch(/private|secret/);
++    sql.close();
++  });
++});
+diff --git a/src/test/teacher-student-journey-sqlite.test.ts b/src/test/teacher-student-journey-sqlite.test.ts
+new file mode 100644
+index 0000000..274ac6b
+--- /dev/null
++++ b/src/test/teacher-student-journey-sqlite.test.ts
+@@ -0,0 +1,104 @@
++// @vitest-environment node
++import { expect, it } from "vitest";
++import { auditDb } from "./audit-sqlite-helper";
++import { createD1AuthStore } from "@/server/d1-auth-store";
++import { signUp, signIn } from "@/lib/cloudflare-auth";
++import {
++  createAssessment,
++  addQuestion,
++  updateQuestion,
++  setAssessmentStatus,
++  joinTeacher,
++  getStudentHome,
++} from "@/server/d1-assessments";
++import { decideEnrollment } from "@/server/d1-students";
++import { getTakeData, startAttempt, saveDraft, submitAttempt } from "@/server/d1-take";
++import { reviewAnswer, releaseSubmission } from "@/server/d1-grading";
++
++it("actual SQL journey: signup approval, join, exam, draft resume, submit, teacher review and released result", async () => {
++  const { db, sql } = auditDb();
++  const store = createD1AuthStore(db);
++  const t = await signUp(store, {
++    email: "journey-teacher@example.invalid",
++    password: "test-only-password",
++    fullName: "Synthetic teacher",
++    role: "school_teacher",
++    teacherPhone: "01000000000",
++    iterations: 1000,
++  });
++  const s = await signUp(store, {
++    email: "journey-student@example.invalid",
++    password: "test-only-password",
++    fullName: "Synthetic student",
++    role: "student",
++    parentPhone: "01000000000",
++    iterations: 1000,
++  });
++  expect(t.status).toBe("pending");
++  expect(s.status).toBe("pending");
++  await expect(
++    signIn(store, { email: "journey-student@example.invalid", password: "test-only-password" }),
++  ).rejects.toBeDefined();
++  // Simulate the admin's explicit approval ONLY in this disposable database.
++  sql.prepare("UPDATE auth_users SET status='approved' WHERE id IN (?,?)").run(t.userId, s.userId);
++  const login = await signIn(store, {
++    email: "journey-student@example.invalid",
++    password: "test-only-password",
++  });
++  expect(login).toBeDefined();
++  sql.prepare("UPDATE profiles SET join_code='JRNY00000001' WHERE id=?").run(t.userId);
++  await joinTeacher(db, s.userId, "JRNY00000001");
++  expect((await getStudentHome(db, s.userId, 0, 0)).teacherLinks).toBe(0);
++  await decideEnrollment(db, { id: t.userId, role: "school_teacher" }, s.userId, true);
++  const exam = await createAssessment(db, t.userId, "Synthetic journey exam");
++  const q = await addQuestion(db, t.userId, exam.id, "written");
++  await updateQuestion(db, t.userId, q.id, {
++    type: "written",
++    prompt: "Explain photosynthesis",
++    marks: 10,
++    objective: "",
++    options: [],
++    difficulty: "medium",
++    correctAnswer: "",
++    acceptedAlternatives: [],
++    rubric: "Light and carbon dioxide form glucose",
++    explanation: "",
++  });
++  await setAssessmentStatus(db, t.userId, exam.id, "published");
++  expect((await getStudentHome(db, s.userId, 0, 0)).assessments.map((a) => a.id)).toContain(
++    exam.id,
++  );
++  expect((await getTakeData(db, "s", exam.id)).allowed).toBe(false);
++  const taken = await getTakeData(db, s.userId, exam.id);
++  expect(taken.allowed).toBe(true);
++  const sub = await startAttempt(db, s.userId, exam.id, [q.id]);
++  expect(
++    await saveDraft(db, s.userId, sub.submissionId, [
++      { question_id: q.id, response: "Light and CO2 make glucose", time_spent_seconds: 15 },
++    ]),
++  ).toBe(true);
++  expect((await startAttempt(db, s.userId, exam.id, [q.id])).submissionId).toBe(sub.submissionId);
++  expect(await saveDraft(db, "s", sub.submissionId, [])).toBe(false);
++  expect(await submitAttempt(db, s.userId, sub.submissionId)).toBe(true);
++  expect(await saveDraft(db, s.userId, sub.submissionId, [])).toBe(false);
++  await expect(releaseSubmission(db, t.userId, sub.submissionId, "")).rejects.toThrow(
++    "NOT_APPROVED",
++  );
++  const answer = sql.prepare("SELECT id FROM answers WHERE submission_id=?").get(sub.submissionId)![
++    "id"
++  ] as string;
++  await expect(reviewAnswer(db, "t", answer, 8, "", "approve")).rejects.toThrow();
++  await reviewAnswer(db, t.userId, answer, 8, "Teacher checked", "approve");
++  expect(await releaseSubmission(db, t.userId, sub.submissionId, "Reviewed")).toEqual({
++    finalScore: 8,
++    totalPossible: 10,
++  });
++  const home = await getStudentHome(db, s.userId, 0, 0);
++  expect(home.submissions).toEqual(
++    expect.arrayContaining([
++      expect.objectContaining({ status: "released", final_score: 8, total_possible: 10 }),
++    ]),
++  );
++  expect(sql.prepare("SELECT COUNT(*) AS n FROM whatsapp_sends").get()!["n"]).toBe(0);
++  sql.close();
++});
