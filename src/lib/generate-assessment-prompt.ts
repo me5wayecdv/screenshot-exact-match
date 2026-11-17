@@ -108,6 +108,20 @@ const TYPE_LABEL: Record<GenerateQuestionType, string> = {
   written: "إجابة مقالية (written)",
 };
 
+/** A conservative script hint, not general language detection. Short, mixed,
+ * and other-script lessons stay unspecified rather than guessing a language.
+ * This only strengthens the request; it does not validate model compliance.
+ */
+export function sourceLanguageHint(source: string): "latin" | "arabic" | null {
+  const letters = source.match(/\p{L}/gu) ?? [];
+  if (letters.length < 40) return null;
+  const latin = letters.filter((letter) => /\p{Script=Latin}/u.test(letter)).length;
+  const arabic = letters.filter((letter) => /\p{Script=Arabic}/u.test(letter)).length;
+  if (latin / letters.length >= 0.9) return "latin";
+  if (arabic / letters.length >= 0.9) return "arabic";
+  return null;
+}
+
 /**
  * Build the model prompt. The model is told to answer ONLY with JSON in
  * the schema below, in the same language as the source text, and to draw
@@ -159,6 +173,15 @@ export function buildGeneratePromptMessages(input: GeneratePromptInput): {
     "- written: correct_answer فارغة، وrubric إلزامية: معايير تصحيح كل معيار في سطر مع درجته.",
     "- marks: رقم بين 0.5 و 10، والافتراضي 1 عند عدم التحديد.",
     "- difficulty: مستوى صعوبة السؤال: easy أو medium أو hard فقط.",
+    ...(sourceLanguageHint(input.sourceText) === "latin"
+      ? [
+          "The source uses Latin-script text. Keep its original language in the title, question prompts, options, answers, explanations, objectives and rubrics. Do not translate the lesson into Arabic merely because these instructions are in Arabic. Keep JSON keys and enum values unchanged.",
+        ]
+      : sourceLanguageHint(input.sourceText) === "arabic"
+        ? [
+            "النص المصدر عربي الكتابة. حافظ على لغته في العنوان والأسئلة والاختيارات والإجابات والشرح والأهداف ومعايير التصحيح. لا تغير أسماء حقول JSON أو القيم المحددة للأنواع والصعوبة.",
+          ]
+        : []),
   ].join("\n");
   const safe = (value: string) =>
     value.replace(/<\/(source_text|subject|grade_level)>/gi, "< /$1>");
