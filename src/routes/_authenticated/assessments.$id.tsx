@@ -689,6 +689,8 @@ function MetaEditor({
         <div className="space-y-1.5 md:col-span-2">
           <Label htmlFor="m-title">{t("title")}</Label>
           <Input
+            dir="auto"
+            className="text-start"
             id="m-title"
             value={f.title}
             maxLength={200}
@@ -777,6 +779,8 @@ function MetaEditor({
           <div className="space-y-1.5 md:col-span-2">
             <Label htmlFor="m-ins">{t("instructions")}</Label>
             <Textarea
+              dir="auto"
+              className="text-start [unicode-bidi:plaintext]"
               id="m-ins"
               rows={3}
               value={f.instructions}
@@ -940,6 +944,8 @@ function QuestionEditor({
           <Label>{t("prompt")}</Label>
           <Textarea
             rows={2}
+            dir="auto"
+            className="text-start [unicode-bidi:plaintext]"
             value={prompt}
             maxLength={4000}
             onChange={(e) => setPrompt(e.target.value)}
@@ -960,6 +966,8 @@ function QuestionEditor({
                   onChange={() => setCorrect(o.trim())}
                 />
                 <Input
+                  dir="auto"
+                  className="text-start"
                   value={o}
                   maxLength={500}
                   onChange={(e) => {
@@ -1003,11 +1011,23 @@ function QuestionEditor({
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1.5">
               <Label>{t("correct")}</Label>
-              <Input value={correct} maxLength={500} onChange={(e) => setCorrect(e.target.value)} />
+              <Input
+                dir="auto"
+                className="text-start"
+                value={correct}
+                maxLength={500}
+                onChange={(e) => setCorrect(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>{t("alternatives")}</Label>
-              <Textarea rows={2} value={alts} onChange={(e) => setAlts(e.target.value)} />
+              <Textarea
+                dir="auto"
+                className="text-start [unicode-bidi:plaintext]"
+                rows={2}
+                value={alts}
+                onChange={(e) => setAlts(e.target.value)}
+              />
             </div>
           </div>
         )}
@@ -1016,6 +1036,8 @@ function QuestionEditor({
             <Label>{t("rubric")}</Label>
             <Textarea
               rows={4}
+              dir="auto"
+              className="text-start [unicode-bidi:plaintext]"
               value={rubric}
               maxLength={4000}
               placeholder={t("rubricHint")}
@@ -1048,6 +1070,8 @@ function QuestionEditor({
             <div className="space-y-1.5 md:col-span-2">
               <Label>{t("objective")}</Label>
               <Input
+                dir="auto"
+                className="text-start"
                 value={objective}
                 maxLength={300}
                 onChange={(e) => setObjective(e.target.value)}
@@ -1069,6 +1093,8 @@ function QuestionEditor({
               <div className="space-y-1.5">
                 <Label>{t("explanation")}</Label>
                 <Input
+                  dir="auto"
+                  className="text-start"
                   value={explanation}
                   maxLength={1000}
                   onChange={(e) => setExplanation(e.target.value)}
