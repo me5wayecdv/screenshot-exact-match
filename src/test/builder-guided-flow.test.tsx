@@ -96,6 +96,26 @@ describe("teacher draft preparation", () => {
       ),
     );
   });
+  it.each([
+    "If 3 boxes contain 2 pencils each, how many pencils are there in total?",
+    "كم عدد الأقلام في 3 صناديق؟",
+    "احسب 3 × 2 (pencils) ثم اكتب الإجابة.",
+  ])("keeps auto direction without rewriting %s", async (text) => {
+    const previous = mocks.data.questions[0]!.prompt;
+    mocks.data.questions[0]!.prompt = text;
+    try {
+      mount();
+      await screen.findByRole("button", { name: /2 الأسئلة/ });
+      fireEvent.click(screen.getByRole("button", { name: /2 الأسئلة/ }));
+      const prompt = await screen.findByDisplayValue(text);
+      expect(prompt).toHaveAttribute("dir", "auto");
+      expect(prompt).toHaveClass("text-start");
+      expect(prompt).toHaveValue(text);
+      expect(mocks.question).not.toHaveBeenCalled();
+    } finally {
+      mocks.data.questions[0]!.prompt = previous;
+    }
+  });
   it("keeps the draft in details if saving fails", async () => {
     mocks.meta.mockRejectedValue(new Error("TEST save failure"));
     mount();
