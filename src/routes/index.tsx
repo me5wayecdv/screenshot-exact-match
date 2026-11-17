@@ -46,6 +46,14 @@ const CARD_MUTED = "#5b5870";
 const CARD_LINE = "#e4e2f0";
 const CARD_TINT = "#eeedfb";
 const DARKLOGO = true;
+// Light body palette (design pass: dark hero, warm light sections)
+const CREAM = "#f7f4ee";
+const CREAM_ALT = "#efe9de";
+const L_INK = "#14213d";
+const L_MUTED = "#5b6070";
+const L_LINE = "#e6e0d3";
+const L_PINE = "#c9402a";
+const L_TINT = "#ffe9e5";
 
 const FEATURES = [
   {
@@ -82,9 +90,12 @@ const FEATURES = [
 
 function Landing() {
   return (
-    <div className="flex min-h-screen flex-col" style={{ background: PAPER, color: INK }}>
+    <div
+      className="relative flex min-h-screen flex-col"
+      style={{ background: CREAM, color: L_INK }}
+    >
       {/* Header */}
-      <header className="border-b" style={{ borderColor: LINE, background: PAPER }}>
+      <header className="absolute inset-x-0 top-0 z-10">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5 md:px-8">
           <Link to="/" aria-label="قيمني" className="rounded-sm" style={{ color: PINE }}>
             <Brand onDark={DARKLOGO} />
@@ -110,122 +121,136 @@ function Landing() {
       </header>
 
       <main>
-        <section className="mx-auto grid w-full max-w-6xl items-center gap-8 px-5 py-9 md:gap-10 md:grid-cols-[1.05fr_0.95fr] md:px-8 md:py-16">
-          <div>
-            <p
-              className="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[0.8rem] font-semibold"
-              style={{ borderColor: LINE, background: PANEL, color: PINE }}
-            >
-              <Sparkles className="size-3.5" aria-hidden />
-              مساعد الذكاء الاصطناعي للمدرس
-            </p>
-            <h1
-              className="mt-5 max-w-xl font-display text-[2rem] font-bold leading-[1.35] md:text-[2.75rem] md:leading-[1.3]"
-              style={{ color: INK }}
-            >
-              مساعدك الذكي <span style={{ color: PINE }}>في التدريس</span>
-            </h1>
-            <p className="mt-5 max-w-md text-[1rem] leading-8" style={{ color: MUTED }}>
-              ارفع الامتحان أو ورقة الإجابة، وراجع الدرجات المقترحة قبل ما توصل للطالب.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link
-                to="/auth"
-                className="inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[0.95rem] font-bold text-white transition-opacity hover:opacity-90"
-                style={{ background: PINE }}
+        <div
+          style={{
+            background: `radial-gradient(circle at 12% 8%, rgba(255,107,74,0.2), transparent 34%), radial-gradient(circle at 92% 30%, rgba(90,140,255,0.18), transparent 36%), radial-gradient(rgba(255,255,255,0.07) 1.2px, transparent 1.3px), ${PAPER}`,
+            backgroundSize: "auto, auto, 26px 26px, auto",
+            color: INK,
+          }}
+          className="rounded-b-[1.75rem] pt-16 md:rounded-b-[2.5rem]"
+        >
+          <section className="mx-auto grid w-full max-w-6xl items-center gap-8 px-5 py-9 md:gap-10 md:grid-cols-[1.05fr_0.95fr] md:px-8 md:py-16">
+            <div>
+              <p
+                className="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[0.8rem] font-semibold"
+                style={{ borderColor: LINE, background: PANEL, color: PINE }}
               >
-                ابدأ دلوقتي
-                <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-              </Link>
-              <span className="text-[0.85rem]" style={{ color: MUTED }}>
-                النتيجة متتنشرش غير بموافقتك
-              </span>
-            </div>
-          </div>
-
-          {/* Product mock: AI suggestion -> teacher approval */}
-          <div className="relative">
-            <div
-              className="rounded-2xl border p-5 shadow-[0_18px_50px_-24px_rgba(49,46,129,0.35)] md:p-6"
-              style={{ background: CARD_BG, borderColor: CARD_LINE }}
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-[0.8rem] font-semibold" style={{ color: CARD_MUTED }}>
-                  اقتراح تصحيح · السؤال ٣
-                </p>
-                <span
-                  className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-bold"
-                  style={{ background: CARD_TINT, color: PINE }}
-                >
-                  <Sparkles className="size-3" aria-hidden />
-                  اقتراح AI
-                </span>
-              </div>
-              <div
-                className="mt-4 rounded-xl border p-4 text-[0.85rem] leading-7"
-                style={{ borderColor: CARD_LINE, background: CARD_SOFT, color: CARD_INK }}
+                <Sparkles className="size-3.5" aria-hidden />
+                مساعد الذكاء الاصطناعي للمدرس
+              </p>
+              <h1
+                className="mt-5 max-w-xl font-display text-[2rem] font-bold leading-[1.35] md:text-[2.75rem] md:leading-[1.3]"
+                style={{ color: INK }}
               >
-                «تتبخر مياه البحر بفعل حرارة الشمس، وتتكاثف مرة أخرى على هيئة أمطار…»
-              </div>
-              <div className="mt-4 flex items-center justify-between">
-                <div>
-                  <p className="text-[0.72rem] font-semibold" style={{ color: CARD_MUTED }}>
-                    الدرجة المقترحة
-                  </p>
-                  <p className="font-display text-2xl font-bold" style={{ color: PINE }}>
-                    <span>٤ من ٥</span>
-                  </p>
-                </div>
-                <p className="max-w-[55%] text-[0.75rem] leading-5" style={{ color: CARD_MUTED }}>
-                  الدليل: ذكر التبخر والتكاثف، لكن لم يشرح دورة الماء كاملة.
-                </p>
-              </div>
-              <div className="mt-5 flex gap-2.5">
-                <button
-                  type="button"
-                  className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl text-[0.9rem] font-bold text-white"
+                مساعدك الذكي <span style={{ color: PINE }}>في التدريس</span>
+              </h1>
+              <p className="mt-5 max-w-md text-[1rem] leading-8" style={{ color: MUTED }}>
+                ارفع الامتحان أو ورقة الإجابة، وراجع الدرجات المقترحة قبل ما توصل للطالب.
+              </p>
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Link
+                  to="/auth"
+                  className="inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[0.95rem] font-bold text-white transition-opacity hover:opacity-90"
                   style={{ background: PINE }}
                 >
-                  <BadgeCheck className="size-4" aria-hidden />
-                  اعتماد الدرجة
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 text-[0.9rem] font-bold"
-                  style={{ borderColor: CARD_LINE, color: PINE }}
-                >
-                  <PencilLine className="size-4" aria-hidden />
-                  تعديل
-                </button>
+                  ابدأ دلوقتي
+                  <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+                </Link>
+                <span className="text-[0.85rem]" style={{ color: MUTED }}>
+                  النتيجة متتنشرش غير بموافقتك
+                </span>
               </div>
             </div>
-          </div>
-        </section>
+
+            {/* Product mock: AI suggestion -> teacher approval */}
+            <div className="relative">
+              <div
+                className="rounded-2xl border p-5 shadow-[0_18px_50px_-24px_rgba(49,46,129,0.35)] md:p-6"
+                style={{ background: CARD_BG, borderColor: CARD_LINE }}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-[0.8rem] font-semibold" style={{ color: CARD_MUTED }}>
+                    اقتراح تصحيح · السؤال ٣
+                  </p>
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[0.7rem] font-bold"
+                    style={{ background: CARD_TINT, color: PINE }}
+                  >
+                    <Sparkles className="size-3" aria-hidden />
+                    اقتراح AI
+                  </span>
+                </div>
+                <div
+                  className="mt-4 rounded-xl border p-4 text-[0.85rem] leading-7"
+                  style={{ borderColor: CARD_LINE, background: CARD_SOFT, color: CARD_INK }}
+                >
+                  «تتبخر مياه البحر بفعل حرارة الشمس، وتتكاثف مرة أخرى على هيئة أمطار…»
+                </div>
+                <div className="mt-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-[0.72rem] font-semibold" style={{ color: CARD_MUTED }}>
+                      الدرجة المقترحة
+                    </p>
+                    <p className="font-display text-2xl font-bold" style={{ color: PINE }}>
+                      <span>٤ من ٥</span>
+                    </p>
+                  </div>
+                  <p className="max-w-[55%] text-[0.75rem] leading-5" style={{ color: CARD_MUTED }}>
+                    الدليل: ذكر التبخر والتكاثف، لكن لم يشرح دورة الماء كاملة.
+                  </p>
+                </div>
+                <div className="mt-5 flex gap-2.5">
+                  <button
+                    type="button"
+                    className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl text-[0.9rem] font-bold text-white"
+                    style={{ background: PINE }}
+                  >
+                    <BadgeCheck className="size-4" aria-hidden />
+                    اعتماد الدرجة
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 text-[0.9rem] font-bold"
+                    style={{ borderColor: CARD_LINE, color: PINE }}
+                  >
+                    <PencilLine className="size-4" aria-hidden />
+                    تعديل
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
 
         {/* Features */}
-        <section className="border-t" style={{ borderColor: LINE, background: PANEL }}>
+        <section style={{ background: CREAM }}>
           <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
-            <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
+            <p className="text-[0.8rem] font-bold" style={{ color: L_PINE }}>
               المميزات
             </p>
-            <h2 className="mt-3 font-display text-2xl font-bold leading-snug md:text-3xl">
+            <h2
+              className="mt-3 font-display text-2xl font-bold leading-snug md:text-3xl"
+              style={{ color: L_INK }}
+            >
               كل خطوات التقييم، من الملف للدرجة المعتمدة
             </h2>
             <div className="mt-7 grid gap-3 sm:grid-cols-2 md:mt-8 md:gap-4 lg:grid-cols-3">
               {FEATURES.map(({ icon: Icon, title, body }) => (
                 <div
                   key={title}
-                  className="rounded-xl border p-4 md:p-5"
-                  style={{ borderColor: LINE, background: PAPER }}
+                  className="rounded-2xl border p-4 md:p-5"
+                  style={{ borderColor: L_LINE, background: "#ffffff" }}
                 >
                   <span
                     className="grid size-10 place-items-center rounded-lg"
-                    style={{ background: TINT, color: PINE }}
+                    style={{ background: L_TINT, color: L_PINE }}
                   >
                     <Icon className="size-5" aria-hidden />
                   </span>
-                  <h3 className="mt-4 text-[1rem] font-bold">{title}</h3>
-                  <p className="mt-1.5 text-[0.85rem] leading-6" style={{ color: MUTED }}>
+                  <h3 className="mt-4 text-[1rem] font-bold" style={{ color: L_INK }}>
+                    {title}
+                  </h3>
+                  <p className="mt-1.5 text-[0.85rem] leading-6" style={{ color: L_MUTED }}>
                     {body}
                   </p>
                 </div>
@@ -234,12 +259,15 @@ function Landing() {
           </div>
         </section>
 
-        <section id="how-it-works" className="border-t" style={{ borderColor: LINE }}>
+        <section id="how-it-works" style={{ background: CREAM }}>
           <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
-            <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
+            <p className="text-[0.8rem] font-bold" style={{ color: L_PINE }}>
               من البداية للنتيجة
             </p>
-            <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">
+            <h2
+              className="mt-3 font-display text-2xl font-bold md:text-3xl"
+              style={{ color: L_INK }}
+            >
               ابدأ بامتحانك. وسيب آخر قرار ليك.
             </h2>
             <div className="mt-8 grid gap-7 md:grid-cols-3 md:gap-8">
@@ -260,12 +288,18 @@ function Landing() {
                   body: "راجع الدرجة المقترحة والدليل، وعدل قبل ما تنشر النتيجة.",
                 },
               ].map(({ n, title, body }) => (
-                <div key={n} className="border-t pt-4" style={{ borderColor: LINE }}>
-                  <span className="font-display text-3xl font-bold" style={{ color: PINE }}>
+                <div
+                  key={n}
+                  className="rounded-2xl border border-t-[3px] p-5"
+                  style={{ borderColor: L_LINE, borderTopColor: PINE, background: "#ffffff" }}
+                >
+                  <span className="font-display text-3xl font-bold" style={{ color: L_PINE }}>
                     {n}
                   </span>
-                  <h3 className="mt-4 font-bold">{title}</h3>
-                  <p className="mt-2 max-w-sm text-sm leading-7" style={{ color: MUTED }}>
+                  <h3 className="mt-4 font-bold" style={{ color: L_INK }}>
+                    {title}
+                  </h3>
+                  <p className="mt-2 max-w-sm text-sm leading-7" style={{ color: L_MUTED }}>
                     {body}
                   </p>
                 </div>
@@ -274,22 +308,23 @@ function Landing() {
           </div>
         </section>
 
-        <section
-          id="questions"
-          className="border-t"
-          style={{ borderColor: LINE, background: PANEL }}
-        >
+        <section id="questions" style={{ background: CREAM_ALT }}>
           <div className="mx-auto grid max-w-6xl gap-7 px-5 py-10 md:grid-cols-[0.8fr_1.2fr] md:gap-16 md:px-8 md:py-14">
             <div>
-              <p className="text-[0.8rem] font-bold" style={{ color: PINE }}>
+              <p className="text-[0.8rem] font-bold" style={{ color: L_PINE }}>
                 قبل ما تبدأ
               </p>
-              <h2 className="mt-3 font-display text-2xl font-bold md:text-3xl">أسئلة سريعة</h2>
-              <p className="mt-4 max-w-xs text-sm leading-7" style={{ color: MUTED }}>
+              <h2
+                className="mt-3 font-display text-2xl font-bold md:text-3xl"
+                style={{ color: L_INK }}
+              >
+                أسئلة سريعة
+              </h2>
+              <p className="mt-4 max-w-xs text-sm leading-7" style={{ color: L_MUTED }}>
                 المساعد يقترح. وإنت تراجع وتقرر.
               </p>
             </div>
-            <div className="divide-y" style={{ borderColor: LINE }}>
+            <div className="flex flex-col gap-3">
               {[
                 {
                   q: "الدرجة بتوصل للطالب على طول؟",
@@ -304,9 +339,15 @@ function Landing() {
                   a: "تقدر ترفع PDF أو Word أو صورة، أو تكتب الأسئلة بنفسك.",
                 },
               ].map(({ q, a }) => (
-                <div key={q} className="py-5 first:pt-0 last:pb-0" style={{ borderColor: LINE }}>
-                  <h3 className="text-[0.95rem] font-bold">{q}</h3>
-                  <p className="mt-2 text-sm leading-7" style={{ color: MUTED }}>
+                <div
+                  key={q}
+                  className="rounded-2xl border p-5"
+                  style={{ borderColor: L_LINE, background: "#ffffff" }}
+                >
+                  <h3 className="text-[0.95rem] font-bold" style={{ color: L_INK }}>
+                    {q}
+                  </h3>
+                  <p className="mt-2 text-sm leading-7" style={{ color: L_MUTED }}>
                     {a}
                   </p>
                 </div>
@@ -315,27 +356,34 @@ function Landing() {
           </div>
         </section>
 
-        <section className="border-t" style={{ borderColor: LINE }}>
-          <div className="mx-auto flex max-w-6xl flex-col items-start justify-between gap-6 px-5 py-10 md:flex-row md:items-center md:px-8 md:py-14">
-            <div>
-              <h2 className="font-display text-2xl font-bold md:text-3xl">جاهز تبدأ أول امتحان؟</h2>
-              <p className="mt-3 text-sm leading-7" style={{ color: MUTED }}>
-                من تجهيز الأسئلة لمراجعة النتيجة، في مكان واحد.
-              </p>
-            </div>
-            <Link
-              to="/auth"
-              className="inline-flex h-12 shrink-0 items-center gap-3 rounded-xl px-6 text-sm font-bold text-white hover:opacity-90"
-              style={{ background: PINE }}
+        <section style={{ background: CREAM }}>
+          <div className="mx-auto max-w-6xl px-5 py-10 md:px-8 md:py-14">
+            <div
+              className="flex flex-col items-start justify-between gap-6 rounded-3xl p-7 md:flex-row md:items-center md:p-12"
+              style={{ background: PAPER, color: INK }}
             >
-              إنشاء حساب
-              <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-            </Link>
+              <div>
+                <h2 className="font-display text-2xl font-bold md:text-3xl">
+                  جاهز تبدأ أول امتحان؟
+                </h2>
+                <p className="mt-3 text-sm leading-7" style={{ color: MUTED }}>
+                  من تجهيز الأسئلة لمراجعة النتيجة، في مكان واحد.
+                </p>
+              </div>
+              <Link
+                to="/auth"
+                className="inline-flex h-12 shrink-0 items-center gap-3 rounded-xl px-6 text-sm font-bold text-white hover:opacity-90"
+                style={{ background: PINE }}
+              >
+                إنشاء حساب
+                <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
+              </Link>
+            </div>
           </div>
         </section>
       </main>
 
-      <footer className="border-t" style={{ borderColor: LINE }}>
+      <footer style={{ background: PAPER }}>
         <div
           className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-5 text-[0.8rem] md:px-8"
           style={{ color: MUTED }}
