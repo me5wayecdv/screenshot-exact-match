@@ -13,7 +13,7 @@ export type Tone = keyof typeof tone;
 export function Pill({ children, t = "neutral" }: { children: ReactNode; t?: Tone | undefined }) {
   return (
     <span
-      className={`inline-flex items-center rounded-sm border px-1.5 py-0.5 text-[0.7rem] font-medium ${tone[t]}`}
+      className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-sm font-medium ${tone[t]}`}
     >
       {children}
     </span>
@@ -51,7 +51,7 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
+    <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
       <div className="min-w-0">
         <h1 className="text-xl font-bold leading-tight sm:text-2xl md:text-3xl">{title}</h1>
         {subtitle && (
@@ -64,7 +64,7 @@ export function PageHeader({
 }
 
 export function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-lg border bg-card p-4 sm:p-5 ${className}`}>{children}</div>;
+  return <div className={`rounded-lg border bg-card p-4 sm:p-6 ${className}`}>{children}</div>;
 }
 
 export function Empty({ children }: { children: ReactNode }) {
@@ -94,27 +94,25 @@ export function Hero({
   hint?: ReactNode;
 }) {
   return (
-    <section className="console-hero mb-6 p-5 sm:p-7">
+    <section className="console-hero mb-6 p-6">
       {kicker ? <p className="section-kicker mb-2">{kicker}</p> : null}
-      <h1 className="max-w-2xl text-xl font-bold leading-snug text-sidebar-foreground sm:text-2xl md:text-[1.7rem]">
+      <h1 className="max-w-2xl text-xl font-bold leading-snug text-foreground sm:text-2xl md:text-[1.7rem]">
         {title}
       </h1>
-      {body ? (
-        <p className="mt-2 max-w-xl text-sm text-sidebar-foreground/75 sm:text-[0.95rem]">{body}</p>
-      ) : null}
-      {actions ? <div className="mt-5 flex flex-wrap gap-2">{actions}</div> : null}
-      {hint ? <p className="mt-4 text-xs text-sidebar-foreground/60">{hint}</p> : null}
+      {body ? <p className="mt-2 max-w-xl text-sm text-muted-foreground">{body}</p> : null}
+      {actions ? <div className="mt-4 flex flex-wrap gap-2">{actions}</div> : null}
+      {hint ? <p className="mt-4 text-sm text-muted-foreground">{hint}</p> : null}
     </section>
   );
 }
 
-/** A quiet number+label, so stats never compete with the main action. */
-export function StatChip({ label, value }: { label: string; value: ReactNode }) {
+/** A stat card: one big number with a small label under it. */
+export function StatCard({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <span className="stat-chip">
-      <strong>{value ?? "—"}</strong>
-      <span className="text-muted-foreground">{label}</span>
-    </span>
+    <div className="rounded-lg border bg-card p-4">
+      <p className="font-display text-3xl font-bold">{value ?? "—"}</p>
+      <p className="mt-2 text-sm text-muted-foreground">{label}</p>
+    </div>
   );
 }
 
