@@ -25,6 +25,7 @@ import {
   type Role,
 } from "@/lib/cloudflare-auth";
 import { decideAccount, listAccounts, resetUserPassword, type Caller } from "@/server/d1-admin";
+import { createD1AuthStore } from "@/server/d1-auth-store";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 
 // ---------------------------------------------------------------- auth core
@@ -124,12 +125,93 @@ async function pendingTeacher(store: AuthStore, email = "teacher@example.com") {
   });
 }
 
+/** A D1 fake that records every INSERT so the test can assert what
+ *  the signup path actually WRITES to the profiles table. */
+function fakeSignupDb(): D1Database & { inserts: { sql: string; params: unknown[] }[] } {
+  const inserts: { sql: string; params: unknown[] }[] = [];
+  const make = (sql: string) => {
+    let params: unknown[] = [];
+    const stmt = {
+      bind(...p: unknown[]) {
+        params = p;
+        return stmt as unknown as D1Statement;
+      },
+      first: async <T>(): Promise<T | null> => null,
+      all: async <T>(): Promise<{ results?: T[] }> => ({ results: [] }),
+      run: async () => {
+        inserts.push({ sql, params });
+        return { meta: { changes: 1 } };
+      },
+    };
+    return stmt as unknown as D1Statement;
+  };
+  return {
+    inserts,
+    prepare: (sql: string) => make(sql),
+    batch: async (stmts: D1Statement[]) => {
+      for (const s of stmts) await s.run();
+      return [];
+    },
+  } as unknown as D1Database & { inserts: { sql: string; params: unknown[] }[] };
+}
+
+/** The parent_phone value the signup path wrote into profiles. */
+function writtenParentPhone(db: { inserts: { sql: string; params: unknown[] }[] }): unknown {
+  const insert = db.inserts.find((i) => i.sql.includes("INSERT INTO profiles"));
+  if (!insert) return undefined;
+  // (id, full_name, parent_phone, whatsapp_consent, created_at)
+  return insert.params[2];
+}
+
 describe("admin approval: auth core", () => {
   it("signup creates a PENDING account and NO session", async () => {
     const store = createApprovalStore();
     const created = await pendingTeacher(store);
     expect(created.status).toBe("pending");
     expect(store.sessions.size).toBe(0);
+  });
+
+  it("a student's parent phone is required, validated and stored normalized", async () => {
+    // Missing number: the account cannot be created at all.
+    const missing = fakeSignupDb();
+    await expect(
+      signUp(createD1AuthStore(missing), {
+        email: "student@example.com",
+        password: "correct-horse-battery",
+        fullName: "Test Student",
+        role: "student",
+        iterations: 1000,
+      }),
+    ).rejects.toMatchObject({ code: "PARENT_PHONE_REQUIRED" });
+    expect(missing.inserts).toHaveLength(0);
+
+    // Malformed number: rejected too (and with the right code).
+    const malformed = fakeSignupDb();
+    await expect(
+      signUp(createD1AuthStore(malformed), {
+        email: "student@example.com",
+        password: "correct-horse-battery",
+        fullName: "Test Student",
+        role: "student",
+        parentPhone: "0101234",
+        iterations: 1000,
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_PHONE" });
+    expect(malformed.inserts).toHaveLength(0);
+
+    // A local number is stored in the normalized +20… form, so every
+    // later read (WhatsApp send, admin list, parent-contact form)
+    // sees the same E.164 string.
+    const ok = fakeSignupDb();
+    await signUp(createD1AuthStore(ok), {
+      email: "student@example.com",
+      password: "correct-horse-battery",
+      fullName: "Test Student",
+      role: "student",
+      parentPhone: "01012345678",
+      iterations: 1000,
+    });
+    expect(writtenParentPhone(ok)).toBe("+201012345678");
   });
 
   it("pending sign-in with the right password says waiting, wrong password stays generic", async () => {

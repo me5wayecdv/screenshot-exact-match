@@ -14,6 +14,10 @@
  *    earlier everyone-publish, or left behind after a group change)
  *    is NOT sufficient on its own once a group link exists.
  *
+ * The parent phone is NOT checked here: it is a requirement of a NEW
+ * attempt, not of loading the exam page, and the DO caches this gate
+ * per student (see d1-parent-phone.ts and the start paths).
+ *
  * Every check is in the SQL WHERE clause or an explicit membership
  * query — never "fetch all rows and filter in JS", which would leak
  * titles/rows to a caller who inspects responses.

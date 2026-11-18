@@ -655,7 +655,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
           the way instead of occupying the top of the screen. */}
       <details className="mb-8 rounded-lg border bg-card p-4">
         <summary className="cursor-pointer text-sm font-medium">
-          {t("parentPhone")} · {t("optional")}
+          {t("parentPhone")} · {t("required")}
         </summary>
         <div className="mt-4">
           <ParentContactForm

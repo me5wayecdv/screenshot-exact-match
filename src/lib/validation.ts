@@ -14,7 +14,9 @@
  * - email: trimmed + lowercased, then /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  *   (same pattern as isValidEmail in cloudflare-auth.ts).
  * - password: at least MIN_PASSWORD_LENGTH (8) characters, NOT trimmed
- *   (signUp checks the raw length).
+ *   (signUp checks the raw length), and printable ASCII only (English
+ *   letters, digits, symbols, spaces) — Arabic characters are rejected,
+ *   same as signUp's PASSWORD_NOT_LATIN check.
  * - fullName: trimmed, must be non-empty. The form marks it required,
  *   but the server never checked it — an empty name was stored as "".
  *   The zod check fronts this; signUp also rejects it (INVALID_INPUT)
@@ -24,6 +26,12 @@
  *   normalizePhoneInput (local 010… / 201… forms -> +20…), then it
  *   must be a valid Egyptian mobile (+20 + 010/011/012/015 + 8 digits).
  *   Students: teacherPhone is ignored entirely (stored null today).
+ * - students: parentPhone REQUIRED and must be a valid Egyptian mobile
+ *   (same rule as the teacher phone). The exam report goes to the
+ *   parent, so an account without a parent number can never be
+ *   reported — the server refuses to create it. A missing number and
+ *   a malformed one are different errors (PARENT_PHONE_REQUIRED vs
+ *   INVALID_PHONE) so the form can say which one to fix.
  * - sign-in has NO format rules today: any string email/password
  *   reaches the lookup and a miss becomes INVALID_CREDENTIALS. The
  *   sign-in schema only enforces the types, so a malformed payload
@@ -35,7 +43,7 @@
  * (already in that import graph). No server-only imports.
  */
 import { z } from "zod";
-import { AuthError, MIN_PASSWORD_LENGTH } from "@/lib/cloudflare-auth";
+import { AuthError, MIN_PASSWORD_LENGTH, PASSWORD_ASCII_REGEX } from "@/lib/cloudflare-auth";
 import { isValidEgyptianMobile, normalizePhoneInput } from "@/lib/whatsapp";
 
 /** Same pattern as isValidEmail in cloudflare-auth.ts. */
@@ -44,7 +52,10 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const signUpSchema = z
   .object({
     email: z.string().trim().toLowerCase().regex(EMAIL_REGEX),
-    password: z.string().min(MIN_PASSWORD_LENGTH),
+    password: z
+      .string()
+      .min(MIN_PASSWORD_LENGTH)
+      .regex(PASSWORD_ASCII_REGEX, { message: "password_not_latin" }),
     role: z.enum(["school_teacher", "tutor", "student"]),
     fullName: z.string().trim().min(1),
     parentPhone: z.string().nullish(),
@@ -62,6 +73,24 @@ export const signUpSchema = z
           code: "custom",
           path: ["teacherPhone"],
           message: "A valid Egyptian mobile is required for teachers.",
+        });
+      }
+    }
+    // Student parent phone rule, same as signUp in cloudflare-auth.ts:
+    // required (the report goes to the parent) and an Egyptian mobile.
+    if (data.role === "student") {
+      const phone = normalizePhoneInput(data.parentPhone ?? "");
+      if (phone === "") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["parentPhone"],
+          message: "parent_phone_required",
+        });
+      } else if (!isValidEgyptianMobile(phone)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["parentPhone"],
+          message: "invalid_parent_phone",
         });
       }
     }
@@ -88,10 +117,35 @@ export type SignInInput = z.infer<typeof signInSchema>;
 export function signUpValidationError(error: z.ZodError): Error {
   const paths = new Set(error.issues.map((issue) => issue.path[0]));
   if (paths.has("email")) return new AuthError("INVALID_EMAIL");
-  if (paths.has("password")) return new AuthError("WEAK_PASSWORD");
+  if (paths.has("password")) {
+    // signUp checks length before the character set, so the length code
+    // wins when both fail — same payload, same error.
+    const pwIssues = error.issues.filter((issue) => issue.path[0] === "password");
+    if (pwIssues.some((issue) => issue.code === "too_small")) {
+      return new AuthError("WEAK_PASSWORD");
+    }
+    return new AuthError("PASSWORD_NOT_LATIN");
+  }
   if (paths.has("role")) return new AuthError("INVALID_ROLE");
+  // The name is checked before the phone in signUp, so it wins here too.
+  if (paths.has("fullName")) return new Error("INVALID_INPUT");
   if (paths.has("teacherPhone")) {
     return new AuthError("INVALID_PHONE");
+  }
+  if (paths.has("parentPhone")) {
+    // Missing number and malformed number are different mistakes: the
+    // first says "add it", the second says "fix it". A wrong TYPE (a
+    // number instead of a string) is neither — it stays INVALID_INPUT.
+    const custom = error.issues.filter(
+      (issue) => issue.path[0] === "parentPhone" && issue.code === "custom",
+    );
+    if (custom.some((issue) => issue.message === "parent_phone_required")) {
+      return new AuthError("PARENT_PHONE_REQUIRED");
+    }
+    if (custom.some((issue) => issue.message === "invalid_parent_phone")) {
+      return new AuthError("INVALID_PHONE");
+    }
+    return new Error("INVALID_INPUT");
   }
   return new Error("INVALID_INPUT");
 }

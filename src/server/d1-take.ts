@@ -40,6 +40,7 @@ import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import { getTakeSessions } from "@/server/d1";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import { canTakeAssessment } from "@/server/d1-take-gate";
+import { parentPhoneState } from "@/server/d1-parent-phone";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { effectiveRole } from "@/server/d1-assessments";
 import { retryD1Overload } from "@/server/d1-retry";
@@ -398,6 +399,18 @@ export async function resolveStart(
     .first<{ n: number }>();
   const used = usedRow?.n ?? 0;
   if (used >= Math.max(1, assessment.max_attempts)) throw new Error("TAKE_NO_ATTEMPTS_LEFT");
+  // No attempt in progress and attempts left: this is a NEW attempt,
+  // so the report must have somewhere to go — the student needs a
+  // parent phone on file. The read does NOT fail open here (unlike the
+  // DO path): this path needs D1 for everything else anyway, so a D1
+  // error surfaces instead of being silently treated as "no phone".
+  //
+  // Same order as the DO path (take-session-logic.ts): the
+  // attempts-left check comes first, so a student who is out of
+  // attempts is not told to add a phone that would not help.
+  if ((await parentPhoneState(db, studentId)) === "missing") {
+    throw new Error("TAKE_PARENT_PHONE_REQUIRED");
+  }
   const totalRow = await db
     .prepare("SELECT COALESCE(SUM(marks), 0) AS total FROM questions WHERE assessment_id = ?")
     .bind(assessmentId)

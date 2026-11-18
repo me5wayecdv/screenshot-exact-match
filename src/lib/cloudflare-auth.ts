@@ -40,6 +40,12 @@
  *   hiding UI alone is never the protection. Existing accounts are
  *   backfilled to 'approved' by migration. A rejected account can
  *   never sign in again (until an admin re-approves it).
+ * - Phone numbers: a student's parent phone and a teacher's own phone
+ *   are REQUIRED at sign-up, normalized to the +20… E.164 form
+ *   (010… / 201… → +20…), and must be Egyptian mobiles. The stored
+ *   value is always the normalized one, so the WhatsApp send path
+ *   never has to re-parse a local form. A DB CHECK constraint is the
+ *   last line of defense (see schema/d1-schema.sql).
  * - Timestamps are UTC ISO strings; expiry comparisons are string
  *   comparisons on that format, which is safe only because the format
  *   is fixed (see schema/d1-schema.sql).
@@ -119,6 +125,12 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // src/test/pbkdf2-iterations.test.ts.
 export const PBKDF2_ITERATIONS = 100_000;
 export const MIN_PASSWORD_LENGTH = 8;
+// Sign-up passwords are printable ASCII only (English letters, digits,
+// symbols, spaces). Arabic and other non-ASCII characters are rejected so
+// a password typed with an Arabic keyboard layout fails loudly at sign-up
+// instead of being stored and mistyped at sign-in. Sign-in has no format
+// rules, so older passwords keep working.
+export const PASSWORD_ASCII_REGEX = /^[\x20-\x7E]+$/;
 
 export class AuthError extends Error {
   constructor(
@@ -127,6 +139,7 @@ export class AuthError extends Error {
       | "EMAIL_TAKEN"
       | "INVALID_EMAIL"
       | "WEAK_PASSWORD"
+      | "PASSWORD_NOT_LATIN"
       | "INVALID_ROLE"
       | "SESSION_EXPIRED"
       | "SESSION_REVOKED"
@@ -138,6 +151,7 @@ export class AuthError extends Error {
       | "ACCOUNT_PENDING"
       | "ACCOUNT_REJECTED"
       | "INVALID_PHONE"
+      | "PARENT_PHONE_REQUIRED"
       | "INVALID_INPUT"
       | "NOT_PASSWORDLESS",
     message?: string,
@@ -283,6 +297,7 @@ export async function signUp(
   const email = normalizeEmail(input.email);
   if (!isValidEmail(email)) throw new AuthError("INVALID_EMAIL");
   if (input.password.length < MIN_PASSWORD_LENGTH) throw new AuthError("WEAK_PASSWORD");
+  if (!PASSWORD_ASCII_REGEX.test(input.password)) throw new AuthError("PASSWORD_NOT_LATIN");
   if (!SIGNUP_ROLES.includes(input.role as SignUpRole)) throw new AuthError("INVALID_ROLE");
   // The form marks the name required, but the server never checked it:
   // an empty name sailed through and was stored as "". The zod
@@ -302,6 +317,22 @@ export async function signUp(
     }
   }
 
+  // Students need a parent phone on file: the exam report is sent to
+  // that number, so an account without one can never be reported.
+  // The client check is never trusted — normalize first (local 010…
+  // forms become +20…), then require a valid Egyptian mobile. The
+  // number is STORED in its normalized form, so every later read
+  // (WhatsApp send, admin list, parent-contact form) sees the same
+  // E.164 string. A missing phone and a malformed one are different
+  // errors: the first says "add it", the second says "fix it".
+  let parentPhone: string | null = null;
+  if (input.role === "student") {
+    const cleaned = normalizePhoneInput(input.parentPhone ?? "");
+    if (cleaned === "") throw new AuthError("PARENT_PHONE_REQUIRED");
+    if (!isValidEgyptianMobile(cleaned)) throw new AuthError("INVALID_PHONE");
+    parentPhone = cleaned;
+  }
+
   const userId = newId();
   const passwordHash = await hashPassword(input.password, input.iterations);
   try {
@@ -311,7 +342,7 @@ export async function signUp(
       passwordHash,
       fullName: input.fullName.trim(),
       role: input.role as SignUpRole,
-      parentPhone: isTeacherSignUpRole(input.role) ? null : input.parentPhone?.trim() || null,
+      parentPhone,
       teacherPhone,
       subjects: (input.subjects ?? "").trim().slice(0, 200) || null,
       school: (input.school ?? "").trim().slice(0, 200) || null,

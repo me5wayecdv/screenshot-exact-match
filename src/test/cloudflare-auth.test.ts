@@ -211,6 +211,7 @@ describe("custom auth core", () => {
       password: "correct-horse-battery",
       fullName: "Test Student",
       role: "student",
+      parentPhone: "01012345678",
       iterations: 1000,
     });
     store.approveUser(created.userId);
@@ -259,6 +260,15 @@ describe("custom auth core", () => {
         iterations: 1000,
       }),
     ).rejects.toMatchObject({ code: "WEAK_PASSWORD" });
+    await expect(
+      signUp(store, {
+        email: "arabic@example.com",
+        password: "كلمةالسر123",
+        fullName: "Arabic",
+        role: "student",
+        iterations: 1000,
+      }),
+    ).rejects.toMatchObject({ code: "PASSWORD_NOT_LATIN" });
     await expect(
       signUp(store, {
         email: "not-an-email",

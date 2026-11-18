@@ -35,6 +35,7 @@ import {
   type TakeStatus,
 } from "@/server/d1-take";
 import { canTakeAssessment } from "@/server/d1-take-gate";
+import { parentPhoneState } from "@/server/d1-parent-phone";
 import { retryD1Overload } from "@/server/d1-retry";
 
 /** One submission as the DO holds it (mirrors the D1 row, plus the
@@ -411,6 +412,26 @@ export async function validateStart(
   if (existing) return { existingId: existing.id };
   const used = await store.countSubmissions(input.studentId, input.assessmentId);
   if (used >= Math.max(1, config.maxAttempts)) throw new Error("TAKE_NO_ATTEMPTS_LEFT");
+  // A NEW attempt needs a parent phone on file: the exam report is
+  // sent to that number, so without it the result could never be
+  // reported. This runs AFTER the resume check (an attempt that is
+  // already in progress is never blocked — the student started it and
+  // must be able to finish it) and AFTER the attempts-left check (a
+  // student who is out of attempts must not be told to add a phone
+  // that would not let them start anyway).
+  //
+  // The check is explicit here (not inside canTakeAssessment) because
+  // the DO caches the enrolled set from the assignment rows — a cached
+  // student skips the gate entirely, so the gate could never enforce
+  // this rule.
+  //
+  // "unknown" means D1 could not answer (a transient overload). It
+  // fails OPEN here: a brief D1 hiccup must not stop every student
+  // from taking an exam. The D1 reference path propagates the error
+  // instead, because it needs D1 for everything else anyway.
+  if ((await parentPhoneState(db, input.studentId, { failOpen: true })) === "missing") {
+    throw new Error("TAKE_PARENT_PHONE_REQUIRED");
+  }
   const expiresAt =
     config.durationMinutes != null
       ? new Date(nowMs + config.durationMinutes * 60_000).toISOString()

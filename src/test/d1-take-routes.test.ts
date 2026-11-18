@@ -44,6 +44,10 @@ type State = {
     question_order: string | null;
   }[];
   answers: { submission_id: string; question_id: string; response: string }[];
+  /** Student id -> parent phone. A student with no entry gets the
+   *  default phone (every fixture student has one); set the entry to
+   *  null to model "no parent phone on file". */
+  parentPhones: Record<string, string | null>;
   seen: string[];
   runs: { sql: string; params: unknown[] }[];
 };
@@ -74,6 +78,14 @@ function fakeDb(state: State): D1Database {
         return state.approvedMembers.has(`${params[0]}:${params[1]}`)
           ? ({ one: 1 } as unknown as T)
           : null;
+      }
+      if (kind === "profile") {
+        // The start path checks the parent phone (the report goes to
+        // the parent): the student in this fixture has one unless the
+        // test sets an explicit null.
+        const entry = state.parentPhones[params[0] as string];
+        const phone = entry === undefined ? "+201012345678" : entry;
+        return { parent_phone: phone } as unknown as T;
       }
       if (kind === "submission-by-id") {
         const row = state.submissions.find((s) => s.id === params[0]);
@@ -192,6 +204,7 @@ function fakeDb(state: State): D1Database {
       else if (sql.includes("FROM assessment_assignments")) kind = "assignment";
       else if (sql.includes("FROM group_exams")) kind = "links";
       else if (sql.includes("FROM group_members")) kind = "member";
+      else if (sql.includes("FROM profiles")) kind = "profile";
       else if (sql.includes("FROM questions") && sql.includes("ORDER BY position"))
         kind = "questions";
       else if (
@@ -284,6 +297,7 @@ function baseState(): State {
     },
     submissions: [],
     answers: [],
+    parentPhones: {},
     seen: [],
     runs: [],
   };
@@ -452,6 +466,60 @@ describe("d1-take: attempts", () => {
     const db = fakeDb(baseState());
     await expect(startAttempt(db, "student-b", "ex1", ["q1"], NOW)).rejects.toThrow(
       "TAKE_NOT_GROUP_MEMBER",
+    );
+  });
+
+  it("startAttempt refuses a NEW attempt without a parent phone, but resumes a draft", async () => {
+    // The exam report is WhatsApped to the parent, so a student with
+    // no parent number on file cannot start an assessment.
+    const state = baseState();
+    state.groupLinks = {};
+    state.parentPhones["student-a"] = null;
+    const db = fakeDb(state);
+    await expect(startAttempt(db, "student-a", "ex1", ["q1"], NOW)).rejects.toThrow(
+      "TAKE_PARENT_PHONE_REQUIRED",
+    );
+    // No attempt row was created.
+    expect(state.runs.filter((r) => r.sql.startsWith("INSERT INTO submissions"))).toHaveLength(0);
+
+    // An attempt that is already running may be resumed: the student
+    // started it and must be able to finish it.
+    state.submissions.push({
+      id: "sub-1",
+      assessment_id: "ex1",
+      student_id: "student-a",
+      status: "in_progress",
+      attempt_number: 1,
+      expires_at: null,
+      question_order: null,
+    });
+    expect(await startAttempt(db, "student-a", "ex1", ["q1"], NOW)).toEqual({
+      submissionId: "sub-1",
+    });
+  });
+
+  it("reports the attempts-left error before the parent-phone error", async () => {
+    // Same order as the DO path (take-session-logic.ts): a student who
+    // is out of attempts must not be told to add a parent phone that
+    // would not let them start anyway.
+    const state = baseState();
+    state.groupLinks = {};
+    const exam = state.assessments["ex1"];
+    if (!exam) throw new Error("fixture missing ex1");
+    exam.max_attempts = 1;
+    state.parentPhones["student-a"] = null;
+    state.submissions.push({
+      id: "sub-old",
+      assessment_id: "ex1",
+      student_id: "student-a",
+      status: "awaiting_review",
+      attempt_number: 1,
+      expires_at: null,
+      question_order: null,
+    });
+    const db = fakeDb(state);
+    await expect(startAttempt(db, "student-a", "ex1", ["q1"], NOW)).rejects.toThrow(
+      "TAKE_NO_ATTEMPTS_LEFT",
     );
   });
 

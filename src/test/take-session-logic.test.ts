@@ -213,6 +213,10 @@ type FakeState = {
   assignments: string[];
   groupLinks: string[];
   members: { group_id: string; student_id: string; status: string }[];
+  /** Student id -> parent phone. A student with no entry gets the
+   *  default phone (every fixture student has one); set the entry to
+   *  null to model "no parent phone on file". */
+  parentPhones: Record<string, string | null>;
   /** Counts every first()/all() call — the V2 tests assert the
    *  steady-state start costs zero D1 reads. */
   reads: number;
@@ -359,6 +363,14 @@ function makeFakeDb(state: FakeState): D1Database {
         ? { one: 1 }
         : null;
     }
+    if (s.startsWith("SELECT parent_phone FROM profiles")) {
+      // The start path checks the parent phone (the report goes to
+      // the parent). Every student in this fixture has one unless the
+      // test sets an explicit null (state.parentPhones).
+      const entry = state.parentPhones[params[0] as string];
+      const phone = entry === undefined ? "+201012345678" : entry;
+      return { parent_phone: phone };
+    }
     if (s.startsWith("SELECT id FROM submissions WHERE id = ?")) {
       const row = state.submissions[params[0] as string];
       return row ? { id: row["id"] } : null;
@@ -467,6 +479,7 @@ function fakeState(): FakeState {
       { group_id: "g-1", student_id: STUDENT, status: "approved" },
       { group_id: "g-1", student_id: OTHER, status: "approved" },
     ],
+    parentPhones: {},
     reads: 0,
   };
 }
@@ -840,19 +853,22 @@ describe("validateStart (V2 cache)", () => {
     const store = new MapStore();
     const cfg = new MapConfigStore();
 
-    // First student: config load (5 reads) + seed (1 read) = 6.
+    // First student: config load (5 reads) + seed (1 read) + the
+    // parent-phone check (1 read) = 7.
     const first = await doStart(store, cfg, db, STUDENT, "sub-1");
     expect(first).toEqual({ queued: true, submissionId: "sub-1" });
-    expect(state.reads).toBe(6);
+    expect(state.reads).toBe(7);
     expect(cfg.config?.totalPossible).toBe(15);
 
-    // Second student, same exam: config + enrollment cached, seed only.
+    // Second student, same exam: config + enrollment cached, seed +
+    // the parent-phone check only.
     const readsBefore = state.reads;
     const second = await doStart(store, cfg, db, OTHER, "sub-2");
     expect(second).toEqual({ queued: true, submissionId: "sub-2" });
-    expect(state.reads - readsBefore).toBe(1);
+    expect(state.reads - readsBefore).toBe(2);
 
-    // Same student again: resume, zero reads (config + enrolled + seeded).
+    // Same student again: resume, zero reads (config + enrolled +
+    // seeded, and a resume never re-checks the phone).
     const resumeBefore = state.reads;
     const resume = await doStart(store, cfg, db, STUDENT, "sub-9");
     expect(resume).toEqual({ queued: false, submissionId: "sub-1" });
@@ -886,10 +902,55 @@ describe("validateStart (V2 cache)", () => {
       nowIso: NOW,
     });
     expect(ok).toMatchObject({ attemptNumber: 1, totalPossible: 15 });
-    // And now they are cached: a re-validation costs zero reads.
+    // And now they are cached: a re-validation skips the gate and the
+    // seed, and only the parent-phone check reads D1.
     const before = state.reads;
     await validateStart(store, cfg, db, { studentId: LATE, assessmentId: EXAM, nowIso: NOW });
-    expect(state.reads - before).toBe(0);
+    expect(state.reads - before).toBe(1);
+  });
+
+  it("refuses a NEW attempt without a parent phone, but still resumes a running one", async () => {
+    // The exam report is WhatsApped to the parent, so a student with
+    // no parent number on file cannot start an assessment. The check
+    // lives on the START path (not in canTakeAssessment) because the
+    // DO caches the enrolled set from the assignment rows — a cached
+    // student skips the gate entirely.
+    const state = fakeState();
+    state.parentPhones[STUDENT] = null;
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+    await expect(
+      validateStart(store, cfg, db, { studentId: STUDENT, assessmentId: EXAM, nowIso: NOW }),
+    ).rejects.toThrow("TAKE_PARENT_PHONE_REQUIRED");
+
+    // An attempt that is already running may be resumed: the student
+    // started it, the report rule applies to what comes next.
+    const running = new MapStore();
+    await applyStart(running, startInput("sub-1"));
+    const cfg2 = new MapConfigStore();
+    const resumed = await validateStart(running, cfg2, db, {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    expect(resumed).toEqual({ existingId: "sub-1" });
+  });
+
+  it("fails OPEN when D1 cannot answer the parent-phone check", async () => {
+    // A brief D1 overload must not stop every student from taking an
+    // exam: "unknown" (the read failed) does not block the start.
+    const state = fakeState();
+    state.failSql = { fragment: "FROM profiles", error: new Error("D1_OVERLOAD") };
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+    const ok = await validateStart(store, cfg, db, {
+      studentId: STUDENT,
+      assessmentId: EXAM,
+      nowIso: NOW,
+    });
+    expect(ok).toMatchObject({ attemptNumber: 1, totalPossible: 15 });
   });
 
   it("rejects unpublished and window-closed exams", async () => {
@@ -942,6 +1003,38 @@ describe("validateStart (V2 cache)", () => {
     ).rejects.toThrow("TAKE_NO_ATTEMPTS_LEFT");
   });
 
+  it("reports the attempts-left error before the parent-phone error", async () => {
+    // A student who is out of attempts must not be told to add a
+    // parent phone: adding one would not let them start anyway. The
+    // two checks are ordered the same way in the DO path and in the
+    // D1 reference path (src/server/d1-take.ts), so the student gets
+    // the same message on either one.
+    const state = fakeState();
+    state.assessment.max_attempts = 1;
+    state.parentPhones[STUDENT] = null;
+    state.submissions["old-1"] = {
+      id: "old-1",
+      assessment_id: EXAM,
+      student_id: STUDENT,
+      status: "awaiting_review",
+      attempt_number: 1,
+      started_at: NOW,
+      submitted_at: NOW,
+      expires_at: null,
+      question_order: JSON.stringify([Q1]),
+      total_possible: 15,
+      draft_seq: 0,
+    };
+    const db = makeFakeDb(state);
+    await expect(
+      validateStart(new MapStore(), new MapConfigStore(), db, {
+        studentId: STUDENT,
+        assessmentId: EXAM,
+        nowIso: NOW,
+      }),
+    ).rejects.toThrow("TAKE_NO_ATTEMPTS_LEFT");
+  });
+
   it("reloads the config after the TTL", async () => {
     const state = fakeState();
     const db = makeFakeDb(state);
@@ -951,10 +1044,10 @@ describe("validateStart (V2 cache)", () => {
     const before = state.reads;
     // Age the config past the TTL relative to the test clock (NOW);
     // the next start reloads it (5 reads for the config + 1 for the
-    // second student's one-time seed).
+    // second student's one-time seed + 1 for the parent-phone check).
     if (cfg.config) cfg.config.loadedAt = Date.parse(NOW) - TAKE_SESSION_CACHE_TTL_MS - 1;
     await doStart(store, cfg, db, OTHER, "sub-2");
-    expect(state.reads - before).toBe(6);
+    expect(state.reads - before).toBe(7);
   });
 });
 
@@ -1297,16 +1390,19 @@ describe("stale-config fallback in validateStart / loadTakeData (ARCH-F1 / BIZ-F
     });
     expect(result).toMatchObject({ attemptNumber: 1, totalPossible: 15 });
     // (d) the touch re-stamps loadedAt, so the burst does not retry
-    // the reload: exactly one failed load attempt, and a second
-    // start makes no further D1 call at all.
+    // the reload: exactly one failed config-load attempt plus one
+    // failed parent-phone read (which fails OPEN, so the start still
+    // succeeds).
     expect(cfg.config?.loadedAt).toBe(Date.parse(NOW));
-    expect(counter.calls).toBe(1);
+    expect(counter.calls).toBe(2);
     await validateStart(store, cfg, overloadDb(counter), {
       studentId: STUDENT,
       assessmentId: EXAM,
       nowIso: NOW,
     });
-    expect(counter.calls).toBe(1);
+    // The config is no longer stale: no reload, only the parent-phone
+    // read (still failing open).
+    expect(counter.calls).toBe(3);
   });
 
   it("(b) loadTakeData serves the stale-config payload when the reload throws", async () => {
