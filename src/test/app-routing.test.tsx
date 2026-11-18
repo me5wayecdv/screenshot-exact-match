@@ -15,6 +15,31 @@ describe("App routing", () => {
     expect(matches.at(-1)?.routeId).not.toBe(rootRouteId);
   });
 
+  it("matches a page for /auth so the signup deep link resolves", () => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const matches = router.matchRoutes("/auth", { mode: "signup" });
+
+    expect(matches.at(-1)?.routeId).toBe("/auth");
+  });
+
+  // matchRoutes previews do not run validateSearch, so assert the /auth
+  // search contract directly: only mode=signup survives, anything else
+  // falls back to the default sign-in form.
+  it.each([
+    { label: "signup deep link", input: { mode: "signup" }, expected: { mode: "signup" } },
+    { label: "an unknown mode", input: { mode: "bogus" }, expected: {} },
+    { label: "no mode param", input: {}, expected: {} },
+  ])("validates /auth search for $label", ({ input, expected }) => {
+    const router = createRouter({ routeTree, context: { queryClient: new QueryClient() } });
+
+    const validate = router.routesById["/auth"]?.options.validateSearch as (
+      search: Record<string, unknown>,
+    ) => unknown;
+
+    expect(validate(input)).toEqual(expected);
+  });
+
   it.each([
     "/grading",
     "/audit",
