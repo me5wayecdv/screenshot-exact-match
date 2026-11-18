@@ -12,6 +12,10 @@ import { useI18n, translateError } from "@/lib/i18n";
 import { isValidEgyptianMobile, normalizePhoneInput } from "@/lib/whatsapp";
 
 export const Route = createFileRoute("/auth")({
+  // Deep links to the signup form: /auth?mode=signup (landing CTAs).
+  // Any other value falls back to the sign-in form.
+  validateSearch: (search: Record<string, unknown>): { mode?: "signup" } =>
+    search["mode"] === "signup" ? { mode: "signup" } : {},
   head: () => ({
     meta: [
       { title: "Sign in · Qayyimni" },
@@ -43,7 +47,8 @@ function signupPasswordError(password: string): PasswordError | null {
 function AuthPage() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<Mode>("signin");
+  const searchMode = Route.useSearch().mode;
+  const [mode, setMode] = useState<Mode>(searchMode === "signup" ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -73,6 +78,12 @@ function AuthPage() {
     setConfirmPassword("");
     setPasswordError(null);
   }, [mode]);
+
+  // Client-side navigation to /auth?mode=signup while already on /auth
+  // (e.g. a landing-page CTA re-click) must switch the form too.
+  useEffect(() => {
+    if (searchMode === "signup") setMode("signup");
+  }, [searchMode]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
