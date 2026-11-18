@@ -20,7 +20,7 @@ import {
   buildTutorStartChecklist,
   type StartStepId,
 } from "@/lib/start-checklist";
-import { PageHeader, Panel, Pill, Empty, Hero, StatChip, statusTone } from "@/components/ui-kit";
+import { PageHeader, Panel, Pill, Empty, Hero, StatCard, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { ParentContactForm } from "@/components/parent-contact-form";
 import { Input } from "@/components/ui/input";
@@ -66,7 +66,7 @@ function StartChecklistCard({
   const { t } = useI18n();
   if (checklist.allDone) return null;
   return (
-    <Panel className="mb-8">
+    <Panel className="mb-6">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-semibold">{t("startHere")}</h2>
         <span className="text-sm text-muted-foreground">
@@ -78,7 +78,7 @@ function StartChecklistCard({
           const meta = stepMeta[step.id];
           if (!meta) return null;
           return (
-            <li key={step.id} className="flex flex-wrap items-center justify-between gap-3">
+            <li key={step.id} className="flex flex-wrap items-center gap-4">
               <div>
                 <p className="font-medium">{meta.title}</p>
                 <p className="mt-0.5 text-sm text-muted-foreground">{meta.body}</p>
@@ -147,35 +147,20 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
       action: t("startReleaseAction"),
     },
   };
-  const pendingStep = checklist.steps.find((step) => !step.done);
-  const nextStep = pendingStep ? stepMeta[pendingStep.id] : undefined;
   return (
     <>
-      {/* One decision per screen: the hero names the single next step, the
-          numbers become quiet chips, and the list stays below. */}
+      {/* One decision per screen: the hero welcomes, the checklist owns the
+          next steps, and the numbers sit in between as big cards. */}
       <Hero
-        kicker={t("heroKicker")}
-        title={
-          nextStep ? (
-            <>
-              {t("heroNext")} <span className="signal">{nextStep.title}</span>
-            </>
-          ) : (
-            t("teacherHomeTitle")
-          )
-        }
-        body={nextStep ? nextStep.body : t("heroTeacherBody")}
+        title={t("teacherHomeTitle")}
+        body={t("heroTeacherBody")}
         actions={
           <>
-            {nextStep ? (
+            {checklist.allDone ? (
               <Button asChild size="lg" className="lift">
-                <Link to={nextStep.to}>{nextStep.action}</Link>
+                <Link to="/assessments">{t("startAssessmentAction")}</Link>
               </Button>
-            ) : (
-              <Button asChild size="lg" className="lift">
-                <Link to="/assessments">{t("newAssessment")}</Link>
-              </Button>
-            )}
+            ) : null}
             <Button asChild variant="secondary">
               <Link to="/assistant">{t("assistantTitle")}</Link>
             </Button>
@@ -183,19 +168,23 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
         }
         hint={t("heroTeacherHint")}
       />
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {cards.map((c) => (
-          <StatChip key={c.label} label={c.label} value={c.value} />
+          <StatCard key={c.label} label={c.label} value={c.value} />
         ))}
       </div>
       {data && <StartChecklistCard checklist={checklist} stepMeta={stepMeta} />}
-      <h2 className="mb-3 mt-8 text-lg font-semibold">{t("assessments")}</h2>
-      {data && data.assessments.length === 0 ? (
+      <h2 className="mb-4 mt-6 text-lg font-semibold">{t("assessments")}</h2>
+      {!data ? (
+        <Empty>
+          <p>{t("loading")}</p>
+        </Empty>
+      ) : data.assessments.length === 0 ? (
         <Empty>
           <p>{t("noAssessments")}</p>
           <div className="mt-4">
             <Button asChild>
-              <Link to="/assessments">{t("newAssessment")}</Link>
+              <Link to="/assessments">{t("startAssessmentAction")}</Link>
             </Button>
           </div>
         </Empty>
@@ -269,33 +258,18 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
       action: t("newAssessment"),
     },
   };
-  const pendingStep = tutorChecklist.steps.find((step) => !step.done);
-  const nextStep = pendingStep ? tutorStepMeta[pendingStep.id] : undefined;
   return (
     <>
       <Hero
-        kicker={t("heroKicker")}
-        title={
-          nextStep ? (
-            <>
-              {t("heroNext")} <span className="signal">{nextStep.title}</span>
-            </>
-          ) : (
-            t("tutorHomeTitle")
-          )
-        }
-        body={nextStep ? nextStep.body : t("heroTutorBody")}
+        title={t("tutorHomeTitle")}
+        body={t("heroTutorBody")}
         actions={
           <>
-            {nextStep ? (
-              <Button asChild size="lg" className="lift">
-                <Link to={nextStep.to}>{nextStep.action}</Link>
-              </Button>
-            ) : (
+            {tutorChecklist.allDone ? (
               <Button asChild size="lg" className="lift">
                 <Link to="/lessons">{t("createLesson")}</Link>
               </Button>
-            )}
+            ) : null}
             <Button asChild variant="secondary">
               <Link to="/assistant">{t("assistantTitle")}</Link>
             </Button>
@@ -303,14 +277,26 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
         }
         hint={t("heroTutorHint")}
       />
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
         {cards.map((c) => (
-          <StatChip key={c.label} label={c.label} value={c.value} />
+          <StatCard key={c.label} label={c.label} value={c.value} />
         ))}
       </div>
-      <h2 className="mb-3 mt-8 text-lg font-semibold">{t("lessons")}</h2>
-      {data && data.lessons.length === 0 ? (
-        <Empty>{t("noLessons")}</Empty>
+      {data && <StartChecklistCard checklist={tutorChecklist} stepMeta={tutorStepMeta} />}
+      <h2 className="mb-4 mt-6 text-lg font-semibold">{t("lessons")}</h2>
+      {!data ? (
+        <Empty>
+          <p>{t("loading")}</p>
+        </Empty>
+      ) : data.lessons.length === 0 ? (
+        <Empty>
+          <p>{t("noLessons")}</p>
+          <div className="mt-4">
+            <Button asChild>
+              <Link to="/lessons">{t("createLesson")}</Link>
+            </Button>
+          </div>
+        </Empty>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {data?.lessons.slice(0, 6).map((l) => (
@@ -351,12 +337,9 @@ function AdminHome({ name }: { name: string }) {
           </Button>
         }
       />
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {cards.map((c) => (
-          <Panel key={c.label}>
-            <p className="text-sm text-muted-foreground">{c.label}</p>
-            <p className="mt-2 font-display text-3xl font-bold text-primary">{c.value ?? "—"}</p>
-          </Panel>
+          <StatCard key={c.label} label={c.label} value={c.value} />
         ))}
       </div>
     </>
@@ -491,7 +474,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
                 maxLength={80}
                 required
               />
-              <p className="mt-1.5 text-xs text-muted-foreground">{t("nameRequiredHint")}</p>
+              <p className="mt-1.5 text-sm text-muted-foreground">{t("nameRequiredHint")}</p>
             </div>
             <Button type="submit" variant="secondary">
               {t("saveName")}
@@ -514,7 +497,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
         </Panel>
       ) : null}
 
-      <Panel className="mb-8">
+      <Panel className="mb-6">
         <form id="join" onSubmit={join} className="flex flex-wrap items-end gap-3">
           <div className="flex-1">
             <label htmlFor="code" className="text-sm font-medium">
@@ -668,7 +651,7 @@ function StudentHome({ name, studentId }: { name: string; studentId: string }) {
       </details>
       {/* (2) My lessons — lessons this student enrolled in (tutor track). */}
       <h2 className="mb-3 mt-10 text-lg font-semibold">{t("myLessons")}</h2>
-      <Panel className="mb-8">
+      <Panel className="mb-6">
         <form onSubmit={enroll} className="flex flex-wrap items-end gap-3">
           <div className="flex-1">
             <label htmlFor="lesson-code" className="text-sm font-medium">
