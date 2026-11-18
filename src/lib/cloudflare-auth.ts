@@ -460,4 +460,4 @@ export function sessionCookieHeader(rawToken: string, expiresAt: string): string
 /** Cookie header value that clears the session cookie. */
 export function clearSessionCookieHeader(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
-      }
+}
