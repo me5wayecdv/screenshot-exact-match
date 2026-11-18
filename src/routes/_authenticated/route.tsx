@@ -22,6 +22,7 @@ import {
   MessageSquare,
   MessageSquareText,
   MoreHorizontal,
+  ChevronDown,
   User,
 } from "lucide-react";
 import { getMeD1, signOutD1 } from "@/server/d1-auth-fns";
@@ -155,45 +156,68 @@ function AppShell() {
           </Link>
         </div>
 
-        <nav aria-label={t("brand")} className="flex flex-col gap-1 px-3 py-5">
+        <nav
+          aria-label={t("brand")}
+          className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-3 py-4"
+        >
           {primary.map((item) => (
             <Link
               key={item.to}
               to={item.to}
-              className="app-nav-link flex min-h-11 items-center gap-3 whitespace-nowrap rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
+              className="app-nav-link flex min-h-11 items-center gap-3 whitespace-nowrap rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              activeProps={{
+                className: "bg-sidebar-accent text-sidebar-primary",
+                "aria-current": "page",
+              }}
             >
               <item.icon className="size-4 shrink-0" aria-hidden />
               <span>{item.label}</span>
             </Link>
           ))}
           {secondary.length > 0 ? (
-            <button
-              type="button"
-              aria-expanded={moreOpen}
-              onClick={() => setMoreOpen((open) => !open)}
-              className="flex min-h-11 items-center gap-3 rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            >
-              <MoreHorizontal className="size-4 shrink-0" aria-hidden />
-              <span>{t("navMore")}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                aria-expanded={moreOpen}
+                aria-controls="sidebar-more-menu"
+                onClick={() => setMoreOpen((open) => !open)}
+                className="app-nav-link flex min-h-11 items-center gap-3 whitespace-nowrap rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              >
+                <MoreHorizontal className="size-4 shrink-0" aria-hidden />
+                <span>{t("navMore")}</span>
+                <ChevronDown
+                  className={`ms-auto size-4 shrink-0 transition-transform duration-200 ${moreOpen ? "rotate-180" : ""}`}
+                  aria-hidden
+                />
+              </button>
+              <div
+                id="sidebar-more-menu"
+                className={`grid transition-[grid-template-rows] duration-200 ease-out ${moreOpen ? "[grid-template-rows:1fr]" : "[grid-template-rows:0fr]"}`}
+              >
+                <div className={`overflow-hidden ${moreOpen ? "" : "invisible"}`}>
+                  {/* The thin side line ties the submenu to "More"; every
+                      submenu icon shares one vertical line inside it. */}
+                  <div className="ms-5 flex flex-col gap-1 border-s border-sidebar-border ps-2">
+                    {secondary.map((item) => (
+                      <Link
+                        key={item.to}
+                        to={item.to}
+                        className="app-nav-link flex min-h-11 items-center gap-3 whitespace-nowrap rounded-sm px-3 py-2 text-sm font-medium text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                        activeProps={{
+                          className: "bg-sidebar-accent text-sidebar-primary",
+                          "aria-current": "page",
+                        }}
+                      >
+                        <item.icon className="size-4 shrink-0" aria-hidden />
+                        <span>{item.label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
           ) : null}
-          {moreOpen
-            ? secondary.map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  className="flex min-h-10 items-center gap-3 rounded-sm px-3 py-2 ps-9 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                  activeProps={{ className: "bg-sidebar-accent text-sidebar-primary" }}
-                >
-                  <item.icon className="size-4 shrink-0" aria-hidden />
-                  <span>{item.label}</span>
-                </Link>
-              ))
-            : null}
         </nav>
-
-        <div className="flex-1" />
         <div className="border-t border-sidebar-border p-4">
           <div className="flex items-center gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-full border border-sidebar-border bg-sidebar-accent font-display text-sm font-bold text-sidebar-primary">
@@ -246,7 +270,7 @@ function AppShell() {
         </main>
 
         {moreOpen && secondary.length > 0 ? (
-          <div className="fixed inset-x-3 bottom-20 z-40 md:hidden">
+          <div id="mobile-more-sheet" className="fixed inset-x-3 bottom-20 z-40 md:hidden">
             <div className="nav-sheet grid grid-cols-2 gap-1">
               {secondary.map((item) => (
                 <Link
@@ -280,6 +304,7 @@ function AppShell() {
               type="button"
               onClick={() => setMoreOpen((open) => !open)}
               aria-expanded={moreOpen}
+              aria-controls="mobile-more-sheet"
               className="tabbar-item"
             >
               <MoreHorizontal className="size-5" aria-hidden />
