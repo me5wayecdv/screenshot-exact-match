@@ -78,11 +78,11 @@
   --popover-foreground: #eef2f8;
   /* Coral: the product's voice, used for primary actions. */
   --primary: #ff6b4a;
-  --primary-foreground: #ffffff;
+  --primary-foreground: #1a0e08;
   --secondary: #1b2436;
   --secondary-foreground: #cdd8e6;
   --muted: #1b2436;
-  --muted-foreground: #93a2b8;
+  --muted-foreground: #aab7cb;
   /* Coral tints: the teacher's decision. Used on <5% of any screen. */
   --accent: #ff6b4a;
   --accent-foreground: #1a0e08;
@@ -226,7 +226,7 @@
   align-items: center;
   gap: 0.5rem;
   color: color-mix(in oklab, var(--color-foreground) 62%, transparent);
-  font-size: 0.72rem;
+  font-size: 0.875rem;
   font-weight: 600;
   letter-spacing: 0;
 }
@@ -381,10 +381,10 @@
 .console-hero {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--color-sidebar);
-  border-radius: var(--radius-xl);
-  background: var(--color-sidebar);
-  color: var(--color-sidebar-foreground);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-card);
+  color: var(--color-card-foreground);
 }
 
 .console-hero::before {
@@ -399,10 +399,6 @@
 
 .console-hero > * {
   position: relative;
-}
-
-.console-hero .section-kicker {
-  color: color-mix(in oklab, var(--color-sidebar-foreground) 66%, transparent);
 }
 
 /* Emphasis without a highlighter: a bronze underline under two words. */
@@ -441,25 +437,6 @@
   &:hover {
     border-color: color-mix(in oklab, var(--color-foreground) 24%, var(--color-border));
   }
-}
-
-/* Quiet number+label used instead of four big cards. */
-.stat-chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-card);
-  padding: 0.25rem 0.6rem;
-  font-size: 0.8rem;
-}
-
-.stat-chip strong {
-  font-family: var(--font-mono);
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--color-foreground);
 }
 
 /* Mobile bottom navigation: one tap to the four things people actually do. */
