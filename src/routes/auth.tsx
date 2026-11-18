@@ -53,6 +53,10 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState<PasswordError | null>(null);
+  // Failed sign-in shows this inline error (user request 2026-11-19:
+  // the toast vanished after a few seconds, before he could read it).
+  // It stays until the user edits a field or submits again.
+  const [signInError, setSignInError] = useState<string | null>(null);
   // The password is shown while typing on both sign-in and signup (user
   // request), with an eye toggle to hide it.
   const [showPassword, setShowPassword] = useState(true);
@@ -77,6 +81,7 @@ function AuthPage() {
   useEffect(() => {
     setConfirmPassword("");
     setPasswordError(null);
+    setSignInError(null);
   }, [mode]);
 
   // Client-side navigation to /auth?mode=signup while already on /auth
@@ -88,6 +93,7 @@ function AuthPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setSignInError(null);
     try {
       if (mode === "signin") {
         await signInD1({ data: { email, password } });
@@ -157,7 +163,11 @@ function AuthPage() {
         toast.success(t("resetSent"));
       }
     } catch (err) {
-      toast.error(translateError(err, lang));
+      if (mode === "signin") {
+        setSignInError(translateError(err, lang));
+      } else {
+        toast.error(translateError(err, lang));
+      }
     } finally {
       setBusy(false);
     }
@@ -296,7 +306,10 @@ function AuthPage() {
                   required
                   autoComplete="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setSignInError(null);
+                  }}
                 />
               </div>
               {mode !== "forgot" && (
@@ -313,6 +326,7 @@ function AuthPage() {
                       value={password}
                       onChange={(e) => {
                         setPassword(e.target.value);
+                        setSignInError(null);
                         if (mode === "signup") {
                           setPasswordError(signupPasswordError(e.target.value));
                         }
@@ -380,6 +394,11 @@ function AuthPage() {
                     </button>
                   </div>
                 </div>
+              )}
+              {signInError !== null && (
+                <p role="alert" className="text-xs font-medium text-destructive">
+                  {signInError}
+                </p>
               )}
               <Button type="submit" className="mt-2 h-11 w-full" disabled={busy}>
                 {busy
