@@ -262,6 +262,15 @@ describe("custom auth core", () => {
     ).rejects.toMatchObject({ code: "WEAK_PASSWORD" });
     await expect(
       signUp(store, {
+        email: "arabic@example.com",
+        password: "كلمةالسر123",
+        fullName: "Arabic",
+        role: "student",
+        iterations: 1000,
+      }),
+    ).rejects.toMatchObject({ code: "PASSWORD_NOT_LATIN" });
+    await expect(
+      signUp(store, {
         email: "not-an-email",
         password: "correct-horse-battery",
         fullName: "Bad",

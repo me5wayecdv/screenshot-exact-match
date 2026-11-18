@@ -89,6 +89,12 @@ describe("translateError — server error classes are code-only", () => {
     expect(translateError(new Error("WEAK_PASSWORD"), "ar")).toBe(
       "كلمة السر ضعيفة — خليها أطول وأقوى.",
     );
+    expect(translateError(new Error("PASSWORD_NOT_LATIN"), "ar")).toBe(
+      "كلمة السر لازم تكون حروف إنجليزية أو أرقام أو رموز — الحروف العربية مش مسموحة.",
+    );
+    expect(translateError(new Error("PASSWORD_NOT_LATIN"), "en")).toBe(
+      "Password can only use English letters, digits, and symbols — Arabic characters are not allowed.",
+    );
     expect(translateError(new Error("SESSION_EXPIRED"), "ar")).toBe("جلستك خلصت — سجّل دخول تاني.");
   });
 

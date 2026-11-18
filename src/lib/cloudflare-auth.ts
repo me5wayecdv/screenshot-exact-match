@@ -125,6 +125,12 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // src/test/pbkdf2-iterations.test.ts.
 export const PBKDF2_ITERATIONS = 100_000;
 export const MIN_PASSWORD_LENGTH = 8;
+// Sign-up passwords are printable ASCII only (English letters, digits,
+// symbols, spaces). Arabic and other non-ASCII characters are rejected so
+// a password typed with an Arabic keyboard layout fails loudly at sign-up
+// instead of being stored and mistyped at sign-in. Sign-in has no format
+// rules, so older passwords keep working.
+export const PASSWORD_ASCII_REGEX = /^[\x20-\x7E]+$/;
 
 export class AuthError extends Error {
   constructor(
@@ -133,6 +139,7 @@ export class AuthError extends Error {
       | "EMAIL_TAKEN"
       | "INVALID_EMAIL"
       | "WEAK_PASSWORD"
+      | "PASSWORD_NOT_LATIN"
       | "INVALID_ROLE"
       | "SESSION_EXPIRED"
       | "SESSION_REVOKED"
@@ -290,6 +297,7 @@ export async function signUp(
   const email = normalizeEmail(input.email);
   if (!isValidEmail(email)) throw new AuthError("INVALID_EMAIL");
   if (input.password.length < MIN_PASSWORD_LENGTH) throw new AuthError("WEAK_PASSWORD");
+  if (!PASSWORD_ASCII_REGEX.test(input.password)) throw new AuthError("PASSWORD_NOT_LATIN");
   if (!SIGNUP_ROLES.includes(input.role as SignUpRole)) throw new AuthError("INVALID_ROLE");
   // The form marks the name required, but the server never checked it:
   // an empty name sailed through and was stored as "". The zod

@@ -27,6 +27,19 @@ export const Route = createFileRoute("/auth")({
 
 type Mode = "signin" | "signup" | "forgot";
 
+type PasswordError = "passwordTooShort" | "passwordNotLatin";
+
+// Sign-up password rules, mirrored on the server (PASSWORD_ASCII_REGEX in
+// cloudflare-auth.ts): at least 8 characters, printable ASCII only —
+// Arabic characters are rejected. Empty means "no opinion yet": the error
+// appears only once the user has typed something wrong.
+function signupPasswordError(password: string): PasswordError | null {
+  if (password === "") return null;
+  if (password.length < 8) return "passwordTooShort";
+  if (!/^[\x20-\x7E]+$/.test(password)) return "passwordNotLatin";
+  return null;
+}
+
 function AuthPage() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
@@ -34,6 +47,7 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState<PasswordError | null>(null);
   // New accounts: the password is shown while typing (user request), with
   // an eye toggle to hide it. Sign-in keeps the masked field.
   const [showPassword, setShowPassword] = useState(true);
@@ -57,6 +71,7 @@ function AuthPage() {
 
   useEffect(() => {
     setConfirmPassword("");
+    setPasswordError(null);
   }, [mode]);
 
   async function onSubmit(e: FormEvent) {
@@ -69,6 +84,11 @@ function AuthPage() {
         qc.clear();
         navigate({ to: "/dashboard", replace: true });
       } else if (mode === "signup") {
+        const pwError = signupPasswordError(password);
+        if (pwError) {
+          setPasswordError(pwError);
+          return;
+        }
         if (password !== confirmPassword) {
           toast.error(t("passwordMismatch"));
           return;
@@ -280,7 +300,14 @@ function AuthPage() {
                       minLength={8}
                       autoComplete={mode === "signup" ? "new-password" : "current-password"}
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        if (mode === "signup") {
+                          setPasswordError(signupPasswordError(e.target.value));
+                        }
+                      }}
+                      aria-invalid={mode === "signup" && passwordError !== null}
+                      aria-describedby={mode === "signup" ? "password-feedback" : undefined}
                       className={mode === "signup" ? "pe-10" : undefined}
                     />
                     {mode === "signup" && (
@@ -299,6 +326,19 @@ function AuthPage() {
                       </button>
                     )}
                   </div>
+                  {mode === "signup" && (
+                    <p
+                      id="password-feedback"
+                      role={passwordError ? "alert" : undefined}
+                      className={
+                        passwordError
+                          ? "text-xs font-medium text-destructive"
+                          : "text-xs text-muted-foreground"
+                      }
+                    >
+                      {passwordError ? t(passwordError) : t("passwordHint")}
+                    </p>
+                  )}
                 </div>
               )}
               {mode === "signup" && (
