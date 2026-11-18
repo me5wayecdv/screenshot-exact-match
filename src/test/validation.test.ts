@@ -103,6 +103,10 @@ describe("signUpSchema — valid inputs", () => {
     expect(signUpSchema.parse({ ...validTeacher, password: " 1234567" })).toBeTruthy();
   });
 
+  it("accepts an ASCII password mixing letters, digits, and symbols", () => {
+    expect(signUpSchema.parse({ ...validTeacher, password: "Teach3r!_pass" })).toBeTruthy();
+  });
+
   it("accepts null/omitted optional fields", () => {
     expect(
       signUpSchema.parse({
@@ -131,6 +135,18 @@ describe("signUpSchema — invalid inputs", () => {
 
   it("rejects a 7-character password as WEAK_PASSWORD", () => {
     expect(thrownCode(() => validateSignUpInput({ ...validTeacher, password: "1234567" }))).toBe(
+      "WEAK_PASSWORD",
+    );
+  });
+
+  it("rejects a password with Arabic characters as PASSWORD_NOT_LATIN", () => {
+    expect(
+      thrownCode(() => validateSignUpInput({ ...validTeacher, password: "كلمةالسر123" })),
+    ).toBe("PASSWORD_NOT_LATIN");
+  });
+
+  it("rejects a short Arabic password as WEAK_PASSWORD (length wins, same as signUp)", () => {
+    expect(thrownCode(() => validateSignUpInput({ ...validTeacher, password: "قصيرة" }))).toBe(
       "WEAK_PASSWORD",
     );
   });
