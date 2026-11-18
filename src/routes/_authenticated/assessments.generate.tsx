@@ -19,6 +19,7 @@ import type { GenerateDifficulty, GenerateQuestionType } from "@/lib/generate-as
 import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
 import { getHandwritingStatus } from "@/server/handwritten";
 import { listSubjectsD1, uploadGenerationSourceD1 } from "@/server/d1-generation";
+import { takeGenerateHandoff, dataUrlToFile } from "@/lib/generate-handoff";
 import { ocrSourceImages, type SourceOcrResult } from "@/server/source-ocr";
 
 // Route file convention (verified against the repo listing at HEAD):
@@ -190,6 +191,21 @@ function Generate() {
     null,
   );
   const [visionOk, setVisionOk] = useState<boolean | null>(null);
+
+  // Consume a handoff from the assessments index AI card (PDF and/or
+  // pasted text) so that page stays a light entry point and this page stays
+  // the single place the generation pipeline runs.
+  useEffect(() => {
+    const handed = takeGenerateHandoff();
+    if (handed?.file) {
+      void handleDocFile(dataUrlToFile(handed.file.name, handed.file.dataUrl));
+    }
+    if (handed?.text) {
+      setSourceText((prev) => appendSource(prev, handed.text ?? ""));
+    }
+    // Runs once on mount; handleDocFile/appendSource are per-render closures.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     getHandwritingStatus({ data: {} })
