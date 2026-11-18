@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 import { ArrowUpLeft, Check, ClipboardCheck, ClipboardList, Eye, EyeOff } from "lucide-react";
@@ -47,14 +47,14 @@ function signupPasswordError(password: string): PasswordError | null {
 function AuthPage() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
-  const searchMode = Route.useSearch().mode;
+  const searchMode = useSearch({ from: "/auth" }).mode;
   const [mode, setMode] = useState<Mode>(searchMode === "signup" ? "signup" : "signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState<PasswordError | null>(null);
-  // New accounts: the password is shown while typing (user request), with
-  // an eye toggle to hide it. Sign-in keeps the masked field.
+  // The password is shown while typing on both sign-in and signup (user
+  // request), with an eye toggle to hide it.
   const [showPassword, setShowPassword] = useState(true);
   const [name, setName] = useState("");
   const [role, setRole] = useState<"school_teacher" | "tutor" | "student">("school_teacher");
@@ -305,7 +305,7 @@ function AuthPage() {
                   <div className="relative">
                     <Input
                       id="password"
-                      type={mode === "signup" && showPassword ? "text" : "password"}
+                      type={showPassword ? "text" : "password"}
                       dir="ltr"
                       required
                       minLength={8}
@@ -319,23 +319,21 @@ function AuthPage() {
                       }}
                       aria-invalid={mode === "signup" && passwordError !== null}
                       aria-describedby={mode === "signup" ? "password-feedback" : undefined}
-                      className={mode === "signup" ? "pe-10" : undefined}
+                      className="pe-10"
                     />
-                    {mode === "signup" && (
-                      <button
-                        type="button"
-                        aria-label={showPassword ? t("hidePassword") : t("showPassword")}
-                        aria-pressed={showPassword}
-                        onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
-                      >
-                        {showPassword ? (
-                          <EyeOff className="size-4" aria-hidden />
-                        ) : (
-                          <Eye className="size-4" aria-hidden />
-                        )}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      aria-label={showPassword ? t("hidePassword") : t("showPassword")}
+                      aria-pressed={showPassword}
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="size-4" aria-hidden />
+                      ) : (
+                        <Eye className="size-4" aria-hidden />
+                      )}
+                    </button>
                   </div>
                   {mode === "signup" && (
                     <p
