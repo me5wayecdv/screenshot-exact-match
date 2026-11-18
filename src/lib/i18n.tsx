@@ -120,6 +120,10 @@ const dict = {
     password: "كلمة المرور",
     confirmPassword: "تأكيد كلمة المرور",
     passwordMismatch: "كلمتا المرور غير متطابقتين.",
+    passwordHint: "8 حروف إنجليزية على الأقل — الحروف العربية مش مسموحة.",
+    passwordTooShort: "كلمة السر قصيرة — لازم تكون 8 حروف على الأقل.",
+    passwordNotLatin:
+      "كلمة السر لازم تكون حروف إنجليزية أو أرقام أو رموز — الحروف العربية مش مسموحة.",
     showPassword: "إظهار كلمة المرور",
     hidePassword: "إخفاء كلمة المرور",
     fullName: "الاسم الكامل",
@@ -1073,6 +1077,10 @@ const dict = {
     password: "Password",
     confirmPassword: "Confirm password",
     passwordMismatch: "Passwords do not match.",
+    passwordHint: "At least 8 English characters — Arabic letters are not allowed.",
+    passwordTooShort: "Password is too short — it must be at least 8 characters.",
+    passwordNotLatin:
+      "Password can only use English letters, digits, and symbols — Arabic characters are not allowed.",
     showPassword: "Show password",
     hidePassword: "Hide password",
     fullName: "Full name",
@@ -2014,6 +2022,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
     ar: "كلمة السر ضعيفة — خليها أطول وأقوى.",
     en: "That password is too weak — make it longer and stronger.",
   },
+  PASSWORD_NOT_LATIN: {
+    ar: "كلمة السر لازم تكون حروف إنجليزية أو أرقام أو رموز — الحروف العربية مش مسموحة.",
+    en: "Password can only use English letters, digits, and symbols — Arabic characters are not allowed.",
+  },
   SESSION_EXPIRED: {
     ar: "جلستك خلصت — سجّل دخول تاني.",
     en: "Your session expired — sign in again.",
@@ -2366,4 +2378,4 @@ export function formatDate(d: string | null | undefined, lang: Lang) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(d));
-}
+    }
