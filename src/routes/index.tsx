@@ -110,6 +110,7 @@ function Landing() {
             </Link>
             <Link
               to="/auth"
+              search={{ mode: "signup" }}
               className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               style={{ background: PINE }}
             >
@@ -150,6 +151,7 @@ function Landing() {
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
                   to="/auth"
+                  search={{ mode: "signup" }}
                   className="inline-flex h-12 items-center gap-2 rounded-xl px-6 text-[0.95rem] font-bold text-white transition-opacity hover:opacity-90"
                   style={{ background: PINE }}
                 >
@@ -372,6 +374,7 @@ function Landing() {
               </div>
               <Link
                 to="/auth"
+                search={{ mode: "signup" }}
                 className="inline-flex h-12 shrink-0 items-center gap-3 rounded-xl px-6 text-sm font-bold text-white hover:opacity-90"
                 style={{ background: PINE }}
               >
