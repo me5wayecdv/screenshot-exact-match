@@ -49,6 +49,15 @@ import { isValidEgyptianMobile, normalizePhoneInput } from "@/lib/whatsapp";
 /** Same pattern as isValidEmail in cloudflare-auth.ts. */
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Optional sign-up avatar: a JPEG/PNG data URL produced by the auth
+ * form's client-side canvas resize. Shape + size are validated here so
+ * a tampered payload fails as INVALID_INPUT before any account work;
+ * the server re-decodes defensively before storing (d1-avatars.ts).
+ */
+export const AVATAR_DATA_URL_MAX = 300_000;
+export const AVATAR_DATA_URL_RE = /^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/;
+
 export const signUpSchema = z
   .object({
     email: z.string().trim().toLowerCase().regex(EMAIL_REGEX),
@@ -62,6 +71,7 @@ export const signUpSchema = z
     teacherPhone: z.string().nullish(),
     subjects: z.string().nullish(),
     school: z.string().nullish(),
+    avatar: z.string().max(AVATAR_DATA_URL_MAX).regex(AVATAR_DATA_URL_RE).nullish(),
   })
   .superRefine((data, ctx) => {
     // Teacher phone rule, same as signUp in cloudflare-auth.ts:
