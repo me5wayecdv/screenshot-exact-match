@@ -68,6 +68,11 @@ function AuthPage() {
   // teacher and verify they are real. Subjects/school were removed
   // from signup (2026-11-06, user request); the server stores null.
   const [teacherPhone, setTeacherPhone] = useState("");
+  // Optional sign-up avatar: the file is cropped square + resized to a
+  // 256px JPEG in a canvas, then sent as a data URL inside the sign-up
+  // call (there is no session yet, so the server stores it under the
+  // just-created user's own R2 prefix).
+  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const qc = useQueryClient();
 
@@ -141,6 +146,7 @@ function AuthPage() {
             password,
             fullName: name,
             role,
+            avatar: avatarDataUrl,
             parentPhone: role === "student" ? cleanedPhone : null,
             teacherPhone:
               role === "school_teacher" || role === "tutor" ? cleanedTeacherPhone : null,
@@ -170,6 +176,27 @@ function AuthPage() {
       }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onPickAvatar(file: File | undefined) {
+    if (!file) return;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const SIZE = 256;
+      const side = Math.min(bitmap.width, bitmap.height);
+      const sx = (bitmap.width - side) / 2;
+      const sy = (bitmap.height - side) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = SIZE;
+      canvas.height = SIZE;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("no-canvas");
+      ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, SIZE, SIZE);
+      bitmap.close();
+      setAvatarDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+    } catch {
+      toast.error(t("avatarInvalid"));
     }
   }
 
@@ -258,6 +285,29 @@ function AuthPage() {
                       ))}
                     </div>
                   </fieldset>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="avatar-upload">{t("avatarOptional")}</Label>
+                    <div className="flex items-center gap-3">
+                      <label
+                        htmlFor="avatar-upload"
+                        className="grid size-14 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-full border border-dashed border-border bg-muted text-xs text-muted-foreground transition-colors hover:bg-accent"
+                      >
+                        {avatarDataUrl ? (
+                          <img src={avatarDataUrl} alt="" className="size-full object-cover" />
+                        ) : (
+                          <span aria-hidden>+</span>
+                        )}
+                      </label>
+                      <input
+                        id="avatar-upload"
+                        type="file"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={(e) => void onPickAvatar(e.target.files?.[0])}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("avatarOptionalHint")}</p>
+                    </div>
+                  </div>
                 </>
               )}
               {mode === "signup" && (role === "school_teacher" || role === "tutor") && (
