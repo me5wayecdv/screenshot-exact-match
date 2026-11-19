@@ -736,6 +736,10 @@ const dict = {
     teacherPhoneInvalid: "رقم موبايل المعلم لازم يكون رقم مصري صحيح (010/011/012/015).",
     accountPendingNotice:
       "تم إرسال طلبك — حسابك بانتظار موافقة الأدمن، جرّب تدخل تاني بعد الموافقة.",
+    avatarOptional: "صورة شخصية (اختياري)",
+    avatarOptionalHint: "هتظهر جنب اسمك — ممكن تسيبها فاضية.",
+    avatarProfileHint: "الصورة الشخصية بتتختار وقت إنشاء الحساب.",
+    avatarInvalid: "تعذّر قراءة الصورة — جرّب صورة تانية.",
     resetPassword: "تعيين كلمة سر مؤقتة",
     tempPasswordLabel: "كلمة السر المؤقتة",
     tempPasswordNote:
@@ -1726,6 +1730,10 @@ const dict = {
     teacherPhoneInvalid: "The teacher's mobile must be a valid Egyptian mobile (010/011/012/015).",
     accountPendingNotice:
       "Request sent — your account is waiting for admin approval; try signing in again after approval.",
+    avatarOptional: "Profile picture (optional)",
+    avatarOptionalHint: "Shown next to your name — you can leave it empty.",
+    avatarProfileHint: "Your picture is chosen when the account is created.",
+    avatarInvalid: "Could not read that image — try another one.",
     resetPassword: "Set temporary password",
     tempPasswordLabel: "Temporary password",
     tempPasswordNote:
