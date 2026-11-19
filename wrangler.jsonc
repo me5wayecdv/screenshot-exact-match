@@ -74,6 +74,10 @@
       "binding": "SOURCES_BUCKET",
       "bucket_name": "qemmini-generation-sources",
     },
+    {
+      "binding": "AVATARS_BUCKET",
+      "bucket_name": "qemmini-avatars",
+    },
   ],
   // Phase 4 (2026-11-10): one TakeSession Durable Object per exam.
   // The binding TAKE_SESSIONS is read by src/server/d1.ts

@@ -71,6 +71,10 @@
     {
       "binding": "SOURCES_BUCKET",
       "bucket_name": "qemmini-generation-sources"
+    },
+    {
+      "binding": "AVATARS_BUCKET",
+      "bucket_name": "qemmini-avatars"
     }
   ],
   // MailChannels Workers integration (cutover gap #1, second provider).

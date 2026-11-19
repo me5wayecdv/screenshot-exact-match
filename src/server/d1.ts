@@ -71,6 +71,7 @@ export type CloudflareEnv = {
   DB?: D1Database;
   PAPERS_BUCKET?: R2BucketLike;
   SOURCES_BUCKET?: R2BucketLike;
+  AVATARS_BUCKET?: R2BucketLike;
   SEB?: SendEmailBindingLike;
   TAKE_SESSIONS?: TakeSessionsNamespaceLike;
   [key: string]: unknown;
@@ -78,9 +79,14 @@ export type CloudflareEnv = {
 
 let injectedDb: D1Database | null = null;
 let injectedTakeSessions: TakeSessionsNamespaceLike | null = null;
-let injectedR2: { papers: R2BucketLike | null; sources: R2BucketLike | null } = {
+let injectedR2: {
+  papers: R2BucketLike | null;
+  sources: R2BucketLike | null;
+  avatars: R2BucketLike | null;
+} = {
   papers: null,
   sources: null,
+  avatars: null,
 };
 
 /** Test/smoke-script injection only. Never call from production code. */
@@ -92,8 +98,13 @@ export function setD1Binding(db: D1Database | null): void {
 export function setR2Bindings(buckets: {
   papers?: R2BucketLike | null;
   sources?: R2BucketLike | null;
+  avatars?: R2BucketLike | null;
 }): void {
-  injectedR2 = { papers: buckets.papers ?? null, sources: buckets.sources ?? null };
+  injectedR2 = {
+    papers: buckets.papers ?? null,
+    sources: buckets.sources ?? null,
+    avatars: buckets.avatars ?? null,
+  };
 }
 
 /** Test injection for the take-sessions DO namespace binding only.
@@ -150,6 +161,13 @@ export async function getSourcesBucket(): Promise<R2BucketLike> {
   const env = await loadWorkerEnv();
   if (env?.SOURCES_BUCKET) return env.SOURCES_BUCKET;
   throw notWired("R2_SOURCES");
+}
+
+export async function getAvatarsBucket(): Promise<R2BucketLike> {
+  if (injectedR2.avatars) return injectedR2.avatars;
+  const env = await loadWorkerEnv();
+  if (env?.AVATARS_BUCKET) return env.AVATARS_BUCKET;
+  throw notWired("R2_AVATARS");
 }
 
 /** Async accessor for the take-sessions Durable Object namespace

@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getMyProfileExtraD1, updateMyFullNameD1, updateMySubjectD1 } from "@/server/d1-profile";
-import { useMe } from "@/lib/session";
+import { useMe, useMyAvatar } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { PageHeader, Panel } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ export const Route = createFileRoute("/_authenticated/profile")({
 function Profile() {
   const { t, lang } = useI18n();
   const { data: me } = useMe();
+  const { data: avatar } = useMyAvatar(!!me);
   const qc = useQueryClient();
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? me?.fullName ?? "";
@@ -70,6 +71,20 @@ function Profile() {
     <>
       <PageHeader title={t("profile")} />
       <Panel className="mb-8">
+        <div className="mb-4 flex items-center gap-4">
+          {avatar?.dataUrl ? (
+            <img
+              src={avatar.dataUrl}
+              alt=""
+              className="size-16 shrink-0 rounded-full border border-border object-cover"
+            />
+          ) : (
+            <span className="grid size-16 shrink-0 place-items-center rounded-full border border-border bg-muted font-display text-2xl font-bold text-primary">
+              {me?.fullName?.trim().slice(0, 1) || "·"}
+            </span>
+          )}
+          <p className="text-sm text-muted-foreground">{t("avatarProfileHint")}</p>
+        </div>
         <form onSubmit={save} className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="profile-name">{t("fullName")}</Label>
