@@ -24,6 +24,7 @@ import { getRequest, getRequestIP, setCookie, deleteCookie } from "@tanstack/rea
 import { getD1Async } from "@/server/d1";
 import { createD1AuthStore, newTeacherJoinCode, setTeacherJoinCode } from "@/server/d1-auth-store";
 import { appendAuditLog } from "@/server/d1-admin";
+import { getAvatarDataUrl, putAvatar } from "@/server/d1-avatars";
 import {
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -164,6 +165,18 @@ export const signUpD1 = createServerFn({ method: "POST" })
     if (isTeacherRole(data.role as "school_teacher" | "tutor")) {
       await assignTeacherJoinCode(db, result.userId);
     }
+    // Optional sign-up avatar: stored under the new user's own R2
+    // prefix (there is no session yet, so the key derives from the
+    // just-created user id). Best-effort like the audit write below —
+    // a storage hiccup must not fail a sign-up whose account already
+    // exists.
+    if (data.avatar) {
+      try {
+        await putAvatar(result.userId, data.avatar);
+      } catch {
+        // Avatar skipped; the account itself is unaffected.
+      }
+    }
     // Activity feed: account signup (actor = the new account itself —
     // there is no session yet). Best-effort on purpose: a failed
     // audit write must not fail a signup that already created the
@@ -198,6 +211,15 @@ export const getMeD1 = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const { session, db } = context as { session: AuthSession; db: D1Database };
     return getMeData(db, session);
+  });
+
+/** The session user's own avatar as a data URL (null when none was set). */
+export const getMyAvatarD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => data)
+  .handler(async ({ context }) => {
+    const { session } = context as { session: AuthSession };
+    return { dataUrl: await getAvatarDataUrl(session.userId) };
   });
 
 /**
