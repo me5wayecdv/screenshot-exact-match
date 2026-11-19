@@ -879,7 +879,7 @@ const dict = {
       "هذه مسودة فقط: راجع كل سؤال وإجابته ومعايير التصحيح في صفحة التحرير قبل النشر. القرار النهائي لك دائماً.",
     genSuccess: "تم توليد المسودة بنجاح.",
     genOpenBuilder: "مراجعة المسودة وتحريرها",
-    genGenerateAnother: "توليد مسودة أخرى",
+    genGenerateAnother: "توليد امتحان جديد",
     genDraftSaved: "تم حفظ {count} سؤالاً كمسودة غير منشورة.",
     genDraftSavedPartial:
       "تنبيه: طلبت {requested} سؤالاً وحُفظ {saved} فقط — الأسئلة الناقصة لم تكن صالحة من رد الذكاء. راجع المسودة وأضف الناقص يدوياً قبل النشر.",
@@ -1870,7 +1870,7 @@ const dict = {
       "This is a draft only: review every question, answer and rubric in the editor before publishing. The final decision is always yours.",
     genSuccess: "Draft generated successfully.",
     genOpenBuilder: "Review and edit draft",
-    genGenerateAnother: "Generate another draft",
+    genGenerateAnother: "Generate new exam",
     genDraftSaved: "{count} questions saved as an unpublished draft.",
     genDraftSavedPartial:
       "Heads up: you asked for {requested} questions but only {saved} were saved - the rest were invalid in the AI reply. Review the draft and add the missing ones yourself before publishing.",

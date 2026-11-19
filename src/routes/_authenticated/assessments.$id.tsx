@@ -516,6 +516,9 @@ function Builder() {
                   >
                     {flow.publish}
                   </Button>
+                  <Button variant="outline" disabled={dirtySections.size > 0} onClick={goToList}>
+                    {flow.saveDraft}
+                  </Button>
                 </div>
               </div>
             )}
