@@ -1183,4 +1183,4 @@ function QuestionEditor({
       </fieldset>
     </Panel>
   );
-            }
+}
