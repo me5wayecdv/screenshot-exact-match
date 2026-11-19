@@ -48,6 +48,7 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
     <a href={to}>{children}</a>
   ),
+  useNavigate: () => () => Promise.resolve(),
 }));
 vi.mock("@/server/d1-assessments", () => ({
   getBuilderDataD1: async () => mocks.data,
