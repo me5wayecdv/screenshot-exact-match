@@ -650,8 +650,19 @@ function MetaEditor({
     return () => onDirty("meta", false);
   }, [dirty, onDirty]);
   const [busy, setBusy] = useState(false);
+  // Inline Arabic validation under each field (aria-live via role=alert),
+  // instead of the browser's English bubble or a silent no-op.
+  const [errors, setErrors] = useState<{
+    title?: string | undefined;
+    newSubject?: string | undefined;
+  }>({});
   async function save() {
-    if (!f.title.trim()) return;
+    const nextErrors: { title?: string; newSubject?: string } = {};
+    if (!f.title.trim()) nextErrors.title = t("titleRequired");
+    if (f.subject_id === "__new__" && !newSubject.trim())
+      nextErrors.newSubject = t("newSubjectRequired");
+    setErrors(nextErrors);
+    if (nextErrors.title || nextErrors.newSubject) return;
     setBusy(true);
     try {
       // The server creates a new teacher-owned subject when
@@ -663,7 +674,7 @@ function MetaEditor({
           title: f.title.trim(),
           instructions: f.instructions,
           gradeLevel: f.grade_level,
-          subjectId: f.subject_id || null,
+          subjectId: f.subject_id === "__new__" || !f.subject_id ? null : f.subject_id,
           newSubjectName: newSubject.trim() || null,
           dueAt: f.due_at ? new Date(f.due_at).toISOString() : null,
           startsAt: f.starts_at ? new Date(f.starts_at).toISOString() : null,
@@ -694,16 +705,29 @@ function MetaEditor({
             id="m-title"
             value={f.title}
             maxLength={200}
-            onChange={(e) => setF({ ...f, title: e.target.value })}
+            aria-invalid={errors.title ? true : undefined}
+            aria-describedby={errors.title ? "m-title-error" : undefined}
+            onChange={(e) => {
+              setF({ ...f, title: e.target.value });
+              if (errors.title) setErrors((prev) => ({ ...prev, title: undefined }));
+            }}
           />
+          {errors.title ? (
+            <p id="m-title-error" role="alert" className="text-sm text-destructive">
+              {errors.title}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="m-subj">{t("subject")}</Label>
           <select
             id="m-subj"
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+            className="h-9 w-full rounded-md border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={f.subject_id}
-            onChange={(e) => setF({ ...f, subject_id: e.target.value })}
+            onChange={(e) => {
+              setF({ ...f, subject_id: e.target.value });
+              if (errors.newSubject) setErrors((prev) => ({ ...prev, newSubject: undefined }));
+            }}
           >
             <option value="">—</option>
             {subjects.map((s) => (
@@ -711,13 +735,29 @@ function MetaEditor({
                 {s.name}
               </option>
             ))}
+            <option value="__new__">{t("newSubjectOption")}</option>
           </select>
-          <Input
-            placeholder={t("newSubject")}
-            value={newSubject}
-            maxLength={80}
-            onChange={(e) => setNewSubject(e.target.value)}
-          />
+          {f.subject_id === "__new__" && (
+            <div className="space-y-1.5 pt-1.5">
+              <Label htmlFor="m-new-subj">{t("newSubject")}</Label>
+              <Input
+                id="m-new-subj"
+                value={newSubject}
+                maxLength={80}
+                aria-invalid={errors.newSubject ? true : undefined}
+                aria-describedby={errors.newSubject ? "m-new-subj-error" : undefined}
+                onChange={(e) => {
+                  setNewSubject(e.target.value);
+                  if (errors.newSubject) setErrors((prev) => ({ ...prev, newSubject: undefined }));
+                }}
+              />
+              {errors.newSubject ? (
+                <p id="m-new-subj-error" role="alert" className="text-sm text-destructive">
+                  {errors.newSubject}
+                </p>
+              ) : null}
+            </div>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="m-grade">{t("gradeLevel")}</Label>
@@ -728,15 +768,13 @@ function MetaEditor({
           />
         </div>
       </div>
-      <details className="rounded-md border p-3">
-        <summary className="cursor-pointer text-sm font-medium">
+      <fieldset className="rounded-md border p-4">
+        <legend className="px-1 text-sm font-medium">
           {lang === "ar" ? "الوقت والمحاولات والتعليمات" : "Time, attempts and instructions"}
-        </summary>
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+        </legend>
+        <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-1.5">
-            <Label htmlFor="m-due" className="pt-2">
-              {t("dueAt")}
-            </Label>
+            <Label htmlFor="m-due">{t("dueAt")}</Label>
             <Input
               id="m-due"
               type="datetime-local"
@@ -744,9 +782,9 @@ function MetaEditor({
               value={f.due_at}
               onChange={(e) => setF({ ...f, due_at: e.target.value })}
             />
-            <Label htmlFor="m-starts" className="pt-2">
-              {t("startsAt")}
-            </Label>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="m-starts">{t("startsAt")}</Label>
             <Input
               id="m-starts"
               type="datetime-local"
@@ -754,9 +792,9 @@ function MetaEditor({
               value={f.starts_at}
               onChange={(e) => setF({ ...f, starts_at: e.target.value })}
             />
-            <Label htmlFor="m-duration" className="pt-2">
-              {t("durationMinutes")}
-            </Label>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="m-duration">{t("durationMinutes")}</Label>
             <Input
               id="m-duration"
               type="number"
@@ -765,9 +803,9 @@ function MetaEditor({
               value={f.duration_minutes}
               onChange={(e) => setF({ ...f, duration_minutes: e.target.value })}
             />
-            <Label htmlFor="m-attempts" className="pt-2">
-              {t("maxAttempts")}
-            </Label>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="m-attempts">{t("maxAttempts")}</Label>
             <Input
               id="m-attempts"
               type="number"
@@ -789,8 +827,8 @@ function MetaEditor({
             />
           </div>
         </div>
-      </details>
-      <Button onClick={save} disabled={busy || !f.title.trim()}>
+      </fieldset>
+      <Button onClick={save} disabled={busy}>
         {busy
           ? t("saving")
           : onContinue
