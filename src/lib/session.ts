@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { getMeD1 } from "@/server/d1-auth-fns";
+import { getMeD1, getMyAvatarD1 } from "@/server/d1-auth-fns";
 
 export type Me = {
   id: string;
@@ -21,5 +21,20 @@ export function useMe() {
     queryFn: async (): Promise<Me> => getMeD1({}),
     retry: 1,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * The signed-in user's avatar (a data URL, or null when none was set
+ * at sign-up). Session-checked server-side; callers render the
+ * initials fallback when dataUrl is null.
+ */
+export function useMyAvatar(enabled = true) {
+  return useQuery({
+    queryKey: ["my-avatar"],
+    queryFn: async (): Promise<{ dataUrl: string | null }> => getMyAvatarD1({ data: {} }),
+    enabled,
+    retry: 1,
+    staleTime: 300_000,
   });
 }
