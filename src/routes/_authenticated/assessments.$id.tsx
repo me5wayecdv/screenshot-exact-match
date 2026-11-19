@@ -100,7 +100,6 @@ function Builder() {
           audience: "إتاحة للطلاب",
           preparing: "قيد الإعداد - لا يظهر للطلاب",
           next: "حفظ التفاصيل والمتابعة",
-          continue: "اختيار الطلاب",
           publish: "إتاحة الاختبار للطلاب",
           dirty: "احفظ التعديلات أولا قبل المتابعة.",
           back: "رجوع",
@@ -118,7 +117,6 @@ function Builder() {
           audience: "Make available",
           preparing: "In preparation - hidden from students",
           next: "Save details and continue",
-          continue: "Choose students",
           publish: "Make exam available to students",
           dirty: "Save your changes before continuing.",
           back: "Back",
@@ -385,12 +383,6 @@ function Builder() {
                   onClick={() => setStep(0)}
                 >
                   {flow.back}
-                </Button>
-                <Button
-                  disabled={questions.length === 0 || dirtySections.size > 0}
-                  onClick={() => setStep(2)}
-                >
-                  {flow.continue}
                 </Button>
                 <Button variant="outline" disabled={dirtySections.size > 0} onClick={goToList}>
                   {flow.saveDraft}
