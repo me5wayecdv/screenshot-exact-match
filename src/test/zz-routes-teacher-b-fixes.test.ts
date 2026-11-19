@@ -60,7 +60,6 @@ vi.mock("@/server/d1-groups", () => ({
 vi.mock("@/server/d1-group-exams", () => ({
   assignGroupExamD1: vi.fn(),
   getGroupExamsD1: vi.fn(),
-  getTeacherAssessmentsD1: vi.fn(),
 }));
 
 vi.mock("@/server/d1-students", () => ({
@@ -99,7 +98,7 @@ import {
 } from "@/server/d1-analytics";
 import { listSubjectsD1 } from "@/server/d1-generation";
 import { getGroupRosterD1, getTeacherGroupsD1 } from "@/server/d1-groups";
-import { getGroupExamsD1, getTeacherAssessmentsD1 } from "@/server/d1-group-exams";
+import { getGroupExamsD1 } from "@/server/d1-group-exams";
 import { listStudentRosterD1, removeStudentD1 } from "@/server/d1-students";
 import { getStudentHomeD1 } from "@/server/d1-assessments";
 import { ParentContactForm } from "@/components/parent-contact-form";
@@ -383,7 +382,6 @@ describe("routes-teacher-b regression fixes", () => {
     ]);
     vi.mocked(getGroupRosterD1).mockResolvedValue([]);
     vi.mocked(getGroupExamsD1).mockResolvedValue([]);
-    vi.mocked(getTeacherAssessmentsD1).mockResolvedValue([]);
 
     const GroupsComp = GroupsRoute.options.component!;
     render(wrap(qc, createElement(GroupsComp)));
