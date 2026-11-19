@@ -28,7 +28,7 @@ import {
 import { getMeD1, signOutD1 } from "@/server/d1-auth-fns";
 import { Brand, LangToggle } from "@/components/Brand";
 import { useI18n } from "@/lib/i18n";
-import { useMe } from "@/lib/session";
+import { useMe, useMyAvatar } from "@/lib/session";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -47,6 +47,7 @@ export const Route = createFileRoute("/_authenticated")({
 function AppShell() {
   const { t } = useI18n();
   const { data: me, isPending, isError, isFetching, refetch } = useMe();
+  const { data: avatar } = useMyAvatar(!!me);
   const qc = useQueryClient();
   const navigate = useNavigate();
   /**
@@ -220,9 +221,17 @@ function AppShell() {
         </nav>
         <div className="border-t border-sidebar-border p-4">
           <div className="flex items-center gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-full border border-sidebar-border bg-sidebar-accent font-display text-sm font-bold text-sidebar-primary">
-              {me?.fullName?.trim().slice(0, 1) || "·"}
-            </span>
+            {avatar?.dataUrl ? (
+              <img
+                src={avatar.dataUrl}
+                alt=""
+                className="size-10 shrink-0 rounded-full border border-sidebar-border object-cover"
+              />
+            ) : (
+              <span className="grid size-10 shrink-0 place-items-center rounded-full border border-sidebar-border bg-sidebar-accent font-display text-sm font-bold text-sidebar-primary">
+                {me?.fullName?.trim().slice(0, 1) || "·"}
+              </span>
+            )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">{me?.fullName}</p>
               <p className="mt-0.5 truncate text-xs text-sidebar-foreground/60">
