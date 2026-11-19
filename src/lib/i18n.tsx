@@ -399,6 +399,8 @@ const dict = {
     notAvailableNow: "غير متاح للحل",
     assessmentsLoadFailed: "تعذّر تحميل الاختبارات.",
     titleRequired: "من فضلك اكتب عنوان الاختبار أولًا.",
+    newSubjectOption: "+ مادة جديدة",
+    newSubjectRequired: "من فضلك اكتب اسم المادة الجديدة.",
     aiCardTitle: "توليد بالذكاء الاصطناعي",
     aiCardBody:
       "ارفع ملف PDF للدرس أو الصق نصه، والذكاء الاصطناعي يجهّز لك مسودة أسئلة تراجعها قبل النشر.",
@@ -1375,6 +1377,8 @@ const dict = {
     notAvailableNow: "Not available",
     assessmentsLoadFailed: "Your assessments could not be loaded.",
     titleRequired: "Please enter the assessment title first.",
+    newSubjectOption: "+ New subject",
+    newSubjectRequired: "Please enter the new subject name.",
     aiCardTitle: "Generate with AI",
     aiCardBody:
       "Upload the lesson PDF or paste its text, and AI drafts questions for you to review.",
