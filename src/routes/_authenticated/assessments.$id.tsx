@@ -1,5 +1,5 @@
 import { SchoolGradeSelect } from "@/components/school-grade-select";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -82,6 +82,10 @@ function Builder() {
   const qc = useQueryClient();
   const { data, isLoading, error } = useBuilderData(id);
   const refresh = () => qc.invalidateQueries({ queryKey: ["builder", id] });
+  const navigate = useNavigate();
+  /** "Save as draft": the exam already IS a draft, so this just leaves
+      the builder for the exams list, where drafts stay visible. */
+  const goToList = () => void navigate({ to: "/assessments" });
 
   if (isLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
   if (error || !data) return <p>{t("notFound")}</p>;
@@ -103,6 +107,7 @@ function Builder() {
           ready: "راجع الأسئلة والطلاب، ثم اختر إتاحة الاختبار. لن يظهر لهم قبل هذه الخطوة.",
           empty: "أضف سؤالا واحفظه أولا.",
           saved: "حفظ السؤال",
+          saveDraft: "حفظ كمسودة",
           settings: "الوقت والمحاولات والتعليمات",
           settingsHint: "إعدادات إضافية",
           basics: "تفاصيل الاختبار",
@@ -121,6 +126,7 @@ function Builder() {
             "Review questions and students, then make the exam available. It stays hidden until then.",
           empty: "Add and save a question first.",
           saved: "Save question",
+          saveDraft: "Save as draft",
           settings: "Time, attempts and instructions",
           settingsHint: "Additional settings",
           basics: "Exam details",
@@ -313,6 +319,7 @@ function Builder() {
               subjects={data.subjects}
               onSaved={refresh}
               onContinue={isDraft ? () => setStep(1) : undefined}
+              onSaveDraft={isDraft ? goToList : undefined}
               onDirty={onDirty}
             />
           </div>
@@ -384,6 +391,9 @@ function Builder() {
                   onClick={() => setStep(2)}
                 >
                   {flow.continue}
+                </Button>
+                <Button variant="outline" disabled={dirtySections.size > 0} onClick={goToList}>
+                  {flow.saveDraft}
                 </Button>
                 {dirtySections.size > 0 ? (
                   <p role="status" className="text-sm text-muted-foreground">
@@ -614,12 +624,14 @@ function MetaEditor({
   subjects,
   onSaved,
   onContinue,
+  onSaveDraft,
   onDirty,
 }: {
   a: A;
   subjects: { id: string; name: string }[];
   onSaved: () => void;
   onContinue?: (() => void) | undefined;
+  onSaveDraft?: (() => void) | undefined;
   onDirty: (id: string, dirty: boolean) => void;
 }) {
   const { t, lang } = useI18n();
@@ -656,7 +668,7 @@ function MetaEditor({
     title?: string | undefined;
     newSubject?: string | undefined;
   }>({});
-  async function save() {
+  async function save(after: "continue" | "draft") {
     const nextErrors: { title?: string; newSubject?: string } = {};
     if (!f.title.trim()) nextErrors.title = t("titleRequired");
     if (f.subject_id === "__new__" && !newSubject.trim())
@@ -692,7 +704,11 @@ function MetaEditor({
     setBusy(false);
     toast.success(t("save"));
     onSaved();
-    onContinue?.();
+    if (after === "draft") {
+      onSaveDraft?.();
+    } else {
+      onContinue?.();
+    }
   }
   return (
     <Panel className="space-y-4">
@@ -828,17 +844,29 @@ function MetaEditor({
           </div>
         </div>
       </fieldset>
-      <Button onClick={save} disabled={busy}>
-        {busy
-          ? t("saving")
-          : onContinue
-            ? lang === "ar"
-              ? "حفظ التفاصيل والمتابعة"
-              : "Save details and continue"
-            : lang === "ar"
-              ? "حفظ التفاصيل"
-              : "Save details"}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => void save("continue")} disabled={busy}>
+          {busy
+            ? t("saving")
+            : onContinue
+              ? lang === "ar"
+                ? "حفظ التفاصيل والمتابعة"
+                : "Save details and continue"
+              : lang === "ar"
+                ? "حفظ التفاصيل"
+                : "Save details"}
+        </Button>
+        {onSaveDraft ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void save("draft")}
+            disabled={busy}
+          >
+            {lang === "ar" ? "حفظ كمسودة" : "Save as draft"}
+          </Button>
+        ) : null}
+      </div>
       {/* Per-assessment WhatsApp auto-send (default OFF). The builder
           query selects assessments.* so the new column arrives without
           a query change, once the migration + types land. */}

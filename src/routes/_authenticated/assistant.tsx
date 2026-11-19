@@ -1,13 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ClipboardCheck,
-  FileQuestion,
-  GraduationCap,
-  MessageSquareText,
-  TrendingUp,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FileQuestion, GraduationCap, MessageSquareText, TrendingUp } from "lucide-react";
 import { Empty, PageHeader, Panel } from "@/components/ui-kit";
 import { useI18n } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
@@ -47,26 +40,7 @@ function TeacherAssistantPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader
-        title={t("assistantTitle")}
-        subtitle={t("assistantSubtitle")}
-        actions={
-          <>
-            <Button asChild variant="outline">
-              <Link to="/assessments/generate">
-                <FileQuestion aria-hidden />
-                {t("assistantBuildAssessment")}
-              </Link>
-            </Button>
-            <Button asChild>
-              <Link to="/grading">
-                <ClipboardCheck aria-hidden />
-                {t("assistantOpenGrading")}
-              </Link>
-            </Button>
-          </>
-        }
-      />
+      <PageHeader title={t("assistantTitle")} subtitle={t("assistantSubtitle")} />
 
       <section
         aria-label={t("assistantWorkspaceSummary")}

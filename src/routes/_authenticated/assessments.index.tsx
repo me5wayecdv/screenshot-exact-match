@@ -54,6 +54,8 @@ function AssessmentsList() {
   // whole page down, and (b) a real error renders as an error — an empty
   // list used to be indistinguishable from a failed read.
   const [page, setPage] = useState(0);
+  // Client-side status filter so drafts (مسودات) are one tap away.
+  const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "published">("all");
   const pageSize = 20;
   const { data, isLoading, error } = useQuery({
     queryKey: ["assessments", page],
@@ -182,6 +184,33 @@ function AssessmentsList() {
       </section>
       <section aria-label={t("myAssessments")}>
         <h2 className="mb-3 text-base font-semibold">{t("myAssessments")}</h2>
+        <div
+          role="group"
+          aria-label={lang === "ar" ? "تصفية حسب الحالة" : "Filter by status"}
+          className="mb-3 flex flex-wrap gap-2"
+        >
+          {(["all", "draft", "published"] as const).map((f) => (
+            <Button
+              key={f}
+              type="button"
+              size="sm"
+              variant={statusFilter === f ? "default" : "outline"}
+              onClick={() => setStatusFilter(f)}
+            >
+              {f === "all"
+                ? lang === "ar"
+                  ? "الكل"
+                  : "All"
+                : f === "draft"
+                  ? lang === "ar"
+                    ? "المسودات"
+                    : "Drafts"
+                  : lang === "ar"
+                    ? "المنشورة"
+                    : "Published"}
+            </Button>
+          ))}
+        </div>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">{t("loading")}</p>
         ) : error ? (
@@ -191,38 +220,51 @@ function AssessmentsList() {
           </p>
         ) : data && data.rows.length === 0 && page === 0 ? (
           <EmptyCard title={t("noAssessments")} body={t("noAssessmentsHint")} />
+        ) : (data?.rows ?? []).filter((r) => statusFilter === "all" || r.status === statusFilter)
+            .length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {statusFilter === "draft"
+              ? lang === "ar"
+                ? "لا توجد مسودات محفوظة."
+                : "No saved drafts."
+              : lang === "ar"
+                ? "لا توجد اختبارات هنا."
+                : "No exams here."}
+          </p>
         ) : (
           <div className="divide-y rounded-lg border bg-card">
-            {data?.rows.map((a) => (
-              <div
-                key={a.id}
-                className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-muted"
-              >
-                <Link to="/assessments/$id" params={{ id: a.id }} className="flex-1">
-                  <span className="font-medium">{a.title}</span>
-                  {a.subjectName && (
-                    <span className="ms-2 text-sm text-muted-foreground">· {a.subjectName}</span>
-                  )}
-                </Link>
-                <span className="flex items-center gap-3 text-sm text-muted-foreground">
-                  {t("dueAt")}: {formatDate(a.due_at, lang)}
-                  <Pill t={statusTone[a.status]}>
-                    {a.status === "draft"
-                      ? lang === "ar"
-                        ? "قيد الإعداد"
-                        : "In preparation"
-                      : t(`st_${a.status}` as never)}
-                  </Pill>
-                  <Link
-                    to="/assessments/report/$id"
-                    params={{ id: a.id }}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    {t("report")}
+            {(data?.rows ?? [])
+              .filter((r) => statusFilter === "all" || r.status === statusFilter)
+              .map((a) => (
+                <div
+                  key={a.id}
+                  className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-muted"
+                >
+                  <Link to="/assessments/$id" params={{ id: a.id }} className="flex-1">
+                    <span className="font-medium">{a.title}</span>
+                    {a.subjectName && (
+                      <span className="ms-2 text-sm text-muted-foreground">· {a.subjectName}</span>
+                    )}
                   </Link>
-                </span>
-              </div>
-            ))}
+                  <span className="flex items-center gap-3 text-sm text-muted-foreground">
+                    {t("dueAt")}: {formatDate(a.due_at, lang)}
+                    <Pill t={statusTone[a.status]}>
+                      {a.status === "draft"
+                        ? lang === "ar"
+                          ? "قيد الإعداد"
+                          : "In preparation"
+                        : t(`st_${a.status}` as never)}
+                    </Pill>
+                    <Link
+                      to="/assessments/report/$id"
+                      params={{ id: a.id }}
+                      className="font-medium text-primary hover:underline"
+                    >
+                      {t("report")}
+                    </Link>
+                  </span>
+                </div>
+              ))}
           </div>
         )}
         {data && (page > 0 || data.hasNext) ? (
