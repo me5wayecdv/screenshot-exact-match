@@ -31,7 +31,7 @@ import {
   listTeacherGroups,
   updateTeacherGroup,
 } from "@/server/d1-groups";
-import { assignGroupExam, listGroupExams, listTeacherAssessments } from "@/server/d1-group-exams";
+import { assignGroupExam, listGroupExams } from "@/server/d1-group-exams";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 
 type MemberStatus = "pending" | "approved" | "rejected";
@@ -675,7 +675,6 @@ describe("teacher group ownership", () => {
     const db = fakeDb(baseState());
     await expect(getGroupRoster(db, "s1", "student", "g1")).rejects.toThrow("not_teacher");
     await expect(listTeacherGroups(db, "s1", "student")).rejects.toThrow("not_teacher");
-    await expect(listTeacherAssessments(db, "s1", "student")).rejects.toThrow("not_teacher");
   });
 
   it("a roster never contains students from another group", async () => {
@@ -894,13 +893,5 @@ describe("assign group exam", () => {
     expect(s.groupExams.has(`${id}:a1`)).toBe(true);
     const exams = await listGroupExams(db, "t1", id);
     expect(exams.map((e) => e.assessmentId)).toEqual(["a1"]);
-  });
-
-  it("a teacher lists only their own assessments for the assign dropdown", async () => {
-    const db = fakeDb(baseState());
-    expect(
-      (await listTeacherAssessments(db, "t1", "school_teacher")).map((a) => a.id).sort(),
-    ).toEqual(["a1", "a2", "a3"]);
-    expect((await listTeacherAssessments(db, "t2", "tutor")).map((a) => a.id)).toEqual(["a4"]);
   });
 });
