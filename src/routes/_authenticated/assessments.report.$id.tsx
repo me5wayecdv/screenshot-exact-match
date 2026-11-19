@@ -216,7 +216,7 @@ function AssessmentReportPage() {
         }
         actions={
           <Link
-            to="/assessments"
+            to="/groups"
             className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-accent"
           >
             {t("back")}

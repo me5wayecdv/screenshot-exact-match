@@ -52,7 +52,7 @@ function Dashboard() {
 type StartStepMeta = {
   title: string;
   body: string;
-  to: "/assessments" | "/students" | "/grading" | "/lessons";
+  to: "/groups" | "/students" | "/grading" | "/lessons";
   action: string;
 };
 
@@ -131,7 +131,7 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
     assessment: {
       title: t("startAssessmentTitle"),
       body: t("startAssessmentBody"),
-      to: "/assessments",
+      to: "/groups",
       action: t("startAssessmentAction"),
     },
     students: {
@@ -158,7 +158,7 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
           <>
             {checklist.allDone ? (
               <Button asChild size="lg" className="lift">
-                <Link to="/assessments">{t("startAssessmentAction")}</Link>
+                <Link to="/groups">{t("startAssessmentAction")}</Link>
               </Button>
             ) : null}
             <Button asChild variant="secondary">
@@ -184,7 +184,7 @@ function SchoolTeacherHome({ name, teacherId }: { name: string; teacherId: strin
           <p>{t("noAssessments")}</p>
           <div className="mt-4">
             <Button asChild>
-              <Link to="/assessments">{t("startAssessmentAction")}</Link>
+              <Link to="/groups">{t("startAssessmentAction")}</Link>
             </Button>
           </div>
         </Empty>
@@ -254,7 +254,7 @@ function TutorHome({ name, tutorId }: { name: string; tutorId: string }) {
     published: {
       title: t("startPublishTitle"),
       body: t("startPublishBody"),
-      to: "/assessments",
+      to: "/groups",
       action: t("newAssessment"),
     },
   };

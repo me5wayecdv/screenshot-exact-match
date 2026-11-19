@@ -85,7 +85,7 @@ function Builder() {
   const navigate = useNavigate();
   /** "Save as draft": the exam already IS a draft, so this just leaves
       the builder for the exams list, where drafts stay visible. */
-  const goToList = () => void navigate({ to: "/assessments" });
+  const goToList = () => void navigate({ to: "/groups" });
 
   if (isLoading) return <p className="text-muted-foreground">{t("loading")}</p>;
   if (error || !data) return <p>{t("notFound")}</p>;

@@ -10,7 +10,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
   Home,
-  ClipboardList,
   CheckSquare,
   Users,
   LogOut,
@@ -60,7 +59,6 @@ function AppShell() {
       ? {
           primary: [
             { to: "/dashboard", label: t("dashboard"), icon: Home },
-            { to: "/assessments", label: t("assessments"), icon: ClipboardList },
             { to: "/grading", label: t("grading"), icon: CheckSquare },
             { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
           ],
@@ -77,7 +75,6 @@ function AppShell() {
         ? {
             primary: [
               { to: "/dashboard", label: t("dashboard"), icon: Home },
-              { to: "/assessments", label: t("assessments"), icon: ClipboardList },
               { to: "/lessons", label: t("lessons"), icon: BookOpen },
               { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
             ],

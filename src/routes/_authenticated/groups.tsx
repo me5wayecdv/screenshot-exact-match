@@ -1,6 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Check, X, Users } from "lucide-react";
 import {
@@ -20,6 +20,7 @@ import {
   getGroupExamsD1,
   getTeacherAssessmentsD1,
 } from "@/server/d1-group-exams";
+import { createAssessmentD1 } from "@/server/d1-assessments";
 import { useMe } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { displayName, splitRoster } from "@/lib/enrollment";
@@ -600,8 +601,33 @@ function GroupExams({ groupId }: { groupId: string }) {
   const { t, lang } = useI18n();
   const { data: me } = useMe();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [selected, setSelected] = useState("");
   const [busy, setBusy] = useState(false);
+  // Exams are created INSIDE the group (user request 2026-11-19): the
+  // new draft is linked to this group immediately, then the builder
+  // opens for questions. The AI path hands the group id to the
+  // generate page, which links the generated draft the same way.
+  const [newTitle, setNewTitle] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  async function createExam(e: FormEvent) {
+    e.preventDefault();
+    const title = newTitle.trim();
+    if (!title) return;
+    setCreating(true);
+    let rowId: string;
+    try {
+      const row = await createAssessmentD1({ data: { title } });
+      await assignGroupExamD1({ data: { groupId, assessmentId: row.id } });
+      rowId = row.id;
+    } catch (error) {
+      setCreating(false);
+      return void toast.error(translateError(error, lang));
+    }
+    setCreating(false);
+    void navigate({ to: "/assessments/$id", params: { id: rowId } });
+  }
 
   const { data: exams } = useQuery({
     queryKey: ["group-exams", groupId],
@@ -634,6 +660,26 @@ function GroupExams({ groupId }: { groupId: string }) {
   return (
     <div className="mt-6">
       <h4 className="mb-3 font-semibold">{t("groupExams")}</h4>
+      <form onSubmit={createExam} className="mb-3 flex flex-wrap items-center gap-2">
+        <input
+          className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          placeholder={t("groupExamNewPlaceholder")}
+          aria-label={t("groupExamNewPlaceholder")}
+          maxLength={200}
+        />
+        <Button type="submit" disabled={creating || newTitle.trim() === ""}>
+          {t("groupExamCreate")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void navigate({ to: "/assessments/generate", search: { group: groupId } })}
+        >
+          {t("groupExamGenerate")}
+        </Button>
+      </form>
       <div className="flex flex-wrap items-center gap-2">
         <select
           className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
