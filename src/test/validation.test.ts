@@ -271,3 +271,38 @@ describe("signUpSchema — fullName", () => {
     expect(signUpSchema.parse({ ...validStudent, fullName: "  Ahmed  " }).fullName).toBe("Ahmed");
   });
 });
+
+describe("signUpSchema — optional avatar", () => {
+  const jpegDataUrl = `data:image/jpeg;base64,${"QUJD".repeat(10)}`;
+
+  it("parses a sign-up without an avatar (the common case)", () => {
+    const parsed = signUpSchema.parse(validTeacher);
+    expect(parsed.avatar == null).toBe(true);
+  });
+
+  it("passes a valid JPEG data URL through to the handler", () => {
+    const parsed = signUpSchema.parse({ ...validTeacher, avatar: jpegDataUrl });
+    expect(parsed.avatar).toBe(jpegDataUrl);
+  });
+
+  it("rejects a non-image data URL as INVALID_INPUT", () => {
+    expect(
+      thrownCode(() =>
+        validateSignUpInput({ ...validTeacher, avatar: "data:text/html;base64,QUJD" }),
+      ),
+    ).toBe("INVALID_INPUT");
+  });
+
+  it("rejects an oversized data URL as INVALID_INPUT", () => {
+    const huge = `data:image/jpeg;base64,${"QUJD".repeat(80_000)}`;
+    expect(thrownCode(() => validateSignUpInput({ ...validTeacher, avatar: huge }))).toBe(
+      "INVALID_INPUT",
+    );
+  });
+
+  it("validateSignUpInput maps a bad avatar to INVALID_INPUT, not an auth code", () => {
+    expect(
+      thrownCode(() => validateSignUpInput({ ...validTeacher, avatar: "not-a-data-url" })),
+    ).toBe("INVALID_INPUT");
+  });
+});
