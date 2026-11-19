@@ -20,6 +20,7 @@ import { GENERATE_QUESTION_TYPES } from "@/lib/generate-assessment-prompt";
 import { getHandwritingStatus } from "@/server/handwritten";
 import { listSubjectsD1, uploadGenerationSourceD1 } from "@/server/d1-generation";
 import { takeGenerateHandoff, dataUrlToFile } from "@/lib/generate-handoff";
+import { assignGroupExamD1 } from "@/server/d1-group-exams";
 import { ocrSourceImages, type SourceOcrResult } from "@/server/source-ocr";
 
 // Route file convention (verified against the repo listing at HEAD):
@@ -44,6 +45,12 @@ import { ocrSourceImages, type SourceOcrResult } from "@/server/source-ocr";
 // teacher reviews/edits every question before publishing.
 
 export const Route = createFileRoute("/_authenticated/assessments/generate")({
+  // Optional ?group=<id>: the generated draft is linked to that group
+  // right after creation (exams live inside groups — 2026-11-19).
+  validateSearch: (search: Record<string, unknown>): { group?: string } => {
+    const group = search["group"];
+    return typeof group === "string" && group ? { group } : {};
+  },
   head: () => ({
     meta: [
       { title: "Generate assessment · Qayyimni" },
@@ -159,6 +166,7 @@ async function extractDocxText(arrayBuffer: ArrayBuffer): Promise<string> {
 function Generate() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
+  const { group: groupId } = Route.useSearch();
   const { data: me, isLoading: meLoading } = useMe();
   const { data: subjects } = useQuery({
     queryKey: ["generate-subjects"],
@@ -550,6 +558,16 @@ function Generate() {
         toast.error(display);
         return;
       }
+      // Group-scoped creation: link the new draft to the group it was
+      // started from. Best-effort — the teacher can still assign it
+      // from the group card if this fails.
+      if (groupId) {
+        try {
+          await assignGroupExamD1({ data: { groupId, assessmentId: res.assessmentId } });
+        } catch {
+          // Link skipped; the draft itself is saved.
+        }
+      }
       setResult({
         id: res.assessmentId,
         title: res.title,
@@ -579,7 +597,7 @@ function Generate() {
             : "From lesson file to questions you review yourself."
         }
         actions={
-          <Button variant="outline" onClick={() => navigate({ to: "/assessments" })}>
+          <Button variant="outline" onClick={() => navigate({ to: "/groups" })}>
             {t("genBackToAssessments")}
           </Button>
         }
