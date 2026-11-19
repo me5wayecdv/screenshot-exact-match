@@ -59,12 +59,12 @@ function AppShell() {
       ? {
           primary: [
             { to: "/dashboard", label: t("dashboard"), icon: Home },
+            { to: "/groups", label: t("groups"), icon: Users },
             { to: "/grading", label: t("grading"), icon: CheckSquare },
             { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
           ],
           secondary: [
             { to: "/students", label: t("students"), icon: Users },
-            { to: "/groups", label: t("groups"), icon: Users },
             { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
             { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
             { to: "/audit", label: t("auditHistory"), icon: History },
@@ -75,12 +75,12 @@ function AppShell() {
         ? {
             primary: [
               { to: "/dashboard", label: t("dashboard"), icon: Home },
+              { to: "/groups", label: t("groups"), icon: Users },
               { to: "/lessons", label: t("lessons"), icon: BookOpen },
               { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
             ],
             secondary: [
               { to: "/students", label: t("students"), icon: Users },
-              { to: "/groups", label: t("groups"), icon: Users },
               { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
               { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
               { to: "/audit", label: t("auditHistory"), icon: History },
@@ -100,13 +100,11 @@ function AppShell() {
           : {
               primary: [
                 { to: "/dashboard", label: t("myAssessments"), icon: Home },
+                { to: "/groups", label: t("groups"), icon: Users },
                 { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
                 { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
               ],
-              secondary: [
-                { to: "/groups", label: t("groups"), icon: Users },
-                { to: "/profile", label: t("profile"), icon: User },
-              ],
+              secondary: [{ to: "/profile", label: t("profile"), icon: User }],
             };
   // Remember whether the "More" list is open; one panel serves both navs.
   const [moreOpen, setMoreOpen] = useState(false);
