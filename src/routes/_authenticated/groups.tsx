@@ -15,16 +15,12 @@ import {
   joinGroupD1,
   updateTeacherGroupD1,
 } from "@/server/d1-groups";
-import {
-  assignGroupExamD1,
-  getGroupExamsD1,
-  getTeacherAssessmentsD1,
-} from "@/server/d1-group-exams";
+import { assignGroupExamD1, getGroupExamsD1 } from "@/server/d1-group-exams";
 import { createAssessmentD1 } from "@/server/d1-assessments";
 import { useMe } from "@/lib/session";
 import { useI18n, formatDate, translateError } from "@/lib/i18n";
 import { displayName, splitRoster } from "@/lib/enrollment";
-import { PageHeader, Panel, Empty, Pill } from "@/components/ui-kit";
+import { PageHeader, Panel, Empty, Pill, statusTone } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/groups")({
@@ -599,11 +595,7 @@ function GroupCard({
 
 function GroupExams({ groupId }: { groupId: string }) {
   const { t, lang } = useI18n();
-  const { data: me } = useMe();
-  const qc = useQueryClient();
   const navigate = useNavigate();
-  const [selected, setSelected] = useState("");
-  const [busy, setBusy] = useState(false);
   // Exams are created INSIDE the group (user request 2026-11-19): the
   // new draft is linked to this group immediately, then the builder
   // opens for questions. The AI path hands the group id to the
@@ -633,29 +625,6 @@ function GroupExams({ groupId }: { groupId: string }) {
     queryKey: ["group-exams", groupId],
     queryFn: async () => getGroupExamsD1({ data: { groupId } }),
   });
-  const { data: assessments } = useQuery({
-    queryKey: ["teacher-assessments", me?.id],
-    enabled: !!me?.id,
-    queryFn: async () => getTeacherAssessmentsD1({}),
-  });
-
-  async function assign() {
-    if (selected === "") return;
-    setBusy(true);
-    let count: number;
-    try {
-      ({ count } = await assignGroupExamD1({
-        data: { groupId, assessmentId: selected },
-      }));
-    } catch (error) {
-      setBusy(false);
-      return void toast.error(translateError(error, lang));
-    }
-    setBusy(false);
-    toast.success(t("groupExamAssigned", { count: String(count) }));
-    setSelected("");
-    qc.invalidateQueries({ queryKey: ["group-exams", groupId] });
-  }
 
   return (
     <div className="mt-6">
@@ -680,37 +649,42 @@ function GroupExams({ groupId }: { groupId: string }) {
           {t("groupExamGenerate")}
         </Button>
       </form>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          className="min-w-0 flex-1 rounded-md border px-3 py-2 text-sm"
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          aria-label={t("groupExamSelect")}
-        >
-          <option value="">{t("groupExamSelect")}</option>
-          {(assessments ?? []).map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.title} — {a.status === "published" ? t("groupExamPublished") : t("groupExamDraft")}
-            </option>
-          ))}
-        </select>
-        <Button onClick={assign} disabled={busy || selected === ""}>
-          {t("groupExamAssign")}
-        </Button>
-      </div>
       {(exams ?? []).length === 0 ? (
         <Empty>{t("groupExamNone")}</Empty>
       ) : (
-        <ul className="mt-3 divide-y rounded-lg border bg-card">
+        <div className="mt-3 divide-y rounded-lg border bg-card">
           {(exams ?? []).map((e) => (
-            <li key={e.assessmentId} className="flex items-center justify-between gap-3 p-4">
-              <span className="font-medium">{e.title}</span>
-              <span className="text-sm text-muted-foreground">
-                {e.published ? t("groupExamPublished") : t("groupExamDraft")}
+            <div
+              key={e.assessmentId}
+              className="flex flex-wrap items-center justify-between gap-2 p-4 hover:bg-muted"
+            >
+              <Link to="/assessments/$id" params={{ id: e.assessmentId }} className="flex-1">
+                <span className="font-medium">{e.title}</span>
+              </Link>
+              <span className="flex items-center gap-3 text-sm text-muted-foreground">
+                {e.due_at ? (
+                  <span>
+                    {t("dueAt")}: {formatDate(e.due_at, lang)}
+                  </span>
+                ) : null}
+                <Pill t={statusTone[e.status]}>
+                  {e.status === "draft"
+                    ? lang === "ar"
+                      ? "قيد الإعداد"
+                      : "In preparation"
+                    : t(`st_${e.status}` as never)}
+                </Pill>
+                <Link
+                  to="/assessments/report/$id"
+                  params={{ id: e.assessmentId }}
+                  className="font-medium text-primary hover:underline"
+                >
+                  {t("report")}
+                </Link>
               </span>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

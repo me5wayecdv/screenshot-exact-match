@@ -48,24 +48,16 @@ export type GroupExam = {
   assessmentId: string;
   title: string;
   published: boolean;
-};
-
-export type TeacherAssessment = {
-  id: string;
-  title: string;
   status: string;
+  due_at: string | null;
 };
 
 type GroupExamRow = {
   assessment_id: string;
   title: string;
   published: number;
-};
-
-type AssessmentRow = {
-  id: string;
-  title: string;
   status: string;
+  due_at: string | null;
 };
 
 /** Old RPC: my_group_exams. Visibility is decided by the SQL below. */
@@ -78,7 +70,7 @@ export async function listGroupExams(
     // Owning teacher: every linked exam, draft or published.
     const { results } = await db
       .prepare(
-        "SELECT ge.assessment_id, a.title, (a.status = 'published') AS published " +
+        "SELECT ge.assessment_id, a.title, a.status, a.due_at, (a.status = 'published') AS published " +
           "FROM group_exams ge JOIN assessments a ON a.id = ge.assessment_id " +
           "WHERE ge.group_id = ? ORDER BY ge.created_at DESC",
       )
@@ -88,13 +80,15 @@ export async function listGroupExams(
       assessmentId: r.assessment_id,
       title: r.title,
       published: r.published === 1,
+      status: r.status,
+      due_at: r.due_at,
     }));
   }
   // Anyone else: only an APPROVED member sees anything, and only
   // published exams. Pending / rejected / non-members get [].
   const { results } = await db
     .prepare(
-      "SELECT ge.assessment_id, a.title, (a.status = 'published') AS published " +
+      "SELECT ge.assessment_id, a.title, a.status, a.due_at, (a.status = 'published') AS published " +
         "FROM group_exams ge JOIN assessments a ON a.id = ge.assessment_id " +
         "WHERE ge.group_id = ? AND a.status = 'published' AND EXISTS ( " +
         "SELECT 1 FROM group_members " +
@@ -107,23 +101,9 @@ export async function listGroupExams(
     assessmentId: r.assessment_id,
     title: r.title,
     published: r.published === 1,
+    status: r.status,
+    due_at: r.due_at,
   }));
-}
-
-/** The teacher's own assessments, for the route's assign dropdown. */
-export async function listTeacherAssessments(
-  db: D1Database,
-  teacherId: string,
-  role: string,
-): Promise<TeacherAssessment[]> {
-  if (!isTeacherRole(role)) throw new GroupError("not_teacher");
-  const { results } = await db
-    .prepare(
-      "SELECT id, title, status FROM assessments WHERE teacher_id = ? ORDER BY created_at DESC",
-    )
-    .bind(teacherId)
-    .all<AssessmentRow>();
-  return (results ?? []).map((r) => ({ id: r.id, title: r.title, status: r.status }));
 }
 
 /**
@@ -210,15 +190,6 @@ export const getGroupExamsD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }): Promise<GroupExam[]> => {
     const { session, db } = context as Ctx;
     return listGroupExams(db, session.userId, data.groupId);
-  });
-
-export const getTeacherAssessmentsD1 = createServerFn({ method: "POST" })
-  .middleware([requireCloudflareAuth])
-  .validator((data: unknown) => data)
-  .handler(async ({ context }): Promise<TeacherAssessment[]> => {
-    const { session, db } = context as Ctx;
-    if (!isTeacherRole(session.role)) throw new GroupError("not_teacher");
-    return listTeacherAssessments(db, session.userId, session.role);
   });
 
 export const assignGroupExamD1 = createServerFn({ method: "POST" })
