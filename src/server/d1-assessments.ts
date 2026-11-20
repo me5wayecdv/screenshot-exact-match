@@ -1176,7 +1176,10 @@ export async function getStudentHome(
       )
       .bind(studentId, ...assessmentIds)
       .all<StudentHome["submissions"][number]>();
-    submissions = subs.results ?? [];
+    submissions = (subs.results ?? []).map((sub) => ({
+      ...sub,
+      final_score: sub.status === "released" ? sub.final_score : null,
+    }));
   }
   const lessonRows = lessonsRes.results ?? [];
   return {
