@@ -77,16 +77,16 @@
   --popover: #1b2436;
   --popover-foreground: #eef2f8;
   /* Coral: the product's voice, used for primary actions. */
-  --primary: #ff6b4a;
+  --primary: #ff4d2e;
   --primary-foreground: #1a0e08;
   --secondary: #1b2436;
   --secondary-foreground: #cdd8e6;
   --muted: #1b2436;
   --muted-foreground: #aab7cb;
   /* Coral tints: the teacher's decision. Used on <5% of any screen. */
-  --accent: #ff6b4a;
+  --accent: #ff4d2e;
   --accent-foreground: #1a0e08;
-  --accent-soft: #2a1a17;
+  --accent-soft: #331510;
   --destructive: #f0654a;
   --destructive-foreground: #ffffff;
   --success: #35c08e;
@@ -98,16 +98,16 @@
   --info-foreground: #06202e;
   --border: #26324a;
   --input: #31405c;
-  --ring: #ff6b4a;
+  --ring: #ff4d2e;
   /* Sidebar: one step deeper than the page. */
   --sidebar: #0a101c;
   --sidebar-foreground: #e6ecf5;
-  --sidebar-primary: #ff6b4a;
+  --sidebar-primary: #ff4d2e;
   --sidebar-primary-foreground: #1a0e08;
   --sidebar-accent: #182238;
   --sidebar-accent-foreground: #eef2f8;
   --sidebar-border: #22304a;
-  --sidebar-ring: #ff6b4a;
+  --sidebar-ring: #ff4d2e;
   --shadow-soft: 0 1px 2px rgb(0 0 0 / 40%);
   --shadow-lift: 0 1px 2px rgb(0 0 0 / 45%), 0 8px 24px -14px rgb(0 0 0 / 60%);
   --duration-fast: 120ms;
