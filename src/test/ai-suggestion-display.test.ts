@@ -65,7 +65,7 @@ function sqliteD1(db: DatabaseSync): D1Database {
 function seed(db: DatabaseSync) {
   db.exec(`
     CREATE TABLE assessments (id TEXT PRIMARY KEY, teacher_id TEXT NOT NULL);
-    CREATE TABLE submissions (id TEXT PRIMARY KEY, assessment_id TEXT NOT NULL, status TEXT NOT NULL);
+    CREATE TABLE submissions (id TEXT PRIMARY KEY, assessment_id TEXT NOT NULL, status TEXT NOT NULL, final_score REAL);
     CREATE TABLE questions (id TEXT PRIMARY KEY, assessment_id TEXT NOT NULL, prompt TEXT NOT NULL, type TEXT NOT NULL, marks REAL NOT NULL, position INTEGER NOT NULL);
     CREATE TABLE question_keys (question_id TEXT PRIMARY KEY, correct_answer TEXT, accepted_alternatives TEXT, rubric TEXT, explanation TEXT);
     CREATE TABLE answers (id TEXT PRIMARY KEY, submission_id TEXT NOT NULL, question_id TEXT NOT NULL, response TEXT, max_marks REAL, auto_score REAL, final_score REAL, feedback TEXT, review_status TEXT, ai_suggestion TEXT);
