@@ -50,8 +50,12 @@ function AppShell() {
   const navigate = useNavigate();
   /**
    * Simple navigation: everything a person does every day is visible, and
-   * everything else hides behind one "More" entry. `primary` is capped at
-   * four items so the phone tab bar can hold it without a scroll strip.
+   * everything else hides behind one "More" entry. For school teachers,
+   * الملف الشخصي is a top-level destination (Abdo's request, 2026-11-20):
+   * الطلاب، طلبات المراجعة، سجل التصحيح، وتحليلات الأداء left the menu —
+   * those pages stay reachable from inside التصحيح (tabs, review reply,
+   * سجل النشاط) — so school teachers have no "More" entry at all.
+   * Tutor/student/admin menus are unchanged.
    */
   const { primary, secondary } =
     me?.role === "school_teacher"
@@ -61,14 +65,9 @@ function AppShell() {
             { to: "/groups", label: t("groups"), icon: Users },
             { to: "/grading", label: t("grading"), icon: CheckSquare },
             { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
-          ],
-          secondary: [
-            { to: "/students", label: t("students"), icon: Users },
-            { to: "/analytics", label: t("anTitle"), icon: TrendingUp },
-            { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
-            { to: "/audit", label: t("auditHistory"), icon: History },
             { to: "/profile", label: t("profile"), icon: User },
           ],
+          secondary: [],
         }
       : me?.role === "tutor"
         ? {
