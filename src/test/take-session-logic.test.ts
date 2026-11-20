@@ -1176,8 +1176,8 @@ describe("loadTakeData (V3 cache)", () => {
     expect(first.allowed).toBe(true);
     if (first.allowed)
       expect(first.submissions[0]).toMatchObject({
-        status: "partially_released",
-        final_score: 5,
+        status: "awaiting_review",
+        final_score: null,
         total_possible: 5,
       });
     expect(await store.getInProgressSubmission(STUDENT, EXAM)).toBeNull();
