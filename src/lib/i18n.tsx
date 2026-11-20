@@ -458,6 +458,8 @@ const dict = {
     gradingReviewOpenSubmission: "فتح التسليم",
     gradingReviewReply: "الرد على الطلب",
     gradingReviewBadge: "طلب مراجعة",
+    gradingRepublish: "إعادة نشر النتيجة",
+    gradingRepublished: "اتنشرت النتيجة المعدّلة للطالب مكان القديمة.",
     // Handwritten paper grading
     hwTitle: "تصحيح ورقي بخط اليد",
     hwSubtitle:
@@ -1411,6 +1413,8 @@ const dict = {
     gradingReviewOpenSubmission: "Open submission",
     gradingReviewReply: "Reply to request",
     gradingReviewBadge: "Review requested",
+    gradingRepublish: "Republish result",
+    gradingRepublished: "Updated result published to the student.",
     // Handwritten paper grading
     hwTitle: "Handwritten paper grading",
     hwSubtitle:
