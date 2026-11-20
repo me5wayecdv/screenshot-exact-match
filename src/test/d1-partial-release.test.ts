@@ -84,6 +84,19 @@ describe("mixed exam partial publication against the real schema", () => {
     ).toHaveLength(0);
     expect(await autoReleaseObjectiveOnSubmit(db, "sub", FIRST)).toBeNull();
   });
+  it("keeps pre-existing teacher overrides in every later partial-total refresh", async () => {
+    const { db, sql, sub } = fixture();
+    sql.exec("UPDATE answers SET final_score=3, review_status='approved' WHERE id='a1'");
+    await autoReleaseObjectiveOnSubmit(db, "sub", FIRST);
+    expect(sub()).toMatchObject({ final_score: 3, total_possible: 10 });
+    expect(
+      sql.prepare("SELECT final_score, auto_score, review_status FROM answers WHERE id='a1'").get(),
+    ).toMatchObject({ final_score: 3, auto_score: 5, review_status: "approved" });
+    await reviewAnswer(db, "teacher", "a3", 8, "Good", "approve");
+    expect(sub()).toMatchObject({ final_score: 3, total_possible: 10 });
+    await reviewAnswer(db, "teacher", "a1", 4, "Corrected", "approve");
+    expect(sub()).toMatchObject({ final_score: 4, total_possible: 10 });
+  });
   it("keeps essay scores unpublished until full release, then updates the same result and keeps first publication time", async () => {
     const { db, sub, sql } = fixture();
     await autoReleaseObjectiveOnSubmit(db, "sub", FIRST);
