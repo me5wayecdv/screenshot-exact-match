@@ -370,7 +370,14 @@ export async function reviewAnswer(
   }>();
   if (!answer) throw notFound();
   const submission = await ownSubmission(db, teacherId, answer.submission_id);
-  if (submission.status !== "awaiting_review" && submission.status !== "approved") {
+  // Released submissions stay re-gradable (grade-review flow): the
+  // teacher can correct scores after publication and the student's
+  // published result updates in place below.
+  if (
+    submission.status !== "awaiting_review" &&
+    submission.status !== "approved" &&
+    submission.status !== "released"
+  ) {
     throw new Error("NOT_READY_FOR_REVIEW");
   }
   if (decision !== "approve" && decision !== "reject") {
@@ -401,19 +408,39 @@ export async function reviewAnswer(
       answerId,
     )
     .run();
-  // Recompute the submission status: approved only when no valid
-  // answer (question in this assessment) still lacks a final score.
-  const pending = await db
-    .prepare(
-      "SELECT 1 AS one FROM answers an JOIN questions q ON q.id = an.question_id " +
-        "AND q.assessment_id = ? WHERE an.submission_id = ? AND an.final_score IS NULL LIMIT 1",
-    )
-    .bind(submission.assessment_id, submission.id)
-    .first<{ one: number }>();
-  await db
-    .prepare("UPDATE submissions SET status = ? WHERE id = ?")
-    .bind(pending ? "awaiting_review" : "approved", submission.id)
-    .run();
+  if (submission.status === "released") {
+    // Re-grading after publication: the submission stays released and
+    // its canonical totals refresh in place, so the student's published
+    // result reflects the corrected scores immediately — the same row
+    // updates, never a duplicate, and released_at keeps the first
+    // publication time.
+    const totals = await db
+      .prepare(
+        "SELECT COALESCE(SUM(an.final_score), 0) AS total, COALESCE(SUM(q.marks), 0) AS possible " +
+          "FROM questions q LEFT JOIN answers an ON an.question_id = q.id AND an.submission_id = ? " +
+          "WHERE q.assessment_id = ?",
+      )
+      .bind(submission.id, submission.assessment_id)
+      .first<{ total: number; possible: number }>();
+    await db
+      .prepare("UPDATE submissions SET final_score = ?, total_possible = ? WHERE id = ?")
+      .bind(totals?.total ?? 0, totals?.possible ?? 0, submission.id)
+      .run();
+  } else {
+    // Recompute the submission status: approved only when no valid
+    // answer (question in this assessment) still lacks a final score.
+    const pending = await db
+      .prepare(
+        "SELECT 1 AS one FROM answers an JOIN questions q ON q.id = an.question_id " +
+          "AND q.assessment_id = ? WHERE an.submission_id = ? AND an.final_score IS NULL LIMIT 1",
+      )
+      .bind(submission.assessment_id, submission.id)
+      .first<{ one: number }>();
+    await db
+      .prepare("UPDATE submissions SET status = ? WHERE id = ?")
+      .bind(pending ? "awaiting_review" : "approved", submission.id)
+      .run();
+  }
   // Activity-feed labels: student name + exam title (never answer text).
   const graded = await db
     .prepare(
@@ -449,7 +476,12 @@ export async function releaseSubmission(
   studentId: string;
 }> {
   const submission = await ownSubmission(db, teacherId, submissionId);
-  if (submission.status !== "approved") throw new Error("NOT_APPROVED");
+  // Re-release of an already-released submission recomputes the
+  // canonical totals and updates the same row in place (grade-review
+  // corrections) — the student's result is replaced, never duplicated.
+  if (submission.status !== "approved" && submission.status !== "released") {
+    throw new Error("NOT_APPROVED");
+  }
   if ((feedback ?? "").length > 5000) throw new Error("FEEDBACK_TOO_LONG");
   // RELEASE GATE: every question needs an answer row with a teacher
   // score inside the question's marks. A missing row blocks release.
