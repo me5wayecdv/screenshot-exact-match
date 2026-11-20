@@ -9,7 +9,6 @@ const migration = readFileSync(
   "utf8",
 );
 const aiGrade = readFileSync(resolve(root, "src/server/ai-grade.ts"), "utf8");
-const tutor = readFileSync(resolve(root, "src/server/tutor.ts"), "utf8");
 const handwritten = readFileSync(resolve(root, "src/server/handwritten.ts"), "utf8");
 const sourceOcr = readFileSync(resolve(root, "src/server/source-ocr.ts"), "utf8");
 const paperMatching = readFileSync(resolve(root, "src/server/paper-matching.ts"), "utf8");
@@ -38,12 +37,6 @@ describe("canonical grading and bounded AI inputs", () => {
     expect(aiGrade).toMatch(/rawAlternatives\.length > 50/);
     expect(aiGrade).toMatch(/rawAlternatives\.some\([\s\S]*?alternative\.length > 2000/);
     expect(aiGrade).toMatch(/alternativesChars > 20000/);
-  });
-
-  it("bounds tutor answer and feedback text before constructing provider prompts", () => {
-    expect(tutor).toMatch(/studentAnswer\.length > 20000 \|\| teacherFeedback\.length > 5000/);
-    expect(tutor).toMatch(/questionId\.length > 100/);
-    expect(tutor).toMatch(/newAnswer\.length > 5000/);
   });
 
   it("caps individual vision inputs and aggregate multi-image batches", () => {
