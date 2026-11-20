@@ -731,8 +731,9 @@ describe("join and decisions", () => {
   it("joining by code lands pending on link and membership and assigns nothing", async () => {
     const s = baseState();
     const db = fakeDb(s);
-    const groupId = await joinGroup(db, "s4", "student", "groupcode123");
-    expect(groupId).toBe("g1");
+    const res = await joinGroup(db, "s4", "student", "groupcode123");
+    expect(res.groupId).toBe("g1");
+    expect(res.state).toBe("requested");
     expect(s.members.get("g1:s4")?.status).toBe("pending");
     expect(s.links.get("t1:s4")).toBe("pending");
     expect(s.assignments.has("a1:s4")).toBe(false);
@@ -753,10 +754,17 @@ describe("join and decisions", () => {
     const db = fakeDb(s);
     await decideGroupMembership(db, "t1", "school_teacher", "g1", "s2", false, NOW);
     expect(s.members.get("g1:s2")?.status).toBe("rejected");
-    await joinGroup(db, "s2", "student", "GROUPCODE123");
+    const again = await joinGroup(db, "s2", "student", "GROUPCODE123");
+    expect(again.state).toBe("requested");
     expect(s.members.get("g1:s2")?.status).toBe("pending");
-    await joinGroup(db, "s1", "student", "GROUPCODE123");
+    // An approved member is detected, left untouched, and no new join
+    // request hits the activity feed.
+    const auditBefore = s.audit.length;
+    const existing = await joinGroup(db, "s1", "student", "GROUPCODE123");
+    expect(existing.state).toBe("already_member");
+    expect(existing.groupId).toBe("g1");
     expect(s.members.get("g1:s1")?.status).toBe("approved");
+    expect(s.audit.length).toBe(auditBefore);
   });
 
   it("approving assigns the open auto_all exam and the published linked exam, never the draft", async () => {
