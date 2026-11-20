@@ -698,6 +698,15 @@ function StudentGroupCard({ group, labels }: { group: MyGroup; labels: Record<st
   const { data: exams } = useQuery({
     queryKey: ["group-exams-student", group.groupId],
     queryFn: async () => getGroupExamsD1({ data: { groupId: group.groupId } }),
+    // While any exam has a submission still awaiting release, re-read
+    // every 30s so the released result button appears promptly.
+    // Polling stops once every attempt is released.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some(
+        (e) => e.mySubmissionStatus && e.mySubmissionStatus !== "released",
+      )
+        ? 30_000
+        : false,
   });
 
   return (
@@ -718,16 +727,27 @@ function StudentGroupCard({ group, labels }: { group: MyGroup; labels: Record<st
         <Empty>{t("groupExamNone")}</Empty>
       ) : (
         <ul className="mt-2 space-y-2">
-          {(exams ?? []).map((e) => (
-            <li key={e.assessmentId} className="flex items-center justify-between gap-3">
-              <span className="font-medium">{e.title}</span>
-              <Button asChild size="sm">
-                <Link to="/assessments/take/$id" params={{ id: e.assessmentId }}>
-                  {t("groupExamStart")}
-                </Link>
-              </Button>
-            </li>
-          ))}
+          {(exams ?? []).map((e) => {
+            // The button follows the student's own attempt: "start"
+            // before any submission, a waiting note once submitted,
+            // and the result view once the teacher releases it.
+            const mine = e.mySubmissionStatus;
+            const label = mine
+              ? mine === "released"
+                ? t("groupExamResult")
+                : t("awaitingResult")
+              : t("groupExamStart");
+            return (
+              <li key={e.assessmentId} className="flex items-center justify-between gap-3">
+                <span className="font-medium">{e.title}</span>
+                <Button asChild size="sm">
+                  <Link to="/assessments/take/$id" params={{ id: e.assessmentId }}>
+                    {label}
+                  </Link>
+                </Button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
