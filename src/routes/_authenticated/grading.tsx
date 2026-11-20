@@ -607,15 +607,9 @@ function Grading() {
                   {totalPossible}
                 </p>
               </Panel>
-              {selected.status === "partially_released" && (
+              {selected.status !== "released" && (
                 <Panel className="border-info/40 bg-info/10 text-sm">
-                  <p className="font-semibold">
-                    {t("takeObjectiveScore")}:{" "}
-                    <bdi>
-                      {selected.final_score} / {selected.total_possible}
-                    </bdi>
-                  </p>
-                  <p className="mt-2 text-muted-foreground">{t("gradingPartialNote")}</p>
+                  <p>{t("gradingPartialNote")}</p>
                 </Panel>
               )}
               <IntegritySummary submissionId={selected.id} assessmentId={selected.assessment_id} />
