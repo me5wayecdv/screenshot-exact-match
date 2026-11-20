@@ -44,6 +44,7 @@ import { parentPhoneState } from "@/server/d1-parent-phone";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { effectiveRole } from "@/server/d1-assessments";
 import { retryD1Overload } from "@/server/d1-retry";
+import { autoScoreFor, isAutoGradable, type ObjectiveKey } from "@/lib/auto-grade";
 import {
   invalidInput,
   optionalString,
@@ -851,6 +852,126 @@ export async function markSubmitted(
   }
 }
 
+/** Auto-release on submit, fully objective exams only. When every
+ *  question of the assessment is auto-gradable (mcq / true_false /
+ *  keyed short_answer — never written, never an unkeyed objective),
+ *  the deterministic auto-grade IS the result: every answer gets
+ *  auto_score + final_score (review_status 'auto_graded'), a question
+ *  the student never touched counts as an unanswered zero (inserted,
+ *  so the release gate's one-row-per-question invariant still holds),
+ *  and the submission flips straight to released with canonical
+ *  totals + an auto_release audit row. A mixed exam (any written or
+ *  unkeyed question) stays awaiting_review for the teacher, exactly
+ *  as before. The teacher keeps the final word afterwards through
+ *  the released-regrade flow. Returns whether it released. */
+export async function autoReleaseIfObjective(
+  db: D1Database,
+  submissionId: string,
+  nowIso: string = new Date().toISOString(),
+): Promise<boolean> {
+  const submission = await db
+    .prepare("SELECT * FROM submissions WHERE id = ?")
+    .bind(submissionId)
+    .first<SubmissionRow>();
+  if (!submission || submission.status !== "awaiting_review") return false;
+  const qres = await db
+    .prepare(
+      "SELECT q.id, q.type, q.marks, k.correct_answer, k.accepted_alternatives " +
+        "FROM questions q LEFT JOIN question_keys k ON k.question_id = q.id " +
+        "WHERE q.assessment_id = ?",
+    )
+    .bind(submission.assessment_id)
+    .all<{
+      id: string;
+      type: string;
+      marks: number;
+      correct_answer: string | null;
+      accepted_alternatives: string | null;
+    }>();
+  const questions = qres.results ?? [];
+  if (questions.length === 0) return false;
+  const keyOf = (q: {
+    correct_answer: string | null;
+    accepted_alternatives: string | null;
+  }): ObjectiveKey =>
+    q.correct_answer === null && q.accepted_alternatives === null
+      ? null
+      : {
+          correct_answer: q.correct_answer ?? "",
+          accepted_alternatives: parseOptions(q.accepted_alternatives ?? "[]"),
+          rubric: "",
+          explanation: "",
+        };
+  // Any question the deterministic rule cannot grade keeps the whole
+  // submission on the teacher path — a partial auto-release would
+  // publish a wrong-looking result.
+  if (!questions.every((q) => isAutoGradable(q, keyOf(q)))) return false;
+  const ares = await db
+    .prepare("SELECT id, question_id, response FROM answers WHERE submission_id = ?")
+    .bind(submissionId)
+    .all<{ id: string; question_id: string; response: string }>();
+  const byQuestion = new Map((ares.results ?? []).map((a) => [a.question_id, a]));
+  const exam = await db
+    .prepare("SELECT title FROM assessments WHERE id = ?")
+    .bind(submission.assessment_id)
+    .first<{ title: string }>();
+  const writes: D1Statement[] = [];
+  let total = 0;
+  let possible = 0;
+  for (const q of questions) {
+    const marks = Number(q.marks);
+    possible += marks;
+    const answer = byQuestion.get(q.id);
+    const score = autoScoreFor({ type: q.type, marks }, keyOf(q), answer?.response ?? "") ?? 0;
+    total += score;
+    if (answer) {
+      writes.push(
+        db
+          .prepare(
+            "UPDATE answers SET auto_score = ?, final_score = ?, review_status = 'auto_graded' " +
+              "WHERE id = ? AND submission_id = ?",
+          )
+          .bind(score, score, answer.id, submissionId),
+      );
+    } else {
+      writes.push(
+        db
+          .prepare(
+            "INSERT INTO answers (id, submission_id, question_id, response, max_marks, " +
+              "auto_score, final_score, review_status, time_spent_seconds) " +
+              "VALUES (?, ?, ?, '', ?, ?, ?, 'auto_graded', 0)",
+          )
+          .bind(crypto.randomUUID(), submissionId, q.id, marks, score, score),
+      );
+    }
+  }
+  writes.push(
+    db
+      .prepare(
+        "UPDATE submissions SET status = 'released', final_score = ?, total_possible = ?, " +
+          "released_at = ? WHERE id = ?",
+      )
+      .bind(total, possible, nowIso, submissionId),
+  );
+  writes.push(
+    db
+      .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
+      .bind(
+        submission.student_id,
+        "auto_release",
+        submissionId,
+        JSON.stringify({
+          assessment_id: submission.assessment_id,
+          score: total,
+          target_label: exam?.title ?? "",
+        }),
+      ),
+  );
+  if (db.batch) await db.batch(writes);
+  else for (const statement of writes) await statement.run();
+  return true;
+}
+
 async function submitAttemptOnce(
   db: D1Database,
   studentId: string,
@@ -866,6 +987,21 @@ async function submitAttemptOnce(
   // Submit stays allowed after expiry/window end: edits are already
   // frozen by saveDraft, and rejecting here would destroy frozen work.
   await markSubmitted(db, submission, nowIso);
+  // Fully objective exams publish instantly (auto-release): the
+  // student's DO cache is poked so the score appears without waiting
+  // out the score-refresh TTL. Best-effort — a failure here must
+  // never fail a submit that already landed; the submission simply
+  // stays awaiting_review for the teacher.
+  try {
+    if (await autoReleaseIfObjective(db, submissionId, nowIso)) {
+      await callTakeSession(submission.assessment_id, "/score-refresh", {
+        studentId: submission.student_id,
+        assessmentId: submission.assessment_id,
+      });
+    }
+  } catch {
+    // Deliberately silent: awaiting_review remains as the fallback.
+  }
   return true;
 }
 
