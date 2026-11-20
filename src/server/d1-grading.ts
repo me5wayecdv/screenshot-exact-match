@@ -37,6 +37,7 @@ import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { effectiveRole, notFound } from "@/server/d1-assessments";
 import { appendAuditLog } from "@/server/d1-admin";
+import { callTakeSession } from "@/server/d1-take";
 import {
   invalidInput,
   optionalNumber,
@@ -441,7 +442,12 @@ export async function releaseSubmission(
   teacherId: string,
   submissionId: string,
   feedback: string,
-): Promise<{ finalScore: number; totalPossible: number }> {
+): Promise<{
+  finalScore: number;
+  totalPossible: number;
+  assessmentId: string;
+  studentId: string;
+}> {
   const submission = await ownSubmission(db, teacherId, submissionId);
   if (submission.status !== "approved") throw new Error("NOT_APPROVED");
   if ((feedback ?? "").length > 5000) throw new Error("FEEDBACK_TOO_LONG");
@@ -495,7 +501,12 @@ export async function releaseSubmission(
     target_label: (releasedStudent?.full_name ?? "").trim(),
     exam_label: released?.title ?? "",
   });
-  return { finalScore: total, totalPossible: possible };
+  return {
+    finalScore: total,
+    totalPossible: possible,
+    assessmentId: submission.assessment_id,
+    studentId: released?.student_id ?? "",
+  };
 }
 
 /* ------------------------------------------------------- server wrappers */
@@ -584,5 +595,21 @@ export const releaseSubmissionD1 = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { session, db } = ctx(context);
     requireSchoolTeacher(session);
-    return releaseSubmission(db, session.userId, data.submissionId, data.feedback);
+    const result = await releaseSubmission(db, session.userId, data.submissionId, data.feedback);
+    // Prompt result delivery: poke the exam's TakeSession DO so the
+    // student's cached take data reflects the release on their next
+    // read instead of waiting out the 5-minute score-refresh TTL.
+    // Best-effort: a DO hiccup must never fail a release — the TTL
+    // refresh remains the fallback.
+    if (result.studentId) {
+      try {
+        await callTakeSession(result.assessmentId, "/score-refresh", {
+          studentId: result.studentId,
+          assessmentId: result.assessmentId,
+        });
+      } catch {
+        // Deliberately silent: the TTL refresh stays correct.
+      }
+    }
+    return { finalScore: result.finalScore, totalPossible: result.totalPossible };
   });
