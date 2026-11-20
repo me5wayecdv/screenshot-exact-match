@@ -937,12 +937,21 @@ export async function autoReleaseObjectiveOnSubmit(
     const marks = Number(q.marks);
     possible += marks;
     const answer = byQuestion.get(q.id);
-    const score =
-      answer?.final_score ??
-      autoScoreFor({ type: q.type, marks }, keyOf(q), answer?.response ?? "") ??
-      0;
+    const autoScore = autoScoreFor({ type: q.type, marks }, keyOf(q), answer?.response ?? "") ?? 0;
+    const score = answer?.final_score ?? autoScore;
     total += score;
-    if (answer && answer.final_score !== null) continue;
+    if (answer && answer.final_score !== null) {
+      // Keep the teacher's grade and review state, but record objective
+      // membership so later partial-total refreshes include this answer.
+      writes.push(
+        db
+          .prepare(
+            "UPDATE answers SET auto_score = COALESCE(auto_score, ?) WHERE id = ? AND submission_id = ?",
+          )
+          .bind(autoScore, answer.id, submissionId),
+      );
+      continue;
+    }
     if (answer) {
       writes.push(
         db
