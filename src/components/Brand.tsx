@@ -24,7 +24,7 @@ export function BrandMark({
 }) {
   const glyph = tile ? (onDark ? "stroke-[#0d1420]" : "stroke-white") : "stroke-current";
   const firstDot = tile ? (onDark ? "fill-[#0d1420]" : "fill-white") : "fill-current";
-  const lastDot = tile ? "fill-[#ff6b4a]" : "fill-current";
+  const lastDot = tile ? "fill-[#ff4d2e]" : "fill-current";
   return (
     <svg
       viewBox="0 0 64 64"
