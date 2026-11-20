@@ -20,8 +20,8 @@
  * - Questions are selected WITHOUT question_keys — the word
  *   question_keys appears nowhere in a student query in this file.
  * - Answers returned are the student's OWN rows only, and scores /
- *   feedback are stripped everywhere except a released (or partially
- *   released) attempt's submission-level final_score/total_possible
+ *   feedback are stripped everywhere except a fully released
+ *   attempt's submission-level final_score/total_possible
  *   (the per-answer
  *   scores stay teacher-only until release, exactly as the old
  *   own_submission_responses rule: response text is the student's
@@ -162,16 +162,13 @@ function toSubmission(row: SubmissionRow): TakeSubmission {
     id: row.id,
     assessment_id: row.assessment_id,
     student_id: row.student_id,
-    status:
-      row.status === "awaiting_review" && row.final_score !== null
-        ? "partially_released"
-        : row.status,
+    status: row.status,
     attempt_number: row.attempt_number,
     started_at: row.started_at,
     submitted_at: row.submitted_at,
     expires_at: row.expires_at,
     question_order: parseOrder(row.question_order),
-    final_score: row.final_score,
+    final_score: row.status === "released" ? row.final_score : null,
     total_possible: row.total_possible,
     draft_seq: row.draft_seq ?? 0,
   };
@@ -856,29 +853,13 @@ export async function markSubmitted(
   }
 }
 
-/** Auto-release on submit. Fully objective exams (every question
- *  auto-gradable: mcq / true_false / keyed short_answer — never
- *  written, never an unkeyed objective) publish straight to released
- *  with canonical totals + an auto_release audit row, as before.
- *  A MIXED exam now publishes its objective part instantly too: every
- *  auto-gradable answer gets auto_score + final_score (review_status
- *  'auto_graded'), a keyed question the student never touched counts
- *  as an unanswered zero (inserted, so the release gate's
- *  one-row-per-question invariant still holds), and the submission
- *  stays awaiting_review with non-null objective-only totals + an
- *  auto_release_partial audit row. The essay/written part stays
- *  ungraded for the teacher; the student's published line is the
- *  objective score only until the teacher grades the rest and the
- *  normal release path publishes the canonical full totals in place.
- *  An exam with no auto-gradable question at all (essay-only) stays
- *  awaiting_review for the teacher, exactly as before. The teacher
- *  keeps the final word afterwards through the regrade flow.
- *  Returns "released" / "partial" / null (nothing published). */
-export async function autoReleaseObjectiveOnSubmit(
+/** Save objective grades for the teacher on submit. Publication is always
+ * an explicit teacher action, for objective-only and mixed exams alike. */
+export async function autoGradeObjectiveOnSubmit(
   db: D1Database,
   submissionId: string,
-  nowIso: string = new Date().toISOString(),
-): Promise<"released" | "partial" | null> {
+  _nowIso: string = new Date().toISOString(),
+): Promise<"graded" | null> {
   const submission = await db
     .prepare("SELECT * FROM submissions WHERE id = ?")
     .bind(submissionId)
@@ -913,14 +894,12 @@ export async function autoReleaseObjectiveOnSubmit(
           rubric: "",
           explanation: "",
         };
-  // Partition: auto-gradable questions publish now; everything the
-  // deterministic rule cannot grade (written, unkeyed objective)
-  // waits for the teacher. An essay-only exam publishes nothing.
+  // Auto-gradable questions receive teacher-only saved grades.
+  // Everything else waits for the teacher's manual grade.
   const gradable = questions.filter((q) => isAutoGradable(q, keyOf(q)));
   if (gradable.length === 0) return null;
   const partial = gradable.length < questions.length;
-  // Keep the D1 status enum unchanged. awaiting_review + non-null
-  // final_score is exposed as virtual partially_released to clients.
+  // Submission totals stay unpublished until the teacher releases all grades.
   const ares = await db
     .prepare("SELECT id, question_id, response, final_score FROM answers WHERE submission_id = ?")
     .bind(submissionId)
@@ -941,8 +920,8 @@ export async function autoReleaseObjectiveOnSubmit(
     const score = answer?.final_score ?? autoScore;
     total += score;
     if (answer && answer.final_score !== null) {
-      // Keep the teacher's grade and review state, but record objective
-      // membership so later partial-total refreshes include this answer.
+      // Keep the teacher's grade and review state, with the computed
+      // suggestion available for comparison in the teacher view.
       writes.push(
         db
           .prepare(
@@ -992,14 +971,20 @@ export async function autoReleaseObjectiveOnSubmit(
         "UPDATE submissions SET status = ?, final_score = ?, total_possible = ?, " +
           "released_at = ? WHERE id = ?",
       )
-      .bind(partial ? "awaiting_review" : "released", total, possible, nowIso, submissionId),
+      .bind(
+        partial ? "awaiting_review" : "approved",
+        null,
+        questions.reduce((sum, q) => sum + Number(q.marks), 0),
+        null,
+        submissionId,
+      ),
   );
   writes.push(
     db
       .prepare("INSERT INTO audit_log (actor_id, action, entity_id, details) VALUES (?, ?, ?, ?)")
       .bind(
         submission.student_id,
-        partial ? "auto_release_partial" : "auto_release",
+        "auto_grade",
         submissionId,
         JSON.stringify({
           assessment_id: submission.assessment_id,
@@ -1012,7 +997,7 @@ export async function autoReleaseObjectiveOnSubmit(
   );
   if (db.batch) await db.batch(writes);
   else for (const statement of writes) await statement.run();
-  return partial ? "partial" : "released";
+  return "graded";
 }
 
 async function submitAttemptOnce(
@@ -1030,14 +1015,10 @@ async function submitAttemptOnce(
   // Submit stays allowed after expiry/window end: edits are already
   // frozen by saveDraft, and rejecting here would destroy frozen work.
   await markSubmitted(db, submission, nowIso);
-  // Objective questions publish instantly (auto-release — fully
-  // objective exams in full, mixed exams as the objective part): the
-  // student's DO cache is poked so the score appears without waiting
-  // out the score-refresh TTL. Best-effort — a failure here must
-  // never fail a submit that already landed; the submission simply
-  // stays awaiting_review for the teacher.
+  // Save teacher-only objective grades, then refresh submitted status.
+  // A failed grade pass never loses an already accepted submission.
   try {
-    if (await autoReleaseObjectiveOnSubmit(db, submissionId, nowIso)) {
+    if (await autoGradeObjectiveOnSubmit(db, submissionId, nowIso)) {
       await callTakeSession(submission.assessment_id, "/score-refresh", {
         studentId: submission.student_id,
         assessmentId: submission.assessment_id,

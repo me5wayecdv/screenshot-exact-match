@@ -1,15 +1,6 @@
-/**
- * Tests for autoReleaseObjectiveOnSubmit (src/server/d1-take.ts): the
- * submit-time instant release — fully objective exams in full, mixed
- * exams as the objective part only. Uses a
- * dispatch fake for D1Database (same pattern as
- * src/test/d1-grading.test.ts): in-memory rows, mutations applied by
- * SQL shape, so the tests prove the release rule, the totals, the
- * missing-answer zero rows, and the mixed-exam fallback without a
- * Worker binding or a live D1.
- */
+/** Submit-time objective grading stays teacher-only until explicit publication. */
 import { describe, expect, it } from "vitest";
-import { autoReleaseObjectiveOnSubmit } from "@/server/d1-take";
+import { autoGradeObjectiveOnSubmit } from "@/server/d1-take";
 import { isAutoGradable } from "@/lib/auto-grade";
 import type { D1Database } from "@/server/d1-auth-store";
 
@@ -194,12 +185,12 @@ function baseState(): State {
   };
 }
 
-describe("d1-take: auto-release of fully objective exams", () => {
-  it("releases instantly with canonical totals: match = full marks, mismatch = zero, keyed short answer accepts alternatives", async () => {
+describe("d1-take: teacher-only objective grading", () => {
+  it("saves teacher-only grades without publication: match = full marks, mismatch = zero, keyed short answer accepts alternatives", async () => {
     const state = baseState();
     const db = fakeDb(state);
-    const released = await autoReleaseObjectiveOnSubmit(db, "sub-1", "2026-11-20T16:00:00.000Z");
-    expect(released).toBe("released");
+    const released = await autoGradeObjectiveOnSubmit(db, "sub-1", "2026-11-20T16:00:00.000Z");
+    expect(released).toBe("graded");
     const [a1, a2, a3] = state.answers;
     expect(a1!.final_score).toBe(5); // mcq exact match
     expect(a2!.final_score).toBe(0); // true_false mismatch
@@ -209,31 +200,31 @@ describe("d1-take: auto-release of fully objective exams", () => {
       expect(a.auto_score).toBe(a.final_score);
     }
     const sub = state.submissions["sub-1"]!;
-    expect(sub.status).toBe("released");
-    expect(sub.final_score).toBe(10);
+    expect(sub.status).toBe("approved");
+    expect(sub.final_score).toBeNull();
     expect(sub.total_possible).toBe(15);
-    expect(sub.released_at).toBe("2026-11-20T16:00:00.000Z");
+    expect(sub.released_at).toBeNull();
     expect(state.audit).toHaveLength(1);
-    expect(state.audit[0]!.action).toBe("auto_release");
+    expect(state.audit[0]!.action).toBe("auto_grade");
     expect(state.audit[0]!.actor).toBe("student-a");
   });
 
-  it("counts a question with no answer row as an unanswered zero and still releases", async () => {
+  it("counts a question with no answer row as an unanswered zero without publication", async () => {
     const state = baseState();
     state.answers = state.answers.filter((a) => a.question_id !== "q3");
     const db = fakeDb(state);
-    const released = await autoReleaseObjectiveOnSubmit(db, "sub-1");
-    expect(released).toBe("released");
+    const released = await autoGradeObjectiveOnSubmit(db, "sub-1");
+    expect(released).toBe("graded");
     const inserted = state.answers.find((a) => a.question_id === "q3")!;
     expect(inserted.response).toBe("");
     expect(inserted.final_score).toBe(0);
     expect(inserted.review_status).toBe("auto_graded");
-    expect(state.submissions["sub-1"]!.status).toBe("released");
-    expect(state.submissions["sub-1"]!.final_score).toBe(5);
+    expect(state.submissions["sub-1"]!.status).toBe("approved");
+    expect(state.submissions["sub-1"]!.final_score).toBeNull();
     expect(state.submissions["sub-1"]!.total_possible).toBe(15);
   });
 
-  it("partially releases a mixed exam: objective scores publish instantly, the essay waits for the teacher", async () => {
+  it("saves mixed-exam objective grades while the essay waits for the teacher", async () => {
     const state = baseState();
     state.questions.push({
       id: "q4",
@@ -254,8 +245,8 @@ describe("d1-take: auto-release of fully objective exams", () => {
       review_status: "not_graded",
     });
     const db = fakeDb(state);
-    const released = await autoReleaseObjectiveOnSubmit(db, "sub-1", "2026-11-20T16:00:00.000Z");
-    expect(released).toBe("partial");
+    const released = await autoGradeObjectiveOnSubmit(db, "sub-1", "2026-11-20T16:00:00.000Z");
+    expect(released).toBe("graded");
     const [a1, a2, a3, a4] = state.answers;
     expect(a1!.final_score).toBe(5);
     expect(a2!.final_score).toBe(0);
@@ -265,29 +256,29 @@ describe("d1-take: auto-release of fully objective exams", () => {
     expect(a4!.review_status).toBe("not_graded");
     const sub = state.submissions["sub-1"]!;
     expect(sub.status).toBe("awaiting_review");
-    // Published totals are the objective part only: 10 of 15, not of 25.
-    expect(sub.final_score).toBe(10);
-    expect(sub.total_possible).toBe(15);
-    expect(sub.released_at).toBe("2026-11-20T16:00:00.000Z");
+    // No student score is published; the full exam denominator is retained.
+    expect(sub.final_score).toBeNull();
+    expect(sub.total_possible).toBe(25);
+    expect(sub.released_at).toBeNull();
     expect(state.audit).toHaveLength(1);
-    expect(state.audit[0]!.action).toBe("auto_release_partial");
+    expect(state.audit[0]!.action).toBe("auto_grade");
     expect(state.audit[0]!.details["pending_questions"]).toBe(1);
   });
 
-  it("partially releases when an unkeyed objective question joins the keyed ones", async () => {
+  it("saves keyed grades and leaves unkeyed questions for the teacher", async () => {
     const state = baseState();
     state.questions[0]!.correct_answer = null; // no question_keys row for q1
     state.questions[0]!.accepted_alternatives = null;
     const db = fakeDb(state);
-    expect(await autoReleaseObjectiveOnSubmit(db, "sub-1")).toBe("partial");
-    // q1 stays ungraded for the teacher; q2 + q3 publish.
+    expect(await autoGradeObjectiveOnSubmit(db, "sub-1")).toBe("graded");
+    // q1 stays ungraded; q2 + q3 are saved for the teacher only.
     expect(state.answers[0]!.final_score).toBeNull();
     expect(state.answers[1]!.final_score).toBe(0);
     expect(state.answers[2]!.final_score).toBe(5);
     const sub = state.submissions["sub-1"]!;
     expect(sub.status).toBe("awaiting_review");
-    expect(sub.final_score).toBe(5);
-    expect(sub.total_possible).toBe(10);
+    expect(sub.final_score).toBeNull();
+    expect(sub.total_possible).toBe(15);
   });
 
   it("keeps an essay-only exam awaiting_review, untouched", async () => {
@@ -304,7 +295,7 @@ describe("d1-take: auto-release of fully objective exams", () => {
     ];
     state.answers = [];
     const db = fakeDb(state);
-    expect(await autoReleaseObjectiveOnSubmit(db, "sub-1")).toBeNull();
+    expect(await autoGradeObjectiveOnSubmit(db, "sub-1")).toBeNull();
     expect(state.submissions["sub-1"]!.status).toBe("awaiting_review");
     expect(state.submissions["sub-1"]!.final_score).toBeNull();
     expect(state.audit).toHaveLength(0);
@@ -314,7 +305,7 @@ describe("d1-take: auto-release of fully objective exams", () => {
     const state = baseState();
     state.submissions["sub-1"]!.status = "released";
     const db = fakeDb(state);
-    expect(await autoReleaseObjectiveOnSubmit(db, "sub-1")).toBeNull();
+    expect(await autoGradeObjectiveOnSubmit(db, "sub-1")).toBeNull();
     expect(state.answers.every((a) => a.final_score === null)).toBe(true);
     expect(state.audit).toHaveLength(0);
   });

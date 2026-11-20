@@ -350,7 +350,7 @@ const dict = {
     sub_submitted: "تم التسليم",
     sub_awaiting_review: "بانتظار المراجعة",
     sub_approved: "معتمد — غير منشور",
-    sub_partially_released: "الأسئلة الموضوعية منشورة",
+    sub_partially_released: "تصحيح موضوعي محفوظ للمدرس",
     sub_released: "منشور للطالب",
     rv_not_graded: "غير مصحح",
     rv_auto_graded: "مصحح تلقائياً",
@@ -499,6 +499,7 @@ const dict = {
     auditViewHistory: "سجل المراجعة",
     auditActionReviewAnswer: "مراجعة إجابة",
     auditActionRelease: "نشر نتيجة",
+    auditActionAutoGrade: "تم حفظ التصحيح التلقائي للمدرس",
     auditActionAutoRelease: "نشر تلقائي للنتيجة",
     auditActionAutoReleasePartial: "نشر تلقائي لنتيجة الأسئلة الموضوعية",
     auditActionAssessmentStatus: "تغيير حالة امتحان",
@@ -667,9 +668,9 @@ const dict = {
     hwDeleted: "تم حذف التصحيح.",
     hwPaperGrade: "تصحيح ورقي",
     takeLateBlocked: "انتهى موعد التسليم ولا يمكن إرسال إجابات جديدة.",
-    takeLocked: "تم تسليم إجاباتك وهي الآن بانتظار التصحيح.",
+    takeLocked: "تم تسليم إجاباتك. النتيجة الكاملة هتظهر بعد ما المدرس يصحح كل الأسئلة وينشرها.",
     gradingPartialNote:
-      "الجزء الموضوعي منشور للطالب بالفعل. صحح باقي الأسئلة واحفظها، ثم اضغط نشر لتحديث نفس النتيجة بالمجموع الكامل. تعديلاتك على درجات الموضوعي هي المعتمدة.",
+      "درجات الجزء الموضوعي محفوظة لك فقط، ومش ظاهرة للطالب. راجع الإجابات القصيرة وصحح المقالي، ثم انشر النتيجة الكاملة. تعديلاتك هي المعتمدة.",
     takeObjectiveScore: "درجة الجزء الموضوعي",
     takePartialPending:
       "درجة الأسئلة الموضوعية ظاهرة فوق. باقي الأسئلة بانتظار تصحيح المدرس ونشرها. المجموع النهائي هيتحدث هنا بعد النشر.",
@@ -1312,7 +1313,7 @@ const dict = {
     sub_submitted: "Submitted",
     sub_awaiting_review: "Awaiting review",
     sub_approved: "Approved — not released",
-    sub_partially_released: "Objective part published",
+    sub_partially_released: "Objective grades saved for teacher",
     sub_released: "Released to student",
     rv_not_graded: "Not graded",
     rv_auto_graded: "Auto-graded",
@@ -1470,6 +1471,7 @@ const dict = {
     auditViewHistory: "Review history",
     auditActionReviewAnswer: "Answer reviewed",
     auditActionRelease: "Result released",
+    auditActionAutoGrade: "Auto-grades saved for teacher",
     auditActionAutoRelease: "Result auto-released",
     auditActionAutoReleasePartial: "Objective-part result auto-released",
     auditActionAssessmentStatus: "Assessment status changed",
@@ -1641,9 +1643,10 @@ const dict = {
     hwDeleted: "Grade deleted.",
     hwPaperGrade: "Paper grading",
     takeLateBlocked: "The submission deadline has passed, so new answers can't be submitted.",
-    takeLocked: "Your answers are submitted and awaiting grading.",
+    takeLocked:
+      "Your answers are submitted. The complete result will appear after your teacher grades every question and publishes it.",
     gradingPartialNote:
-      "The objective part is already visible to the student. Grade and save the remaining answers, then publish to update the same result with the full total. Your objective-score corrections take priority.",
+      "Objective grades are saved for you only, not shown to the student. Review short answers and grade essays, then publish the complete result. Your edits take priority.",
     takeObjectiveScore: "Objective-part score",
     takePartialPending:
       "Your objective-questions score is shown above. The remaining answers are waiting for teacher grading and publication. Your final total will update here after publication.",

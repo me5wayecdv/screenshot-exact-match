@@ -23,7 +23,7 @@
 import type { D1Database } from "@/server/d1-auth-store";
 import {
   applyDraftAnswers,
-  autoReleaseObjectiveOnSubmit,
+  autoGradeObjectiveOnSubmit,
   insertSubmission,
   markSubmitted,
   parseOptions,
@@ -973,13 +973,13 @@ export async function loadTakeData(
       id: sub.id,
       assessment_id: sub.assessmentId,
       student_id: sub.studentId,
-      status: sub.status,
+      status: sub.status === "partially_released" ? "awaiting_review" : sub.status,
       attempt_number: sub.attemptNumber,
       started_at: sub.startedAt,
       submitted_at: sub.submittedAt,
       expires_at: sub.expiresAt,
       question_order: parseOrder(JSON.stringify(sub.questionOrder)),
-      final_score: sub.finalScore,
+      final_score: sub.status === "released" ? sub.finalScore : null,
       total_possible: sub.totalPossible,
       draft_seq: sub.draftSeq,
     })),
@@ -1063,16 +1063,11 @@ export async function flushOne(
           .first<SubmissionRow>();
         if (current && current.status === "in_progress") {
           await markSubmitted(db, current, sub.submittedAt ?? new Date().toISOString());
-          // Objective questions publish instantly (auto-release —
-          // fully objective exams in full, mixed exams as the
-          // objective part), then the DO's cached row is refreshed so
-          // the student sees the score on the next read instead of
-          // waiting out the score-refresh TTL. Best-effort: a failure
-          // here leaves the submission awaiting_review for the teacher
-          // and must never fail the flush.
+          // Save teacher-only grades and refresh the submitted status.
+          // Auto-grading failure must never lose an accepted submission.
           try {
             if (
-              await autoReleaseObjectiveOnSubmit(
+              await autoGradeObjectiveOnSubmit(
                 db,
                 sub.id,
                 sub.submittedAt ?? new Date().toISOString(),

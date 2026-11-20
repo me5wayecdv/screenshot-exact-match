@@ -2,7 +2,7 @@
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { autoReleaseObjectiveOnSubmit } from "@/server/d1-take";
+import { autoGradeObjectiveOnSubmit, getTakeData } from "@/server/d1-take";
 import {
   listGradingPage,
   reviewAnswer,
@@ -64,84 +64,67 @@ function fixture() {
   };
   return { sql, db, sub: () => sql.prepare("SELECT * FROM submissions WHERE id='sub'").get()! };
 }
-const FIRST = "2026-11-20T18:00:00.000Z";
-
-describe("mixed exam partial publication against the real schema", () => {
-  it("publishes the objective score without a schema change and stays in the teacher's open list", async () => {
-    const { db, sub } = fixture();
-    expect(await autoReleaseObjectiveOnSubmit(db, "sub", FIRST)).toBe("partial");
+describe("teacher-only grading before complete publication", () => {
+  it("hides legacy partial totals from the direct student API", async () => {
+    const { db, sql } = fixture();
+    sql.exec(
+      "UPDATE submissions SET final_score=5, total_possible=10, released_at='2026-11-20T18:00:00Z'",
+    );
+    const data = await getTakeData(db, "student", "exam");
+    expect(data.allowed).toBe(true);
+    if (data.allowed) {
+      expect(data.submissions[0]).toMatchObject({ status: "awaiting_review", final_score: null });
+      expect(data.answersBySubmission["sub"]?.[0]).not.toHaveProperty("final_score");
+    }
+  });
+  it("saves objective grades for the teacher, then publishes once after the essay is graded", async () => {
+    const { db, sql, sub } = fixture();
+    expect(await autoGradeObjectiveOnSubmit(db, "sub")).toBe("graded");
     expect(sub()).toMatchObject({
       status: "awaiting_review",
+      final_score: null,
+      total_possible: 20,
+      released_at: null,
+    });
+    expect(sql.prepare("SELECT final_score FROM answers WHERE id='a1'").get()).toMatchObject({
       final_score: 5,
-      total_possible: 10,
-      released_at: FIRST,
     });
     const open = await listGradingPage(db, "teacher", "awaiting_review", 0, 30);
-    expect(open.submissions[0]).toMatchObject({ status: "partially_released", unscoredCount: 1 });
-    expect((await listGradingPage(db, "teacher", "released", 0, 30)).submissions).toHaveLength(0);
-    expect(
-      (await listGradingPage(db, "stranger", "awaiting_review", 0, 30)).submissions,
-    ).toHaveLength(0);
-    expect(await autoReleaseObjectiveOnSubmit(db, "sub", FIRST)).toBeNull();
-  });
-  it("keeps pre-existing teacher overrides in every later partial-total refresh", async () => {
-    const { db, sql, sub } = fixture();
-    sql.exec("UPDATE answers SET final_score=3, review_status='approved' WHERE id='a1'");
-    await autoReleaseObjectiveOnSubmit(db, "sub", FIRST);
-    expect(sub()).toMatchObject({ final_score: 3, total_possible: 10 });
-    expect(
-      sql.prepare("SELECT final_score, auto_score, review_status FROM answers WHERE id='a1'").get(),
-    ).toMatchObject({ final_score: 3, auto_score: 5, review_status: "approved" });
-    await reviewAnswer(db, "teacher", "a3", 8, "Good", "approve");
-    expect(sub()).toMatchObject({ final_score: 3, total_possible: 10 });
-    await reviewAnswer(db, "teacher", "a1", 4, "Corrected", "approve");
-    expect(sub()).toMatchObject({ final_score: 4, total_possible: 10 });
-  });
-  it("keeps essay scores unpublished until full release, then updates the same result and keeps first publication time", async () => {
-    const { db, sub, sql } = fixture();
-    await autoReleaseObjectiveOnSubmit(db, "sub", FIRST);
-    await expect(releaseSubmission(db, "teacher", "sub", "")).rejects.toThrow("NOT_FULLY_GRADED");
-    await reviewAnswer(db, "teacher", "a3", 8, "Good", "approve");
-    expect(sub()).toMatchObject({ status: "awaiting_review", final_score: 5, total_possible: 10 });
-    const full = await releaseSubmission(db, "teacher", "sub", "");
-    expect(full).toMatchObject({ finalScore: 13, totalPossible: 20 });
-    expect(sub()).toMatchObject({
-      status: "released",
-      final_score: 13,
-      total_possible: 20,
-      released_at: FIRST,
-    });
-    await reviewAnswer(db, "teacher", "a3", 9, "Correction", "approve");
-    await releaseSubmission(db, "teacher", "sub", "");
-    expect(sub()).toMatchObject({ final_score: 14, total_possible: 20, released_at: FIRST });
-    expect(sql.prepare("SELECT COUNT(*) AS n FROM submissions").get()).toMatchObject({ n: 1 });
-  });
-  it("teacher override wins over auto-grade, and the published objective score updates in place", async () => {
-    const { db, sub, sql } = fixture();
-    await autoReleaseObjectiveOnSubmit(db, "sub", FIRST);
+    expect(open.submissions[0]).toMatchObject({ status: "awaiting_review", unscoredCount: 1 });
+    await expect(releaseSubmission(db, "teacher", "sub", "")).rejects.toThrow();
     await reviewAnswer(db, "teacher", "a1", 3, "Correction", "approve");
-    expect(sub()).toMatchObject({ final_score: 3, total_possible: 10 });
     await setAutoScores(db, "teacher", "sub", [{ answerId: "a1", score: 5 }]);
     expect(sql.prepare("SELECT final_score FROM answers WHERE id='a1'").get()).toMatchObject({
       final_score: 3,
     });
-    await expect(reviewAnswer(db, "stranger", "a3", 10, "", "approve")).rejects.toThrow(
-      "NOT_FOUND",
-    );
+    await reviewAnswer(db, "teacher", "a3", 8, "Good", "approve");
+    expect(sub()).toMatchObject({ status: "approved", final_score: null, released_at: null });
+    const full = await releaseSubmission(db, "teacher", "sub", "");
+    expect(full).toMatchObject({ finalScore: 11, totalPossible: 20 });
+    expect(sub()).toMatchObject({ status: "released", final_score: 11, total_possible: 20 });
+    expect(sql.prepare("SELECT COUNT(*) AS n FROM submissions").get()).toMatchObject({ n: 1 });
   });
-  it("materializes a blank essay for teacher grading without counting it as zero", async () => {
+  it("never auto-publishes an objective-only exam", async () => {
     const { db, sql, sub } = fixture();
-    sql.exec("DELETE FROM answers WHERE id='a3'");
-    await autoReleaseObjectiveOnSubmit(db, "sub", FIRST);
-    const essay = sql.prepare("SELECT * FROM answers WHERE question_id='q3'").get()!;
-    expect(essay).toMatchObject({
-      response: "",
+    sql.exec("DELETE FROM answers WHERE id='a3'; DELETE FROM questions WHERE id='q3'");
+    await autoGradeObjectiveOnSubmit(db, "sub");
+    expect(sub()).toMatchObject({
+      status: "approved",
       final_score: null,
-      auto_score: null,
-      review_status: "not_graded",
+      total_possible: 10,
+      released_at: null,
     });
-    expect(sub()).toMatchObject({ final_score: 5, total_possible: 10 });
-    await reviewAnswer(db, "teacher", String(essay["id"]), 0, "Unanswered", "approve");
     expect((await releaseSubmission(db, "teacher", "sub", "")).finalScore).toBe(5);
+  });
+  it("materializes blank essays without inventing a score", async () => {
+    const { db, sql } = fixture();
+    sql.exec("DELETE FROM answers WHERE id='a3'");
+    await autoGradeObjectiveOnSubmit(db, "sub");
+    expect(
+      sql
+        .prepare("SELECT response, final_score, auto_score FROM answers WHERE question_id='q3'")
+        .get(),
+    ).toMatchObject({ response: "", final_score: null, auto_score: null });
+    await expect(reviewAnswer(db, "stranger", "a1", 5, "", "approve")).rejects.toThrow("NOT_FOUND");
   });
 });
