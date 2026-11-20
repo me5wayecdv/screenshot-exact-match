@@ -23,6 +23,7 @@
 import type { D1Database } from "@/server/d1-auth-store";
 import {
   applyDraftAnswers,
+  autoReleaseIfObjective,
   insertSubmission,
   markSubmitted,
   parseOptions,
@@ -1000,6 +1001,7 @@ export async function flushOne(
   db: D1Database,
   store: SessionStore,
   sub: DoSubmissionState,
+  configStore?: ExamConfigStore,
 ): Promise<{ ok: boolean; reason?: string }> {
   try {
     await retryD1Overload(async () => {
@@ -1043,6 +1045,33 @@ export async function flushOne(
           .first<SubmissionRow>();
         if (current && current.status === "in_progress") {
           await markSubmitted(db, current, sub.submittedAt ?? new Date().toISOString());
+          // Fully objective exams publish instantly (auto-release),
+          // then the DO's cached row is refreshed so the student sees
+          // the score on the next read instead of waiting out the
+          // score-refresh TTL. Best-effort: a failure here leaves the
+          // submission awaiting_review for the teacher and must never
+          // fail the flush.
+          try {
+            if (
+              configStore &&
+              (await autoReleaseIfObjective(
+                db,
+                sub.id,
+                sub.submittedAt ?? new Date().toISOString(),
+              ))
+            ) {
+              await refreshStudentScores(
+                store,
+                configStore,
+                db,
+                sub.studentId,
+                sub.assessmentId,
+                Date.now(),
+              );
+            }
+          } catch {
+            // awaiting_review remains as the teacher fallback.
+          }
         }
       }
     });
@@ -1077,12 +1106,13 @@ export async function flushDirty(
   db: D1Database,
   store: SessionStore,
   limit: number = TAKE_SESSION_FLUSH_BATCH,
+  configStore?: ExamConfigStore,
 ): Promise<{ flushed: number; failed: number; remaining: boolean }> {
   const dirty = await store.listDirty(limit);
   let flushed = 0;
   let failed = 0;
   for (const sub of dirty) {
-    const result = await flushOne(db, store, sub);
+    const result = await flushOne(db, store, sub, configStore);
     if (result.ok) flushed += 1;
     else failed += 1;
   }
