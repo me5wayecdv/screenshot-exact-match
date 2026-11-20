@@ -32,8 +32,8 @@ export const Route = createFileRoute("/")({
 });
 
 const INK = "#eef2f8";
-const PINE = "#ff6b4a";
-const PINE_DARK = "#e04a2a";
+const PINE = "#ff4d2e";
+const PINE_DARK = "#d63a16";
 const PAPER = "#0d1420";
 const TINT = "#1b2436";
 const LINE = "#26324a";
@@ -52,8 +52,8 @@ const CREAM_ALT = "#efe9de";
 const L_INK = "#14213d";
 const L_MUTED = "#5b6070";
 const L_LINE = "#e6e0d3";
-const L_PINE = "#c9402a";
-const L_TINT = "#ffe9e5";
+const L_PINE = "#b83010";
+const L_TINT = "#ffdcd5";
 
 const FEATURES = [
   {
