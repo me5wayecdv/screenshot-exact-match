@@ -144,13 +144,12 @@ describe("Provider attempt safety and cost measurement", () => {
       ).ok,
     ).toBe(true);
   });
-  it("all eight AI modules use the common gate, with no direct provider fetch bypass", () => {
+  it("all seven AI modules use the common gate, with no direct provider fetch bypass", () => {
     for (const file of [
       "src/server/ai-client.ts",
       "src/server/handwritten.ts",
       "src/server/source-ocr.ts",
       "src/server/paper-matching.ts",
-      "src/server/tutor.ts",
       "src/server/teacher-assistant.ts",
       "src/server/lesson-explain.ts",
       "src/lib/generate-assessment.ts",

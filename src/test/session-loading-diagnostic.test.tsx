@@ -57,7 +57,7 @@ describe("session failure recovery and role cache", () => {
     await screen.findByRole("alert");
     fireEvent.click(screen.getByRole("button", { name: "حاول مرة أخرى" }));
     expect(await screen.findByText("Authenticated content")).toBeInTheDocument();
-    expect(screen.getAllByText("اختباراتي").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("مجموعاتي").length).toBeGreaterThan(0);
   });
   it("does not call the session twice after the route guard already verified it", async () => {
     const qc = new QueryClient();
