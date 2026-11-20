@@ -15,6 +15,7 @@ import { useI18n, translateError } from "@/lib/i18n";
 import { useMe } from "@/lib/session";
 import { PageHeader, Panel, Empty } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -60,7 +61,11 @@ function ReviewsPage() {
   const isTeacher = role === "school_teacher" || role === "tutor" || role === "teacher";
 
   const [assessmentId, setAssessmentId] = useState("");
-  const [questionId, setQuestionId] = useState("");
+  // Question scope: whole exam (one request, question_id NULL) or one
+  // request per selected question — the server dedups per
+  // (submission, question), so a re-sent question never duplicates.
+  const [wholeExam, setWholeExam] = useState(true);
+  const [questionIds, setQuestionIds] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [responses, setResponses] = useState<Record<string, string>>({});
@@ -136,23 +141,53 @@ function ReviewsPage() {
 
   async function submitRequest() {
     if (!submission || !message.trim()) return;
+    if (!wholeExam && questionIds.length === 0) return;
     // D1 derives the assessment's real owner server-side from the
     // released submission; the client never supplies a teacher id.
     setSubmitting(true);
     try {
-      await submitReviewRequestD1({
-        data: {
-          submissionId: submission.id,
-          questionId: questionId || null,
-          message: message.trim(),
-        },
-      });
-      toast.success(t("reviewsSubmitted"));
-      setMessage("");
-      setQuestionId("");
+      const targets: (string | null)[] = wholeExam ? [null] : questionIds;
+      let sent = 0;
+      let skipped = 0;
+      let hardError: unknown = null;
+      for (const qid of targets) {
+        try {
+          await submitReviewRequestD1({
+            data: {
+              submissionId: submission.id,
+              questionId: qid,
+              message: message.trim(),
+            },
+          });
+          sent++;
+        } catch (err) {
+          // An open request already exists for this question — skip it
+          // and send the rest instead of failing the whole batch. Any
+          // other failure stops the loop and is reported as itself.
+          if (err instanceof Error && err.message.includes("already exists")) {
+            skipped++;
+          } else {
+            hardError = err;
+            break;
+          }
+        }
+      }
+      if (sent > 0) {
+        toast.success(
+          sent === 1 ? t("reviewsSubmitted") : t("reviewsSubmittedCount", { count: String(sent) }),
+        );
+        setMessage("");
+        setQuestionIds([]);
+        setWholeExam(true);
+      }
+      if (skipped > 0) {
+        toast.error(t("reviewsSomeSkipped", { count: String(skipped) }));
+      }
+      if (hardError) {
+        toast.error(translateError(hardError, lang));
+      }
+      if (sent === 0 && skipped === 0 && !hardError) return;
       await qc.invalidateQueries({ queryKey: ["reviews-list"] });
-    } catch (err) {
-      toast.error(translateError(err, lang));
     } finally {
       setSubmitting(false);
     }
@@ -198,7 +233,8 @@ function ReviewsPage() {
                     value={assessmentId}
                     onChange={(e) => {
                       setAssessmentId(e.target.value);
-                      setQuestionId("");
+                      setWholeExam(true);
+                      setQuestionIds([]);
                     }}
                   >
                     {assessments.map((a) => (
@@ -210,18 +246,44 @@ function ReviewsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>{t("reviewsSelectQuestion")}</Label>
-                  <select
-                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                    value={questionId}
-                    onChange={(e) => setQuestionId(e.target.value)}
-                  >
-                    <option value="">{t("reviewsWholeAssessment")}</option>
+                  <div className="space-y-2 rounded-md border p-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={wholeExam}
+                        onCheckedChange={(checked) => {
+                          if (checked === true) {
+                            setWholeExam(true);
+                            setQuestionIds([]);
+                          } else if (questionIds.length > 0) {
+                            setWholeExam(false);
+                          }
+                        }}
+                      />
+                      {t("reviewsWholeAssessment")}
+                    </label>
                     {(questionsQuery.data ?? []).map((q, i) => (
-                      <option key={q.id} value={q.id}>
+                      <label key={q.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={!wholeExam && questionIds.includes(q.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked === true) {
+                              setWholeExam(false);
+                              setQuestionIds((prev) =>
+                                prev.includes(q.id) ? prev : [...prev, q.id],
+                              );
+                            } else {
+                              const next = questionIds.filter((id) => id !== q.id);
+                              setQuestionIds(next);
+                              // Unchecking the last question returns to
+                              // the whole-exam default.
+                              if (next.length === 0) setWholeExam(true);
+                            }
+                          }}
+                        />
                         {i + 1}. {(q.prompt || "").slice(0, 60)}
-                      </option>
+                      </label>
                     ))}
-                  </select>
+                  </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label>{t("reviewsMessage")}</Label>
@@ -234,7 +296,9 @@ function ReviewsPage() {
                 </div>
                 <Button
                   onClick={() => void submitRequest()}
-                  disabled={submitting || !message.trim()}
+                  disabled={
+                    submitting || !message.trim() || (!wholeExam && questionIds.length === 0)
+                  }
                 >
                   {submitting ? t("loading") : t("reviewsSubmit")}
                 </Button>
