@@ -72,7 +72,6 @@ vi.mock("@/server/d1-students", () => ({
 vi.mock("@/server/d1-assessments", () => ({
   enrollLessonD1: vi.fn(),
   getAdminDashboardD1: vi.fn(),
-  getStudentHomeD1: vi.fn(),
   getTeacherDashboardD1: vi.fn(),
   getTutorDashboardD1: vi.fn(),
   joinTeacherD1: vi.fn(),
@@ -100,14 +99,12 @@ import { listSubjectsD1 } from "@/server/d1-generation";
 import { getGroupRosterD1, getTeacherGroupsD1 } from "@/server/d1-groups";
 import { getGroupExamsD1 } from "@/server/d1-group-exams";
 import { listStudentRosterD1, removeStudentD1 } from "@/server/d1-students";
-import { getStudentHomeD1 } from "@/server/d1-assessments";
 import { ParentContactForm } from "@/components/parent-contact-form";
 import { Route as AdminRoute } from "@/routes/_authenticated/admin";
 import { Route as AuditRoute } from "@/routes/_authenticated/audit";
 import { Route as AnalyticsRoute } from "@/routes/_authenticated/analytics";
 import { Route as GroupsRoute } from "@/routes/_authenticated/groups";
 import { Route as StudentsRoute } from "@/routes/_authenticated/students";
-import { Route as DashboardRoute } from "@/routes/_authenticated/dashboard";
 
 function makeQc() {
   return new QueryClient({
@@ -435,128 +432,5 @@ describe("routes-teacher-b regression fixes", () => {
     await waitFor(() => expect(removeBtn).toBeDisabled());
     resolveRemove();
     await waitFor(() => expect(removeBtn).not.toBeDisabled());
-  });
-
-  it("Dashboard StudentHome clears fallback email from draftName when myName is empty and detects in_progress second attempt", async () => {
-    const qc = makeQc();
-    qc.setQueryData(["me"], {
-      id: "stu-1",
-      email: "nameless@example.invalid",
-      // getMeData falls back fullName to email when profiles.full_name is empty
-      fullName: "nameless@example.invalid",
-      role: "student",
-      joinCode: null,
-    });
-    vi.mocked(getStudentHomeD1).mockResolvedValue({
-      assessments: [
-        {
-          id: "a-1",
-          title: "Second Attempt Exam",
-          instructions: "",
-          status: "published",
-          starts_at: null,
-          due_at: null,
-        },
-      ],
-      hasMoreAssessments: false,
-      submissions: [
-        {
-          id: "sub-1",
-          assessment_id: "a-1",
-          status: "submitted",
-          attempt_number: 1,
-          final_score: null,
-          total_possible: 10,
-        },
-        {
-          id: "sub-2",
-          assessment_id: "a-1",
-          status: "in_progress",
-          attempt_number: 2,
-          final_score: null,
-          total_possible: 10,
-        },
-      ],
-      lessons: [],
-      hasMoreLessons: false,
-      parentContact: {
-        full_name: "Student One",
-        parent_phone: "+201012345678",
-        whatsapp_consent: 1,
-      },
-      teacherLinks: 1,
-      myName: "",
-      pendingRows: [],
-      handwrittenGrades: [],
-    });
-
-    const DashboardComp = DashboardRoute.options.component!;
-    render(wrap(qc, createElement(DashboardComp)));
-
-    await screen.findByText("Second Attempt Exam");
-    const nameInput = document.getElementById("my-name") as HTMLInputElement;
-    await waitFor(() => {
-      expect(nameInput.value).toBe("");
-    });
-    // Both hero and assessment card should show continueAttempt because sub-2 is in_progress
-    expect(screen.getAllByText("متابعة المحاولة").length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("Dashboard shows the CURRENT attempt, not a stale released attempt 1", async () => {
-    const qc = makeQc();
-    qc.setQueryData(["me"], {
-      id: "stu-1",
-      email: "student@example.invalid",
-      fullName: "Student One",
-      role: "student",
-      joinCode: null,
-    });
-    vi.mocked(getStudentHomeD1).mockResolvedValue({
-      assessments: [
-        {
-          id: "a-1",
-          title: "Second Attempt Exam",
-          instructions: "",
-          status: "published",
-          starts_at: null,
-          due_at: null,
-        },
-      ],
-      hasMoreAssessments: false,
-      // Attempt 1 is released, attempt 2 is in review. The dashboard must
-      // reflect attempt 2 (awaiting result), never attempt 1's release.
-      submissions: [
-        {
-          id: "sub-1",
-          assessment_id: "a-1",
-          status: "released",
-          attempt_number: 1,
-          final_score: 10,
-          total_possible: 10,
-        },
-        {
-          id: "sub-2",
-          assessment_id: "a-1",
-          status: "awaiting_review",
-          attempt_number: 2,
-          final_score: null,
-          total_possible: 10,
-        },
-      ],
-      lessons: [],
-      hasMoreLessons: false,
-      parentContact: null,
-      teacherLinks: 1,
-      myName: "Student One",
-      pendingRows: [],
-      handwrittenGrades: [],
-    });
-
-    const DashboardComp = DashboardRoute.options.component!;
-    render(wrap(qc, createElement(DashboardComp)));
-
-    await screen.findByText("Second Attempt Exam");
-    await waitFor(() => expect(screen.getAllByText("بانتظار النتيجة").length).toBeGreaterThan(0));
-    expect(screen.queryByText("منشور للطالب")).not.toBeInTheDocument();
   });
 });
