@@ -212,7 +212,9 @@ export async function listGradingPage(
   const safeOffset = Math.max(0, offset);
   const statusSql =
     status === "awaiting_review"
-      ? "s.status IN ('awaiting_review', 'approved')"
+      ? // partially_released still has essays waiting for the teacher,
+        // so it belongs on the open tab, not the released tab.
+        "s.status IN ('awaiting_review', 'approved')"
       : "s.status = 'released'";
   const { results } = await db
     .prepare(
@@ -249,7 +251,8 @@ export async function listGradingPage(
       id: r.id,
       assessment_id: r.assessment_id,
       student_id: r.student_id,
-      status: r.status,
+      status:
+        r.status === "awaiting_review" && r.final_score != null ? "partially_released" : r.status,
       attempt_number: r.attempt_number,
       submitted_at: r.submitted_at,
       final_score: r.final_score,
@@ -271,14 +274,20 @@ async function ownSubmission(
 ): Promise<{ id: string; assessment_id: string; status: string }> {
   const row = await db
     .prepare(
-      "SELECT s.id, s.assessment_id, s.status FROM submissions s " +
+      "SELECT s.id, s.assessment_id, s.status, s.final_score FROM submissions s " +
         "JOIN assessments a ON a.id = s.assessment_id " +
         "WHERE s.id = ? AND a.teacher_id = ?",
     )
     .bind(submissionId, teacherId)
-    .first<{ id: string; assessment_id: string; status: string }>();
+    .first<{ id: string; assessment_id: string; status: string; final_score: number | null }>();
   if (!row) throw notFound();
-  return row;
+  return {
+    ...row,
+    status:
+      row.status === "awaiting_review" && row.final_score != null
+        ? "partially_released"
+        : row.status,
+  };
 }
 
 export async function getGradingDetail(
@@ -349,7 +358,10 @@ export async function setAutoScores(
   scores: { answerId: string; score: number }[],
 ): Promise<void> {
   const submission = await ownSubmission(db, teacherId, submissionId);
-  if (submission.status === "released") return;
+  // Released needs no promotion, and a partially released submission
+  // already had every auto-gradable answer promoted at submit time —
+  // re-promoting here would also mis-flip its status below.
+  if (submission.status === "released" || submission.status === "partially_released") return;
   let promoted = false;
   for (const { answerId, score } of scores) {
     if (!Number.isFinite(score) || score < 0) continue;
@@ -428,11 +440,15 @@ export async function reviewAnswer(
   const submission = await ownSubmission(db, teacherId, answer.submission_id);
   // Released submissions stay re-gradable (grade-review flow): the
   // teacher can correct scores after publication and the student's
-  // published result updates in place below.
+  // published result updates in place below. A partially released
+  // submission is likewise re-gradable: correcting an objective score
+  // updates the published objective totals in place, while grading an
+  // essay stays invisible to the student until the release click.
   if (
     submission.status !== "awaiting_review" &&
     submission.status !== "approved" &&
-    submission.status !== "released"
+    submission.status !== "released" &&
+    submission.status !== "partially_released"
   ) {
     throw new Error("NOT_READY_FOR_REVIEW");
   }
@@ -481,6 +497,24 @@ export async function reviewAnswer(
     await db
       .prepare("UPDATE submissions SET final_score = ?, total_possible = ? WHERE id = ?")
       .bind(totals?.total ?? 0, totals?.possible ?? 0, submission.id)
+      .run();
+  } else if (submission.status === "partially_released") {
+    // Partial publication: the published line covers the auto-gradable
+    // (objective) questions only, so a teacher correction to one of
+    // them refreshes those objective totals in place (teacher's score
+    // always wins), while an essay score stays out of the published
+    // line until the release click publishes the full canonical total.
+    const partialTotals = await db
+      .prepare(
+        "SELECT COALESCE(SUM(an.final_score), 0) AS total, COALESCE(SUM(q.marks), 0) AS possible " +
+          "FROM questions q LEFT JOIN answers an ON an.question_id = q.id AND an.submission_id = ? " +
+          "WHERE q.assessment_id = ? AND an.auto_score IS NOT NULL",
+      )
+      .bind(submission.id, submission.assessment_id)
+      .first<{ total: number; possible: number }>();
+    await db
+      .prepare("UPDATE submissions SET final_score = ?, total_possible = ? WHERE id = ?")
+      .bind(partialTotals?.total ?? 0, partialTotals?.possible ?? 0, submission.id)
       .run();
   } else {
     // Recompute the submission status: approved only when no valid
@@ -535,7 +569,14 @@ export async function releaseSubmission(
   // Re-release of an already-released submission recomputes the
   // canonical totals and updates the same row in place (grade-review
   // corrections) — the student's result is replaced, never duplicated.
-  if (submission.status !== "approved" && submission.status !== "released") {
+  // Releasing a partially released submission is the same row update:
+  // the objective part was published at submit, and this click adds
+  // the teacher-graded essay scores to the canonical full totals.
+  if (
+    submission.status !== "approved" &&
+    submission.status !== "released" &&
+    submission.status !== "partially_released"
+  ) {
     throw new Error("NOT_APPROVED");
   }
   if ((feedback ?? "").length > 5000) throw new Error("FEEDBACK_TOO_LONG");
@@ -563,12 +604,22 @@ export async function releaseSubmission(
     .first<{ total: number; possible: number }>();
   const total = totals?.total ?? 0;
   const possible = totals?.possible ?? 0;
+  // released_at is the FIRST publication time: a partially released
+  // submission already published its objective part at submit.
+  let releasedAt = new Date().toISOString();
+  if (submission.status === "partially_released" || submission.status === "released") {
+    const prior = await db
+      .prepare("SELECT released_at FROM submissions WHERE id = ?")
+      .bind(submissionId)
+      .first<{ released_at: string | null }>();
+    if (prior?.released_at) releasedAt = prior.released_at;
+  }
   await db
     .prepare(
       "UPDATE submissions SET final_score = ?, total_possible = ?, teacher_feedback = ?, " +
         "status = 'released', released_at = ? WHERE id = ?",
     )
-    .bind(total, possible, feedback ?? "", new Date().toISOString(), submissionId)
+    .bind(total, possible, feedback ?? "", releasedAt, submissionId)
     .run();
   // Activity-feed labels: student name + exam title (never answer text).
   const released = await db
@@ -622,7 +673,14 @@ export async function quickSettleSubmission(
   studentId: string;
 }> {
   const submission = await ownSubmission(db, teacherId, submissionId);
-  if (submission.status !== "awaiting_review" && submission.status !== "approved") {
+  // partially_released is settle-able too: its essay part still fails
+  // NOT_FULLY_GRADABLE below, but a question keyed after submit can be
+  // settled and released in one click like any other.
+  if (
+    submission.status !== "awaiting_review" &&
+    submission.status !== "approved" &&
+    submission.status !== "partially_released"
+  ) {
     throw new Error("NOT_READY_FOR_REVIEW");
   }
   const qres = await db
@@ -690,8 +748,11 @@ export async function quickSettleSubmission(
     else for (const statement of writes) await statement.run();
   }
   // Every question now has a final score: mark approved so the release
-  // goes through the same gate + audit path as the manual flow.
-  if (submission.status !== "approved") {
+  // goes through the same gate + audit path as the manual flow. A
+  // partially released submission keeps its status instead — flipping
+  // it to approved would hide the already-published objective part
+  // from the student, and releaseSubmission accepts it as is.
+  if (submission.status !== "approved" && submission.status !== "partially_released") {
     await db
       .prepare("UPDATE submissions SET status = 'approved' WHERE id = ?")
       .bind(submissionId)
@@ -771,6 +832,23 @@ export const reviewAnswerD1 = createServerFn({ method: "POST" })
     const { session, db } = ctx(context);
     requireSchoolTeacher(session);
     await reviewAnswer(db, session.userId, data.answerId, data.score, data.feedback, data.decision);
+    // Published objective corrections must reach the student's cache too.
+    try {
+      const owner = await db
+        .prepare(
+          "SELECT s.assessment_id, s.student_id FROM submissions s JOIN answers an ON an.submission_id = s.id " +
+            "WHERE an.id = ? AND s.final_score IS NOT NULL",
+        )
+        .bind(data.answerId)
+        .first<{ assessment_id: string; student_id: string }>();
+      if (owner)
+        await callTakeSession(owner.assessment_id, "/score-refresh", {
+          studentId: owner.student_id,
+          assessmentId: owner.assessment_id,
+        });
+    } catch {
+      /* The normal score TTL remains the fallback. */
+    }
     return { ok: true };
   });
 
