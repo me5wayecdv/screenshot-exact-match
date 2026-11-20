@@ -309,3 +309,51 @@ describe("d1-grading: quick settle", () => {
     await expect(quickSettleSubmission(db, "teacher-2", "sub-1")).rejects.toThrow("NOT_FOUND");
   });
 });
+
+describe("d1-grading: quick settle on a partially released submission", () => {
+  it("settles a question keyed after submit and releases in place", async () => {
+    const state = baseState();
+    // Submit-time state: q1 was keyed and auto-graded (published as the
+    // objective part), q2 was unkeyed so it stayed with the teacher.
+    state.submissions["sub-1"]!.status = "partially_released";
+    state.questions["ex1"] = [
+      { id: "q1", type: "mcq", marks: 5, correct_answer: "4", accepted_alternatives: "[]" },
+      { id: "q2", type: "mcq", marks: 5, correct_answer: "y", accepted_alternatives: "[]" },
+    ];
+    state.answers = [
+      {
+        id: "a1",
+        submission_id: "sub-1",
+        question_id: "q1",
+        response: "4",
+        max_marks: 5,
+        auto_score: 5,
+        final_score: 5,
+        feedback: "",
+        review_status: "auto_graded",
+      },
+      {
+        id: "a2",
+        submission_id: "sub-1",
+        question_id: "q2",
+        response: "y",
+        max_marks: 5,
+        auto_score: null,
+        final_score: null,
+        feedback: "",
+        review_status: "not_graded",
+      },
+    ];
+    const db = fakeDb(state);
+    const result = await quickSettleSubmission(db, "teacher-1", "sub-1");
+    // The teacher's keyed q2 scored full marks; q1's published score stands.
+    expect(state.answers[1]!.final_score).toBe(5);
+    expect(state.answers[1]!.review_status).toBe("auto_graded");
+    expect(result.finalScore).toBe(10);
+    expect(result.totalPossible).toBe(10);
+    expect(state.submissions["sub-1"]!.status).toBe("released");
+    // The partial status never flipped through "approved" on the way.
+    const flips = state.runs.filter((r) => r.sql.startsWith("UPDATE submissions SET status"));
+    expect(flips.every((r) => !r.sql.includes("'approved'"))).toBe(true);
+  });
+});
