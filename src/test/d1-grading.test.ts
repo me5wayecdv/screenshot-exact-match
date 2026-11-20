@@ -13,6 +13,7 @@ import {
   listGradingPage,
   releaseSubmission,
   reviewAnswer,
+  setAutoScores,
 } from "@/server/d1-grading";
 import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 
@@ -57,6 +58,16 @@ function fakeDb(state: State): D1Database {
       if (kind === "answer") {
         const row = state.answers.find((a) => a.id === params[0]);
         return (row ?? null) as unknown as T | null;
+      }
+      if (kind === "answer-grading-state") {
+        const row = state.answers.find((a) => a.id === params[0] && a.submission_id === params[1]);
+        return (row
+          ? {
+              auto_score: row.auto_score,
+              final_score: row.final_score,
+              review_status: row.review_status,
+            }
+          : null) as unknown as T | null;
       }
       if (kind === "question-marks") {
         const rows = Object.values(state.questions).flat();
@@ -168,6 +179,8 @@ function fakeDb(state: State): D1Database {
       )
         kind = "grading-list";
       else if (sql.startsWith("SELECT * FROM answers WHERE id = ?")) kind = "answer";
+      else if (sql.startsWith("SELECT auto_score, final_score, review_status FROM answers"))
+        kind = "answer-grading-state";
       else if (sql.includes("SELECT marks FROM questions")) kind = "question-marks";
       else if (sql.includes("FROM answers an JOIN questions q")) kind = "pending";
       else if (sql.includes("LEFT JOIN answers an") && sql.includes("an.final_score IS NULL"))
@@ -181,7 +194,7 @@ function fakeDb(state: State): D1Database {
       return {
         bind: (...p: unknown[]) => {
           params = p;
-          if (sql.startsWith("UPDATE answers SET")) {
+          if (sql.startsWith("UPDATE answers SET max_marks")) {
             const row = state.answers.find((a) => a.id === p[4]);
             if (row) {
               row.max_marks = p[0] as number;
@@ -189,6 +202,18 @@ function fakeDb(state: State): D1Database {
               row.feedback = p[2] as string;
               row.review_status = p[3] as string;
             }
+            state.runs.push({ sql, params: p });
+          } else if (sql.startsWith("UPDATE answers SET auto_score = ?, final_score = ?")) {
+            const row = state.answers.find((a) => a.id === p[2]);
+            if (row) {
+              row.auto_score = p[0] as number;
+              row.final_score = p[1] as number;
+              row.review_status = "auto_graded";
+            }
+            state.runs.push({ sql, params: p });
+          } else if (sql.startsWith("UPDATE answers SET auto_score = ?")) {
+            const row = state.answers.find((a) => a.id === p[1]);
+            if (row) row.auto_score = p[0] as number;
             state.runs.push({ sql, params: p });
           } else if (sql.startsWith("UPDATE submissions SET status = ?")) {
             const sub = state.submissions[p[1] as string];
@@ -488,5 +513,108 @@ describe("d1-grading: objective auto-grade", () => {
       ),
     ).toBeNull();
     expect(autoScoreFor({ type: "mcq", marks: 5 }, null, "4")).toBeNull();
+  });
+});
+
+describe("d1-grading: objective auto-apply (setAutoScores)", () => {
+  it("promotes the auto-grade to final for ungraded objective answers and approves a fully-scored submission", async () => {
+    const state = baseState();
+    // q1 answered "4" (correct, key "4"), q2 answered "x" (wrong).
+    const db = fakeDb(state);
+    await setAutoScores(db, "teacher-1", "sub-1", [
+      { answerId: "a1", score: 5 },
+      { answerId: "a2", score: 0 },
+    ]);
+    const a1 = state.answers.find((a) => a.id === "a1")!;
+    const a2 = state.answers.find((a) => a.id === "a2")!;
+    expect(a1.final_score).toBe(5);
+    expect(a1.auto_score).toBe(5);
+    expect(a1.review_status).toBe("auto_graded");
+    expect(a2.final_score).toBe(0);
+    expect(a2.auto_score).toBe(0);
+    expect(a2.review_status).toBe("auto_graded");
+    expect(state.submissions["sub-1"]!.status).toBe("approved");
+  });
+
+  it("never overwrites a teacher score and stays awaiting_review while other answers pend", async () => {
+    const state = baseState();
+    // a1 already carries a teacher score; a3 (q3, written) is still ungraded.
+    state.questions["ex1"] = [
+      { id: "q1", marks: 5 },
+      { id: "q2", marks: 5 },
+      { id: "q3", marks: 10 },
+    ];
+    state.answers.find((a) => a.id === "a1")!.final_score = 3;
+    state.answers.find((a) => a.id === "a1")!.review_status = "approved";
+    state.answers.push({
+      id: "a3",
+      submission_id: "sub-1",
+      question_id: "q3",
+      response: "essay",
+      max_marks: 10,
+      auto_score: null,
+      final_score: null,
+      feedback: "",
+      review_status: "not_graded",
+    });
+    const db = fakeDb(state);
+    await setAutoScores(db, "teacher-1", "sub-1", [
+      { answerId: "a1", score: 5 },
+      { answerId: "a2", score: 0 },
+    ]);
+    const a1 = state.answers.find((a) => a.id === "a1")!;
+    const a2 = state.answers.find((a) => a.id === "a2")!;
+    // Teacher score wins: final and status untouched, only auto_score syncs.
+    expect(a1.final_score).toBe(3);
+    expect(a1.review_status).toBe("approved");
+    expect(a1.auto_score).toBe(5);
+    // Ungraded objective answer still promotes.
+    expect(a2.final_score).toBe(0);
+    expect(a2.review_status).toBe("auto_graded");
+    // The written answer keeps the submission open for the teacher.
+    expect(state.submissions["sub-1"]!.status).toBe("awaiting_review");
+  });
+
+  it("is a no-op for a released submission and for a non-owner teacher", async () => {
+    const state = baseState();
+    state.submissions["sub-1"]!.status = "released";
+    const db = fakeDb(state);
+    await setAutoScores(db, "teacher-1", "sub-1", [{ answerId: "a2", score: 0 }]);
+    expect(state.answers.find((a) => a.id === "a2")!.final_score).toBeNull();
+    expect(state.submissions["sub-1"]!.status).toBe("released");
+    await expect(
+      setAutoScores(db, "teacher-2", "sub-1", [{ answerId: "a2", score: 0 }]),
+    ).rejects.toThrow("NOT_FOUND");
+  });
+
+  it("autoScoreFor returns null without a teacher key and zero for a keyed question left unanswered", () => {
+    expect(
+      autoScoreFor(
+        { type: "mcq", marks: 5 },
+        { correct_answer: "", accepted_alternatives: [], rubric: "", explanation: "" },
+        "4",
+      ),
+    ).toBeNull();
+    expect(
+      autoScoreFor(
+        { type: "mcq", marks: 5 },
+        { correct_answer: "4", accepted_alternatives: [], rubric: "", explanation: "" },
+        "",
+      ),
+    ).toBe(0);
+    expect(
+      autoScoreFor(
+        { type: "short_answer", marks: 4 },
+        { correct_answer: "", accepted_alternatives: [], rubric: "", explanation: "" },
+        "anything",
+      ),
+    ).toBeNull();
+    expect(
+      autoScoreFor(
+        { type: "short_answer", marks: 4 },
+        { correct_answer: "", accepted_alternatives: ["paris"], rubric: "", explanation: "" },
+        " Paris ",
+      ),
+    ).toBe(4);
   });
 });
