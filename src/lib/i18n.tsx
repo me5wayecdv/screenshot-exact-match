@@ -460,6 +460,10 @@ const dict = {
     gradingReviewBadge: "طلب مراجعة",
     gradingRepublish: "إعادة نشر النتيجة",
     gradingRepublished: "اتنشرت النتيجة المعدّلة للطالب مكان القديمة.",
+    gradingQuickGradeRelease: "تصحيح ونشر",
+    gradingQuickRelease: "نشر النتيجة",
+    gradingQuickSettleDone: "تم نشر النتيجة للطالب.",
+    gradingReviewsEmpty: "مفيش طلبات مراجعة مفتوحة.",
     // Handwritten paper grading
     hwTitle: "تصحيح ورقي بخط اليد",
     hwSubtitle:
@@ -1418,6 +1422,10 @@ const dict = {
     gradingReviewBadge: "Review requested",
     gradingRepublish: "Republish result",
     gradingRepublished: "Updated result published to the student.",
+    gradingQuickGradeRelease: "Grade & publish",
+    gradingQuickRelease: "Publish result",
+    gradingQuickSettleDone: "Result published to the student.",
+    gradingReviewsEmpty: "No open review requests.",
     // Handwritten paper grading
     hwTitle: "Handwritten paper grading",
     hwSubtitle:
@@ -2117,6 +2125,10 @@ const errorMap: Record<string, { ar: string; en: string }> = {
   NOT_FULLY_GRADED: {
     ar: "لازم تخلّص تصحيح كل الأسئلة قبل النشر.",
     en: "All questions must be graded before release.",
+  },
+  NOT_FULLY_GRADABLE: {
+    ar: "في أسئلة محتاجة تصحيح يدوي — افتح التسليم وصحّحها الأول.",
+    en: "Some questions need manual grading — open the submission to grade them first.",
   },
   NOT_APPROVED: {
     ar: "التسليم ده لسه متوافقش عليه.",
