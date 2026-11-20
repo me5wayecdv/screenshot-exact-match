@@ -288,6 +288,7 @@ function reviewsDb() {
   const assessments = new Map<string, string>([["assess-1", "teacher-1"]]);
   const questions = new Map<string, string>([
     ["q-1", "assess-1"],
+    ["q-2", "assess-1"],
     ["q-other", "assess-2"],
   ]);
   const requests = new Map<string, { teacher_id: string; student_id: string }>([
@@ -459,6 +460,33 @@ describe("D1 grade reviews", () => {
       message: "thanks, one more thing",
     });
     expect(again.id).not.toBe(first.id);
+  });
+
+  it("a student can file for several questions of the same submission at once", async () => {
+    const db = reviewsDb();
+    // Multi-select scope: each selected question becomes its own open
+    // request, so the teacher sees exactly which questions were picked.
+    await submitReviewRequest(db, STUDENT, {
+      submissionId: "sub-own",
+      questionId: "q-1",
+      message: "راجع دي",
+    });
+    await submitReviewRequest(db, STUDENT, {
+      submissionId: "sub-own",
+      questionId: "q-2",
+      message: "راجع دي",
+    });
+    expect(db.filed.filter((r) => r.question_id === "q-1")).toHaveLength(1);
+    expect(db.filed.filter((r) => r.question_id === "q-2")).toHaveLength(1);
+    // …and a whole-exam request can coexist with per-question ones.
+    await submitReviewRequest(db, STUDENT, {
+      submissionId: "sub-own",
+      questionId: null,
+      message: "وكمان الامتحان كله",
+    });
+    expect(db.filed.filter((r) => r.question_id === null)).toHaveLength(1);
+    expect(db.filed.filter((r) => r.submission_id === "sub-own")).toHaveLength(3);
+    expect(db.filed.every((r) => r.teacher_id === "teacher-1" && r.status === "open")).toBe(true);
   });
 
   it("only the owning teacher can resolve a request", async () => {
