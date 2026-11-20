@@ -342,6 +342,95 @@ describe("d1-grading: review and release gate", () => {
   });
 });
 
+describe("d1-grading: re-grading released submissions (grade-review flow)", () => {
+  function releasedState(): State {
+    const state = baseState();
+    state.submissions["sub-rel"] = {
+      teacherId: "teacher-1",
+      assessmentId: "ex1",
+      status: "released",
+    };
+    state.answers.push(
+      {
+        id: "a3",
+        submission_id: "sub-rel",
+        question_id: "q1",
+        response: "4",
+        max_marks: 5,
+        auto_score: 5,
+        final_score: 5,
+        feedback: "",
+        review_status: "approved",
+      },
+      {
+        id: "a4",
+        submission_id: "sub-rel",
+        question_id: "q2",
+        response: "x",
+        max_marks: 5,
+        auto_score: null,
+        final_score: 2,
+        feedback: "",
+        review_status: "approved",
+      },
+    );
+    return state;
+  }
+
+  it("a corrected score on a released submission updates in place and stays released", async () => {
+    const state = releasedState();
+    const db = fakeDb(state);
+    await reviewAnswer(db, "teacher-1", "a4", 4, "corrected", "approve");
+    expect(state.answers.find((a) => a.id === "a4")?.final_score).toBe(4);
+    expect(state.submissions["sub-rel"]?.status).toBe("released");
+    // Canonical totals refreshed on the same row (5 + 4 = 9 of 10),
+    // and the status-demote statement of the pre-release flow never ran.
+    const totalsRun = state.runs.find(
+      (r) => r.sql === "UPDATE submissions SET final_score = ?, total_possible = ? WHERE id = ?",
+    );
+    expect(totalsRun?.params).toEqual([9, 10, "sub-rel"]);
+    expect(state.runs.some((r) => r.sql.startsWith("UPDATE submissions SET status = ?"))).toBe(
+      false,
+    );
+  });
+
+  it("re-grading a released submission still enforces the question's marks", async () => {
+    const db = fakeDb(releasedState());
+    await expect(reviewAnswer(db, "teacher-1", "a4", 99, "", "approve")).rejects.toThrow(
+      "SCORE_OUT_OF_RANGE",
+    );
+  });
+
+  it("a non-owner teacher cannot re-grade a released submission", async () => {
+    const db = fakeDb(releasedState());
+    await expect(reviewAnswer(db, "teacher-2", "a4", 4, "", "approve")).rejects.toThrow(
+      "NOT_FOUND",
+    );
+    await expect(releaseSubmission(db, "teacher-2", "sub-rel", "")).rejects.toThrow("NOT_FOUND");
+  });
+
+  it("re-release recomputes canonical totals and republishes the same row", async () => {
+    const state = releasedState();
+    const db = fakeDb(state);
+    await reviewAnswer(db, "teacher-1", "a4", 4, "corrected", "approve");
+    const result = await releaseSubmission(db, "teacher-1", "sub-rel", "updated feedback");
+    expect(result.finalScore).toBe(9);
+    expect(result.totalPossible).toBe(10);
+    expect(result.assessmentId).toBe("ex1");
+    expect(state.submissions["sub-rel"]?.status).toBe("released");
+    expect(state.runs.some((r) => r.sql.startsWith("INSERT INTO audit_log"))).toBe(true);
+  });
+
+  it("re-release is still gated: a cleared teacher score blocks it", async () => {
+    const state = releasedState();
+    state.answers.find((a) => a.id === "a4")!.final_score = null;
+    const db = fakeDb(state);
+    await expect(releaseSubmission(db, "teacher-1", "sub-rel", "")).rejects.toThrow(
+      "NOT_FULLY_GRADED",
+    );
+  });
+});
+
 describe("d1-grading: objective auto-grade", () => {
   it("mcq/true_false need an exact trimmed match; short answers accept alternatives; written is null", () => {
     expect(
