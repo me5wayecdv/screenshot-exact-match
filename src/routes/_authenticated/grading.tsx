@@ -132,8 +132,9 @@ function Grading() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Review requests attach to RELEASED submissions, so selection also
-  // looks in the released page — opening one is read-only (inputs and
-  // the save/release actions stay disabled for released submissions).
+  // looks in the released page. Released submissions are re-gradable
+  // (grade-review flow): the teacher edits scores and re-publishes,
+  // and the student's result updates in place.
   const selected =
     list?.submissions.find((s) => s.id === selectedId) ??
     list?.released.find((s) => s.id === selectedId) ??
@@ -300,7 +301,11 @@ function Grading() {
   }
 
   async function release() {
-    if (!me || !detail || !selected || isReleased) return;
+    if (!me || !detail || !selected) return;
+    // Re-release of a published submission (grade-review correction):
+    // the server recomputes canonical totals and updates the same row,
+    // so the student's result is replaced, never duplicated.
+    const wasReleased = isReleased;
     // Teacher-final-word: every question needs an explicit teacher score
     // (auto scores alone never release a submission).
     for (const q of detail.questions) {
@@ -329,7 +334,7 @@ function Grading() {
       return void toast.error(translateError(err, lang));
     }
     setBusy(false);
-    toast.success(t("released"));
+    toast.success(wasReleased ? t("gradingRepublished") : t("released"));
     // Auto-send is toggle-gated SERVER-side (default OFF). A skipped
     // result (toggle off / no number / no consent / already sent) is
     // deliberately silent — release must never nag. The try/catch
@@ -345,7 +350,8 @@ function Grading() {
     } catch (e) {
       toast.error(translateError(e, lang));
     }
-    setSelectedId(null);
+    // Keep a re-released submission open; a fresh release moves on.
+    if (!wasReleased) setSelectedId(null);
     await qc.invalidateQueries({ queryKey: ["grading-list", me.id] });
     await qc.invalidateQueries({ queryKey: ["grading-detail", selected.id] });
   }
@@ -572,7 +578,6 @@ function Grading() {
                             step={0.5}
                             dir="ltr"
                             value={scores[a.id] ?? ""}
-                            disabled={isReleased}
                             onChange={(e) => setScores({ ...scores, [a.id]: e.target.value })}
                           />
                         </div>
@@ -582,7 +587,6 @@ function Grading() {
                             id={`fb-${a.id}`}
                             rows={2}
                             value={feedbacks[a.id] ?? ""}
-                            disabled={isReleased}
                             maxLength={2000}
                             onChange={(e) => setFeedbacks({ ...feedbacks, [a.id]: e.target.value })}
                           />
@@ -615,11 +619,11 @@ function Grading() {
                 );
               })}
               <div className="flex flex-wrap gap-2">
-                <Button onClick={save} disabled={busy || isReleased}>
+                <Button onClick={save} disabled={busy}>
                   {busy ? t("saving") : t("gradingSaveScores")}
                 </Button>
-                <Button variant="outline" onClick={release} disabled={busy || isReleased}>
-                  {t("release")}
+                <Button variant="outline" onClick={release} disabled={busy}>
+                  {isReleased ? t("gradingRepublish") : t("release")}
                 </Button>
               </div>
             </div>
