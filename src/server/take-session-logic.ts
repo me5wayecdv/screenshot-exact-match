@@ -23,7 +23,7 @@
 import type { D1Database } from "@/server/d1-auth-store";
 import {
   applyDraftAnswers,
-  autoReleaseIfObjective,
+  autoReleaseObjectiveOnSubmit,
   insertSubmission,
   markSubmitted,
   parseOptions,
@@ -47,7 +47,7 @@ export type DoSubmissionState = {
   id: string;
   assessmentId: string;
   studentId: string;
-  status: "in_progress" | "awaiting_review" | "approved" | "released";
+  status: "in_progress" | "awaiting_review" | "approved" | "released" | "partially_released";
   attemptNumber: number;
   startedAt: string;
   submittedAt: string | null;
@@ -298,7 +298,11 @@ export async function seedStudentSubmissions(
         id: row.id,
         assessmentId: row.assessment_id,
         studentId: row.student_id,
-        status: toDoStatus(row.status),
+        status: toDoStatus(
+          row.status === "awaiting_review" && row.final_score !== null
+            ? "partially_released"
+            : row.status,
+        ),
         attemptNumber: row.attempt_number ?? 1,
         startedAt: row.started_at ?? new Date().toISOString(),
         submittedAt: row.submitted_at,
@@ -322,10 +326,15 @@ export async function seedStudentSubmissions(
  *  "released" (the history view needs it + its final_score). An
  *  "approved" submission is submitted/non-editable, like
  *  "awaiting_review" for draft purposes — coercing it to
- *  in_progress would let the student overwrite graded answers.
- *  Any other value coerces to in_progress, as before. */
+ *  in_progress would let the student overwrite graded answers. A
+ *  "partially_released" submission (objective part published, essay
+ *  still with the teacher) is likewise submitted/non-editable, so it
+ *  keeps its virtual partial status here so the student sees the
+ *  published score from the cache without returning to editing. Any
+ *  other value coerces to in_progress, as before. */
 function toDoStatus(status: string): DoSubmissionState["status"] {
   if (status === "awaiting_review") return "awaiting_review";
+  if (status === "partially_released") return "partially_released";
   if (status === "approved") return "approved";
   if (status === "released") return "released";
   return "in_progress";
@@ -726,7 +735,11 @@ export async function hydrateFromD1(
     id: row.id,
     assessmentId: row.assessment_id,
     studentId: row.student_id,
-    status: toDoStatus(row.status),
+    status: toDoStatus(
+      row.status === "awaiting_review" && row.final_score !== null
+        ? "partially_released"
+        : row.status,
+    ),
     attemptNumber: row.attempt_number ?? 1,
     startedAt: row.started_at ?? new Date().toISOString(),
     submittedAt: row.submitted_at,
@@ -820,19 +833,24 @@ export async function refreshStudentScores(
 ): Promise<void> {
   const rows = await db
     .prepare(
-      "SELECT id, status, final_score FROM submissions WHERE assessment_id = ? " +
+      "SELECT id, status, final_score, total_possible FROM submissions WHERE assessment_id = ? " +
         "AND student_id = ? AND status != 'in_progress'",
     )
     .bind(assessmentId, studentId)
-    .all<{ id: string; status: string; final_score: number | null }>();
+    .all<{ id: string; status: string; final_score: number | null; total_possible: number }>();
   await store.transaction(async () => {
     for (const row of rows.results ?? []) {
       const sub = await store.getSubmission(row.id);
       if (!sub) continue;
       await store.putSubmission({
         ...sub,
-        status: toDoStatus(row.status),
+        status: toDoStatus(
+          row.status === "awaiting_review" && row.final_score !== null
+            ? "partially_released"
+            : row.status,
+        ),
         finalScore: row.final_score ?? null,
+        totalPossible: row.total_possible ?? sub.totalPossible,
       });
     }
     await configStore.setScoreRefreshedAt(studentId, nowMs);
@@ -1045,29 +1063,30 @@ export async function flushOne(
           .first<SubmissionRow>();
         if (current && current.status === "in_progress") {
           await markSubmitted(db, current, sub.submittedAt ?? new Date().toISOString());
-          // Fully objective exams publish instantly (auto-release),
-          // then the DO's cached row is refreshed so the student sees
-          // the score on the next read instead of waiting out the
-          // score-refresh TTL. Best-effort: a failure here leaves the
-          // submission awaiting_review for the teacher and must never
-          // fail the flush.
+          // Objective questions publish instantly (auto-release —
+          // fully objective exams in full, mixed exams as the
+          // objective part), then the DO's cached row is refreshed so
+          // the student sees the score on the next read instead of
+          // waiting out the score-refresh TTL. Best-effort: a failure
+          // here leaves the submission awaiting_review for the teacher
+          // and must never fail the flush.
           try {
             if (
-              configStore &&
-              (await autoReleaseIfObjective(
+              await autoReleaseObjectiveOnSubmit(
                 db,
                 sub.id,
                 sub.submittedAt ?? new Date().toISOString(),
-              ))
+              )
             ) {
-              await refreshStudentScores(
-                store,
-                configStore,
-                db,
-                sub.studentId,
-                sub.assessmentId,
-                Date.now(),
-              );
+              if (configStore)
+                await refreshStudentScores(
+                  store,
+                  configStore,
+                  db,
+                  sub.studentId,
+                  sub.assessmentId,
+                  Date.now(),
+                );
             }
           } catch {
             // awaiting_review remains as the teacher fallback.
