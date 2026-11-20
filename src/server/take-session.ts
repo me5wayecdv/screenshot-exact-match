@@ -39,6 +39,7 @@ import {
   hydrateAnswers,
   hydrateFromD1,
   loadTakeData,
+  refreshStudentScores,
   validateStart,
   TAKE_SESSION_FLUSH_BATCH,
   type DoAnswerState,
@@ -760,6 +761,27 @@ export class TakeSession extends DurableObjectBase {
           }
           const data = await loadTakeData(this.store, this.store, db, input);
           return jsonResponse(data);
+        }
+        case "/score-refresh": {
+          // Release path: grading writes the release to D1 directly,
+          // so the grading server function pokes this exam's DO here
+          // to pull the student's released status + score in NOW —
+          // the student no longer waits out the 5-minute
+          // score-refresh TTL.
+          const input = body as unknown as { studentId: string; assessmentId: string };
+          const db = this.db;
+          if (!db) {
+            throw new Error("TAKE_SESSION_ERROR");
+          }
+          await refreshStudentScores(
+            this.store,
+            this.store,
+            db,
+            input.studentId,
+            input.assessmentId,
+            Date.now(),
+          );
+          return jsonResponse({ ok: true });
         }
         case "/status": {
           const input = body as unknown as {
