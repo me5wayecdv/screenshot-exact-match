@@ -132,6 +132,8 @@ function fakeDb(state: State): D1Database {
               total_possible: 10,
               assessment_title: "Exam 1",
               student_name: "Student A",
+              objective_only: 1,
+              unscored_count: 2,
             },
           ] as unknown as T[],
         };
@@ -304,6 +306,9 @@ describe("d1-grading: ownership", () => {
     const own = await listGradingPage(db, "teacher-1", "awaiting_review", 0, 30);
     expect(own.submissions.map((s) => s.id)).toEqual(["sub-1"]);
     expect(own.submissions[0]?.assessmentTitle).toBe("Exam 1");
+    // Quick-settle metadata rides along for the row action button.
+    expect(own.submissions[0]?.objectiveOnly).toBe(true);
+    expect(own.submissions[0]?.unscoredCount).toBe(2);
     const other = await listGradingPage(db, "teacher-2", "awaiting_review", 0, 30);
     expect(other.submissions).toEqual([]);
   });

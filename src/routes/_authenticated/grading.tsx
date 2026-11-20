@@ -6,6 +6,7 @@ import {
   autoScoreFor,
   getGradingDetailD1,
   listGradingPageD1,
+  quickSettleSubmissionD1,
   releaseSubmissionD1,
   reviewAnswerD1,
   setAutoScoresD1,
@@ -179,6 +180,10 @@ function Grading() {
   const [scores, setScores] = useState<Record<string, string>>({});
   const [feedbacks, setFeedbacks] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // Sidebar layout: submissions and review requests live in separate
+  // tabs, never mixed in one list.
+  const [sideTab, setSideTab] = useState<"submissions" | "reviews">("submissions");
+  const [settleBusyId, setSettleBusyId] = useState<string | null>(null);
   const autoDone = useRef(new Set<string>());
 
   // Initialise the edit form from saved teacher scores/feedback whenever a
@@ -304,6 +309,40 @@ function Grading() {
     await qc.invalidateQueries({ queryKey: ["grading-detail", selected?.id] });
   }
 
+  /** One-click settle straight from the submissions list: auto-grade
+   *  what the deterministic rule can grade, then publish through the
+   *  normal audited release path. The server refuses (without writing
+   *  anything) when a question still needs the teacher's eye. */
+  async function quickSettle(submissionId: string) {
+    if (!me) return;
+    setSettleBusyId(submissionId);
+    try {
+      await quickSettleSubmissionD1({ data: { submissionId } });
+    } catch (err) {
+      setSettleBusyId(null);
+      return void toast.error(translateError(err, lang));
+    }
+    setSettleBusyId(null);
+    toast.success(t("gradingQuickSettleDone"));
+    // Always skipped while sending is OFF — deliberately silent, same
+    // as the manual release path.
+    try {
+      await sendWhatsAppReportD1({ data: { submissionId, trigger: "auto" } });
+    } catch (e) {
+      toast.error(translateError(e, lang));
+    }
+    if (selectedId === submissionId) setSelectedId(null);
+    await qc.invalidateQueries({ queryKey: ["grading-list", me.id] });
+  }
+
+  /** Quick-action label for an unsettled row, or null when the
+   *  submission still needs manual grading and must be opened. */
+  function quickActionLabel(s: Submission): string | null {
+    if (s.unscoredCount === 0) return t("gradingQuickRelease");
+    if (s.objectiveOnly) return t("gradingQuickGradeRelease");
+    return null;
+  }
+
   async function release() {
     if (!me || !detail || !selected) return;
     // Re-release of a published submission (grade-review correction):
@@ -378,9 +417,39 @@ function Grading() {
       />
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <Panel className="h-fit">
-          {openReviews.length > 0 && (
-            <div className="mb-6">
-              <h2 className="mb-3 font-semibold">{t("reviewsTeacherRequests")}</h2>
+          <div className="mb-4 grid grid-cols-2 gap-1 rounded-md border p-1" role="tablist">
+            <button
+              role="tab"
+              aria-selected={sideTab === "submissions"}
+              className={`rounded px-2 py-1.5 text-sm transition-colors ${
+                sideTab === "submissions"
+                  ? "bg-muted font-medium"
+                  : "text-muted-foreground hover:bg-muted/50"
+              }`}
+              onClick={() => setSideTab("submissions")}
+            >
+              {t("submissions")}
+            </button>
+            <button
+              role="tab"
+              aria-selected={sideTab === "reviews"}
+              className={`rounded px-2 py-1.5 text-sm transition-colors ${
+                sideTab === "reviews"
+                  ? "bg-muted font-medium"
+                  : "text-muted-foreground hover:bg-muted/50"
+              }`}
+              onClick={() => setSideTab("reviews")}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                {t("reviewsTeacherRequests")}
+                {openReviews.length > 0 && <Pill t="primary">{openReviews.length}</Pill>}
+              </span>
+            </button>
+          </div>
+          {sideTab === "reviews" ? (
+            openReviews.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("gradingReviewsEmpty")}</p>
+            ) : (
               <ul className="space-y-3">
                 {openReviews.map((r) => {
                   const assessmentTitle = reviewMaps
@@ -424,79 +493,97 @@ function Grading() {
                   );
                 })}
               </ul>
-            </div>
-          )}
-          <h2 className="mb-3 font-semibold">{t("submissions")}</h2>
-          {submissions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("noSubmissions")}</p>
+            )
           ) : (
-            <ul className="space-y-1">
-              {submissions.map((s) => (
-                <li key={s.id}>
-                  <button
-                    className={`w-full rounded-md px-3 py-2 text-start text-sm hover:bg-muted ${selected?.id === s.id ? "bg-muted font-medium" : ""}`}
-                    onClick={() => setSelectedId(s.id)}
-                  >
-                    <span className="block">{list?.titles.get(s.assessment_id) ?? "—"}</span>
-                    <span className="block text-xs text-muted-foreground">
-                      {list?.names.get(s.student_id) ?? "—"} · {formatDate(s.submitted_at, lang)}
-                    </span>
-                    <Pill t={statusTone[s.status] ?? "neutral"}>
-                      {t(`sub_${s.status}` as never)}
-                    </Pill>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {list && (openPage > 0 || list.hasMoreSubmissions) ? (
-            <DataPager
-              page={openPage}
-              hasPrevious={openPage > 0}
-              hasNext={list.hasMoreSubmissions}
-              onPrevious={() => {
-                setSelectedId(null);
-                setOpenPage((current) => Math.max(0, current - 1));
-              }}
-              onNext={() => {
-                setSelectedId(null);
-                setOpenPage((current) => current + 1);
-              }}
-            />
-          ) : null}
-          {(released.length > 0 || releasedPage > 0) && (
-            <div className="mt-6">
-              <h3 className="mb-3 font-semibold">{t("released")}</h3>
-              <ul className="space-y-3">
-                {released.map((s) => (
-                  <li key={s.id} className="rounded-md border p-3">
-                    <span className="block text-sm font-medium">
-                      {list?.titles.get(s.assessment_id) ?? "—"}
-                    </span>
-                    <span className="block text-xs text-muted-foreground">
-                      {list?.names.get(s.student_id) ?? "—"} · {formatDate(s.submitted_at, lang)}
-                    </span>
-                    {reviewRequestSubmissions.has(s.id) && (
-                      <div className="mt-1">
-                        <Pill t="primary">{t("gradingReviewBadge")}</Pill>
-                      </div>
-                    )}
-                    <div className="mt-2">
-                      <WhatsAppSendButton submissionId={s.id} studentId={s.student_id} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              {list && (releasedPage > 0 || list.hasMoreReleased) ? (
+            <>
+              {submissions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("noSubmissions")}</p>
+              ) : (
+                <ul className="space-y-1">
+                  {submissions.map((s) => {
+                    const actionLabel = quickActionLabel(s);
+                    return (
+                      <li key={s.id}>
+                        <button
+                          className={`w-full rounded-md px-3 py-2 text-start text-sm hover:bg-muted ${selected?.id === s.id ? "bg-muted font-medium" : ""}`}
+                          onClick={() => setSelectedId(s.id)}
+                        >
+                          <span className="block">{list?.titles.get(s.assessment_id) ?? "—"}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            {list?.names.get(s.student_id) ?? "—"} ·{" "}
+                            {formatDate(s.submitted_at, lang)}
+                          </span>
+                          <Pill t={statusTone[s.status] ?? "neutral"}>
+                            {t(`sub_${s.status}` as never)}
+                          </Pill>
+                        </button>
+                        {actionLabel && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-1 w-full"
+                            disabled={settleBusyId === s.id}
+                            onClick={() => void quickSettle(s.id)}
+                          >
+                            {settleBusyId === s.id ? t("saving") : actionLabel}
+                          </Button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {list && (openPage > 0 || list.hasMoreSubmissions) ? (
                 <DataPager
-                  page={releasedPage}
-                  hasPrevious={releasedPage > 0}
-                  hasNext={list.hasMoreReleased}
-                  onPrevious={() => setReleasedPage((current) => Math.max(0, current - 1))}
-                  onNext={() => setReleasedPage((current) => current + 1)}
+                  page={openPage}
+                  hasPrevious={openPage > 0}
+                  hasNext={list.hasMoreSubmissions}
+                  onPrevious={() => {
+                    setSelectedId(null);
+                    setOpenPage((current) => Math.max(0, current - 1));
+                  }}
+                  onNext={() => {
+                    setSelectedId(null);
+                    setOpenPage((current) => current + 1);
+                  }}
                 />
               ) : null}
-            </div>
+              {(released.length > 0 || releasedPage > 0) && (
+                <div className="mt-6">
+                  <h3 className="mb-3 font-semibold">{t("released")}</h3>
+                  <ul className="space-y-3">
+                    {released.map((s) => (
+                      <li key={s.id} className="rounded-md border p-3">
+                        <span className="block text-sm font-medium">
+                          {list?.titles.get(s.assessment_id) ?? "—"}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {list?.names.get(s.student_id) ?? "—"} ·{" "}
+                          {formatDate(s.submitted_at, lang)}
+                        </span>
+                        {reviewRequestSubmissions.has(s.id) && (
+                          <div className="mt-1">
+                            <Pill t="primary">{t("gradingReviewBadge")}</Pill>
+                          </div>
+                        )}
+                        <div className="mt-2">
+                          <WhatsAppSendButton submissionId={s.id} studentId={s.student_id} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {list && (releasedPage > 0 || list.hasMoreReleased) ? (
+                    <DataPager
+                      page={releasedPage}
+                      hasPrevious={releasedPage > 0}
+                      hasNext={list.hasMoreReleased}
+                      onPrevious={() => setReleasedPage((current) => Math.max(0, current - 1))}
+                      onNext={() => setReleasedPage((current) => current + 1)}
+                    />
+                  ) : null}
+                </div>
+              )}
+            </>
           )}
         </Panel>
 
