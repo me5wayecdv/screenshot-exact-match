@@ -38,6 +38,7 @@ function AuditPage() {
   const actionLabels: Record<string, string> = {
     review_answer: t("auditActionReviewAnswer"),
     release: t("auditActionRelease"),
+    auto_release: t("auditActionAutoRelease"),
     assessment_status: t("auditActionAssessmentStatus"),
     ai_suggestion: t("auditActionAiSuggestion"),
     handwritten_grade: t("auditActionHandwrittenGrade"),

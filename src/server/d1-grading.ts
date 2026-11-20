@@ -184,39 +184,7 @@ function requireSchoolTeacher(session: AuthSession): void {
   if (effectiveRole(session) !== "school_teacher") throw new Error("FORBIDDEN");
 }
 
-/** Deterministic objective auto-grade (old score_objective rule). */
-export function autoScoreFor(
-  question: { type: string; marks: number },
-  key: GradingQuestion["key"],
-  answerText: string,
-): number | null {
-  if (!key) return null;
-  const marks = Number(question.marks);
-  if (question.type === "mcq" || question.type === "true_false") {
-    const expected = (key.correct_answer ?? "").trim();
-    // A missing teacher key is not a zero: no key, no auto-grade.
-    if (!expected) return null;
-    const ans = (answerText ?? "").trim();
-    // A keyed question left unanswered scores zero.
-    if (!ans) return 0;
-    return ans === expected ? marks : 0;
-  }
-  if (question.type === "short_answer") {
-    const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
-    // No teacher key and no accepted alternative: no auto-grade.
-    if (
-      !normalize(key.correct_answer ?? "") &&
-      !key.accepted_alternatives.some((a) => normalize(a))
-    )
-      return null;
-    const norm = normalize(answerText ?? "");
-    if (!norm) return 0;
-    if (norm === normalize(key.correct_answer ?? "")) return marks;
-    if (key.accepted_alternatives.some((a) => normalize(a) === norm)) return marks;
-    return 0;
-  }
-  return null;
-}
+export { autoScoreFor } from "@/lib/auto-grade";
 
 export async function listGradingPage(
   db: D1Database,
