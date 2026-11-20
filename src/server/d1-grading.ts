@@ -32,7 +32,7 @@
  */
 
 import { createServerFn } from "@tanstack/react-start";
-import type { D1Database } from "@/server/d1-auth-store";
+import type { D1Database, D1Statement } from "@/server/d1-auth-store";
 import { requireCloudflareAuth } from "@/server/d1-session";
 import type { AuthSession } from "@/lib/cloudflare-auth";
 import { effectiveRole, notFound } from "@/server/d1-assessments";
@@ -58,6 +58,17 @@ export type GradingSubmission = {
   total_possible: number | null;
   assessmentTitle: string;
   studentName: string;
+  /**
+   * Quick-settle metadata for the grading list: objectiveOnly is true
+   * when EVERY question of the assessment is auto-gradable (keyed
+   * mcq/true_false/short_answer — the same rule as isAutoGradable in
+   * src/lib/auto-grade.ts), and unscoredCount counts questions still
+   * lacking a final score (missing answer row or null final_score).
+   * A row can be settled in one click when unscoredCount === 0
+   * (publish) or when objectiveOnly (auto-grade + publish).
+   */
+  objectiveOnly: boolean;
+  unscoredCount: number;
 };
 
 export type GradingQuestion = {
@@ -156,6 +167,8 @@ type SubmissionRow = {
   total_possible: number | null;
   assessment_title: string;
   student_name: string;
+  objective_only: number;
+  unscored_count: number;
 };
 
 type QuestionRow = {
@@ -184,7 +197,9 @@ function requireSchoolTeacher(session: AuthSession): void {
   if (effectiveRole(session) !== "school_teacher") throw new Error("FORBIDDEN");
 }
 
-export { autoScoreFor } from "@/lib/auto-grade";
+import { autoScoreFor } from "@/lib/auto-grade";
+
+export { autoScoreFor };
 
 export async function listGradingPage(
   db: D1Database,
@@ -203,7 +218,24 @@ export async function listGradingPage(
     .prepare(
       "SELECT s.id, s.assessment_id, s.student_id, s.status, s.attempt_number, s.submitted_at, " +
         "s.final_score, s.total_possible, a.title AS assessment_title, " +
-        "COALESCE(p.full_name, '—') AS student_name " +
+        "COALESCE(p.full_name, '—') AS student_name, " +
+        // Quick-settle metadata: questions still lacking a final score.
+        "(SELECT COUNT(*) FROM questions q LEFT JOIN answers an " +
+        "ON an.question_id = q.id AND an.submission_id = s.id " +
+        "WHERE q.assessment_id = s.assessment_id " +
+        "AND (an.id IS NULL OR an.final_score IS NULL)) AS unscored_count, " +
+        // 1 when every question mirrors isAutoGradable (keyed objective
+        // or short answer with a key/usable alternative), else 0.
+        "CASE WHEN NOT EXISTS (" +
+        "SELECT 1 FROM questions q LEFT JOIN question_keys k ON k.question_id = q.id " +
+        "WHERE q.assessment_id = s.assessment_id AND NOT (" +
+        "(q.type IN ('mcq', 'true_false') AND TRIM(COALESCE(k.correct_answer, '')) <> '') OR " +
+        "(q.type = 'short_answer' AND (TRIM(COALESCE(k.correct_answer, '')) <> '' OR EXISTS (" +
+        "SELECT 1 FROM json_each(COALESCE(k.accepted_alternatives, '[]')) je " +
+        "WHERE TRIM(je.value) <> '')))" +
+        ")" +
+        ") AND EXISTS (SELECT 1 FROM questions q2 WHERE q2.assessment_id = s.assessment_id) " +
+        "THEN 1 ELSE 0 END AS objective_only " +
         "FROM submissions s JOIN assessments a ON a.id = s.assessment_id " +
         "LEFT JOIN profiles p ON p.id = s.student_id " +
         `WHERE a.teacher_id = ? AND ${statusSql} ` +
@@ -224,6 +256,8 @@ export async function listGradingPage(
       total_possible: r.total_possible,
       assessmentTitle: r.assessment_title,
       studentName: r.student_name,
+      objectiveOnly: r.objective_only === 1,
+      unscoredCount: Number(r.unscored_count ?? 0),
     })),
     hasMore: all.length > capped,
   };
@@ -563,6 +597,109 @@ export async function releaseSubmission(
   };
 }
 
+/**
+ * Quick settle from the grading list: the teacher settles an unsettled
+ * submission in one click without opening it. Every question that still
+ * lacks a teacher score must be auto-gradable (the deterministic rule
+ * in src/lib/auto-grade.ts — keyed objective/short-answer questions);
+ * its auto score becomes the final score with review_status
+ * 'auto_graded', exactly like the submit-time auto-release and the
+ * grading-page auto-apply. A question the rule cannot grade (written,
+ * or no teacher key) throws NOT_FULLY_GRADABLE and nothing is written:
+ * the teacher must open the submission and grade it by hand. Once every
+ * question has a final score the submission flips to approved and goes
+ * through the normal audited releaseSubmission path (canonical totals,
+ * released status, release audit row).
+ */
+export async function quickSettleSubmission(
+  db: D1Database,
+  teacherId: string,
+  submissionId: string,
+): Promise<{
+  finalScore: number;
+  totalPossible: number;
+  assessmentId: string;
+  studentId: string;
+}> {
+  const submission = await ownSubmission(db, teacherId, submissionId);
+  if (submission.status !== "awaiting_review" && submission.status !== "approved") {
+    throw new Error("NOT_READY_FOR_REVIEW");
+  }
+  const qres = await db
+    .prepare(
+      "SELECT q.id, q.type, q.marks, k.correct_answer, k.accepted_alternatives " +
+        "FROM questions q LEFT JOIN question_keys k ON k.question_id = q.id " +
+        "WHERE q.assessment_id = ?",
+    )
+    .bind(submission.assessment_id)
+    .all<{
+      id: string;
+      type: string;
+      marks: number;
+      correct_answer: string | null;
+      accepted_alternatives: string | null;
+    }>();
+  const questions = qres.results ?? [];
+  const ares = await db
+    .prepare("SELECT id, question_id, response, final_score FROM answers WHERE submission_id = ?")
+    .bind(submissionId)
+    .all<{ id: string; question_id: string; response: string; final_score: number | null }>();
+  const byQuestion = new Map((ares.results ?? []).map((a) => [a.question_id, a]));
+  const writes: D1Statement[] = [];
+  for (const q of questions) {
+    const answer = byQuestion.get(q.id);
+    // A score the teacher already set always stands.
+    if (answer && answer.final_score !== null) continue;
+    const key =
+      q.correct_answer === null && q.accepted_alternatives === null
+        ? null
+        : {
+            correct_answer: q.correct_answer ?? "",
+            accepted_alternatives: parseJsonArray(q.accepted_alternatives),
+            rubric: "",
+            explanation: "",
+          };
+    const marks = Number(q.marks);
+    const auto = autoScoreFor({ type: q.type, marks }, key, answer?.response ?? "");
+    if (auto === null) throw new Error("NOT_FULLY_GRADABLE");
+    if (answer) {
+      writes.push(
+        db
+          .prepare(
+            "UPDATE answers SET auto_score = ?, final_score = ?, review_status = 'auto_graded' " +
+              "WHERE id = ? AND submission_id = ?",
+          )
+          .bind(auto, auto, answer.id, submissionId),
+      );
+    } else {
+      // No answer row at all: the student never touched a keyed
+      // question, which the deterministic rule scores as zero.
+      writes.push(
+        db
+          .prepare(
+            "INSERT INTO answers (id, submission_id, question_id, response, max_marks, " +
+              "auto_score, final_score, review_status, time_spent_seconds) " +
+              "VALUES (?, ?, ?, '', ?, ?, ?, 'auto_graded', 0)",
+          )
+          .bind(crypto.randomUUID(), submissionId, q.id, marks, auto, auto),
+      );
+    }
+  }
+  if (writes.length > 0) {
+    if (db.batch) await db.batch(writes);
+    else for (const statement of writes) await statement.run();
+  }
+  // Every question now has a final score: mark approved so the release
+  // goes through the same gate + audit path as the manual flow.
+  if (submission.status !== "approved") {
+    await db
+      .prepare("UPDATE submissions SET status = 'approved' WHERE id = ?")
+      .bind(submissionId)
+      .run();
+  }
+  return releaseSubmission(db, teacherId, submissionId, "");
+}
+
 /* ------------------------------------------------------- server wrappers */
 
 function ctx(context: unknown): { session: AuthSession; db: D1Database } {
@@ -635,6 +772,32 @@ export const reviewAnswerD1 = createServerFn({ method: "POST" })
     requireSchoolTeacher(session);
     await reviewAnswer(db, session.userId, data.answerId, data.score, data.feedback, data.decision);
     return { ok: true };
+  });
+
+export const quickSettleSubmissionD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    return { submissionId: requireString(input["submissionId"]) };
+  })
+  .handler(async ({ context, data }) => {
+    const { session, db } = ctx(context);
+    requireSchoolTeacher(session);
+    const result = await quickSettleSubmission(db, session.userId, data.submissionId);
+    // Same prompt-delivery poke as a manual release: the student's
+    // cached take data reflects the score on their next read.
+    // Best-effort — the score-refresh TTL remains the fallback.
+    if (result.studentId) {
+      try {
+        await callTakeSession(result.assessmentId, "/score-refresh", {
+          studentId: result.studentId,
+          assessmentId: result.assessmentId,
+        });
+      } catch {
+        // Deliberately silent: the TTL refresh stays correct.
+      }
+    }
+    return { finalScore: result.finalScore, totalPossible: result.totalPossible };
   });
 
 export const releaseSubmissionD1 = createServerFn({ method: "POST" })
