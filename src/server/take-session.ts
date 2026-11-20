@@ -741,7 +741,7 @@ export class TakeSession extends DurableObjectBase {
             // for the alarm flush — the submit is already acked.
             const db = this.db;
             const fresh = await this.store.getSubmission(input.submissionId);
-            if (db && fresh) await flushOne(db, this.store, fresh);
+            if (db && fresh) await flushOne(db, this.store, fresh, this.store);
           }
           await this.ensureFlushAlarm();
           return jsonResponse(result);
@@ -820,7 +820,7 @@ export class TakeSession extends DurableObjectBase {
   override async alarm(): Promise<void> {
     const db = this.db;
     if (!db) return;
-    const result = await flushDirty(db, this.store, TAKE_SESSION_FLUSH_BATCH);
+    const result = await flushDirty(db, this.store, TAKE_SESSION_FLUSH_BATCH, this.store);
     if (result.remaining) {
       await this.state.storage.setAlarm(Date.now() + FLUSH_ALARM_DELAY_MS);
     }
