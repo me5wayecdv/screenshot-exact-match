@@ -175,8 +175,9 @@ export const TAKE_SESSION_CACHE_TTL_MS = 60_000;
  *  10-second-window limit at 250 (getTakeData 185/248 errors,
  *  2026-11-11). At 5 min the refresh does not fire inside a burst
  *  (ladder steps run <5 min apart), and a teacher's release still
- *  appears within 5 min. The full fix — the release path notifying
- *  the DO so no refresh read is needed at all — is future work. */
+ *  appears within 5 min. Releases do not wait for this TTL: the
+ *  grading server function pokes the DO (/score-refresh) on every
+ *  release — this TTL is only the fallback for out-of-band writes. */
 export const TAKE_SESSION_SCORE_REFRESH_TTL_MS = 300_000;
 
 /** Flush is recorded as a failure after this many failed cycles —
@@ -802,6 +803,41 @@ export async function hydrateAnswers(
  *  load, the gate fallback, the one-time seed, the TTL-gated score
  *  refresh, and per-submission answer hydration. A warm page load
  *  costs zero D1 reads. */
+/** Pull the student's non-draft submission statuses + released
+ *  scores from D1 into the DO store. loadTakeData calls this under
+ *  the score TTL; the /score-refresh endpoint calls it directly when
+ *  a release lands (prompt delivery). Only existing DO rows are
+ *  updated — a student who never opened the exam gets their seed on
+ *  first read. */
+export async function refreshStudentScores(
+  store: SessionStore,
+  configStore: ExamConfigStore,
+  db: D1Database,
+  studentId: string,
+  assessmentId: string,
+  nowMs: number,
+): Promise<void> {
+  const rows = await db
+    .prepare(
+      "SELECT id, status, final_score FROM submissions WHERE assessment_id = ? " +
+        "AND student_id = ? AND status != 'in_progress'",
+    )
+    .bind(assessmentId, studentId)
+    .all<{ id: string; status: string; final_score: number | null }>();
+  await store.transaction(async () => {
+    for (const row of rows.results ?? []) {
+      const sub = await store.getSubmission(row.id);
+      if (!sub) continue;
+      await store.putSubmission({
+        ...sub,
+        status: toDoStatus(row.status),
+        finalScore: row.final_score ?? null,
+      });
+    }
+    await configStore.setScoreRefreshedAt(studentId, nowMs);
+  });
+}
+
 export async function loadTakeData(
   store: SessionStore,
   configStore: ExamConfigStore,
@@ -860,29 +896,21 @@ export async function loadTakeData(
   // V3.3: the TTL is 5 min (TAKE_SESSION_SCORE_REFRESH_TTL_MS), not
   // the 60s config TTL — the 60s refresh is what overloaded D1 at
   // 250, and the take page is for taking, not watching scores.
+  // Releases do not wait for this TTL: the grading server function
+  // pokes the DO (/score-refresh) on every release — this is only
+  // the fallback for out-of-band writes.
   const hasSubmitted = submissions.some((s) => s.status !== "in_progress");
   if (hasSubmitted) {
     const refreshedAt = await configStore.getScoreRefreshedAt(input.studentId);
     if (refreshedAt === null || nowMs - refreshedAt > TAKE_SESSION_SCORE_REFRESH_TTL_MS) {
-      const rows = await db
-        .prepare(
-          "SELECT id, status, final_score FROM submissions WHERE assessment_id = ? " +
-            "AND student_id = ? AND status != 'in_progress'",
-        )
-        .bind(input.assessmentId, input.studentId)
-        .all<{ id: string; status: string; final_score: number | null }>();
-      await store.transaction(async () => {
-        for (const row of rows.results ?? []) {
-          const sub = await store.getSubmission(row.id);
-          if (!sub) continue;
-          await store.putSubmission({
-            ...sub,
-            status: toDoStatus(row.status),
-            finalScore: row.final_score ?? null,
-          });
-        }
-        await configStore.setScoreRefreshedAt(input.studentId, nowMs);
-      });
+      await refreshStudentScores(
+        store,
+        configStore,
+        db,
+        input.studentId,
+        input.assessmentId,
+        nowMs,
+      );
     }
   }
   // The page needs the draft's answers (form prefill) and the latest

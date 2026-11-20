@@ -92,6 +92,8 @@ it("actual SQL journey: signup approval, join, exam, draft resume, submit, teach
   expect(await releaseSubmission(db, t.userId, sub.submissionId, "Reviewed")).toEqual({
     finalScore: 8,
     totalPossible: 10,
+    assessmentId: exam.id,
+    studentId: s.userId,
   });
   const home = await getStudentHome(db, s.userId, 0, 0);
   expect(home.submissions).toEqual(

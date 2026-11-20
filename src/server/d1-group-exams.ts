@@ -22,9 +22,10 @@
  *   non-owner teacher — gets NO rows at all, so exam titles never
  *   leak to non-members. Both branches put the check in the SQL
  *   WHERE clause; titles are never fetched-then-filtered in JS.
- * - Student paths NEVER touch question_keys, answers, or
- *   submissions: this module selects only assessment id/title/
- *   status for linked exams.
+ * - Student paths NEVER touch question_keys or answers. The one
+ *   exception: the caller's OWN latest non-draft submission status
+ *   (a bare status string — never scores or responses) so the group
+ *   exam card can switch its button from start to result.
  * - NO unassign in v1 (same limit as the Supabase version):
  *   deleting the group deletes its group_exams rows explicitly in
  *   code (the schema's ON DELETE CASCADE is dead at runtime — see
@@ -50,6 +51,11 @@ export type GroupExam = {
   published: boolean;
   status: string;
   due_at: string | null;
+  /** Member branch only: the caller's latest non-draft submission
+   *  status for this exam (null for the owning teacher and for a
+   *  student who never attempted). A status string only — never a
+   *  score or an answer. */
+  mySubmissionStatus: string | null;
 };
 
 type GroupExamRow = {
@@ -58,6 +64,7 @@ type GroupExamRow = {
   published: number;
   status: string;
   due_at: string | null;
+  my_submission_status?: string | null;
 };
 
 /** Old RPC: my_group_exams. Visibility is decided by the SQL below. */
@@ -82,20 +89,24 @@ export async function listGroupExams(
       published: r.published === 1,
       status: r.status,
       due_at: r.due_at,
+      mySubmissionStatus: null,
     }));
   }
   // Anyone else: only an APPROVED member sees anything, and only
   // published exams. Pending / rejected / non-members get [].
   const { results } = await db
     .prepare(
-      "SELECT ge.assessment_id, a.title, a.status, a.due_at, (a.status = 'published') AS published " +
+      "SELECT ge.assessment_id, a.title, a.status, a.due_at, (a.status = 'published') AS published, " +
+        "(SELECT s.status FROM submissions s WHERE s.assessment_id = ge.assessment_id " +
+        "AND s.student_id = ? AND s.status != 'in_progress' " +
+        "ORDER BY s.attempt_number DESC LIMIT 1) AS my_submission_status " +
         "FROM group_exams ge JOIN assessments a ON a.id = ge.assessment_id " +
         "WHERE ge.group_id = ? AND a.status = 'published' AND EXISTS ( " +
         "SELECT 1 FROM group_members " +
         "WHERE group_id = ? AND student_id = ? AND status = 'approved') " +
         "ORDER BY ge.created_at DESC",
     )
-    .bind(groupId, groupId, callerId)
+    .bind(callerId, groupId, groupId, callerId)
     .all<GroupExamRow>();
   return (results ?? []).map((r) => ({
     assessmentId: r.assessment_id,
@@ -103,6 +114,7 @@ export async function listGroupExams(
     published: r.published === 1,
     status: r.status,
     due_at: r.due_at,
+    mySubmissionStatus: r.my_submission_status ?? null,
   }));
 }
 

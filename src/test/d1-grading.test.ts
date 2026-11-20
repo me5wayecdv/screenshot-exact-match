@@ -49,6 +49,11 @@ function fakeDb(state: State): D1Database {
           status: sub.status,
         } as unknown as T;
       }
+      if (kind === "released-submission") {
+        const sub = state.submissions[params[0] as string];
+        if (!sub) return null;
+        return { student_id: "student-a", title: "Exam 1" } as unknown as T;
+      }
       if (kind === "answer") {
         const row = state.answers.find((a) => a.id === params[0]);
         return (row ?? null) as unknown as T | null;
@@ -153,9 +158,11 @@ function fakeDb(state: State): D1Database {
     prepare(sql: string): D1Statement {
       state.seen.push(sql);
       let kind = "unknown";
-      if (sql.includes("FROM submissions s JOIN assessments a") && sql.includes("WHERE s.id = ?"))
-        kind = "own-submission";
-      else if (
+      if (sql.includes("FROM submissions s JOIN assessments a") && sql.includes("WHERE s.id = ?")) {
+        // ownSubmission also filters on the owning teacher; the
+        // post-release activity-label lookup does not.
+        kind = sql.includes("a.teacher_id") ? "own-submission" : "released-submission";
+      } else if (
         sql.includes("FROM submissions s JOIN assessments a") &&
         sql.includes("ORDER BY s.submitted_at")
       )
@@ -325,7 +332,12 @@ describe("d1-grading: review and release gate", () => {
     });
     const db = fakeDb(state);
     const result = await releaseSubmission(db, "teacher-1", "sub-1", "");
-    expect(result).toEqual({ finalScore: 8, totalPossible: 10 });
+    expect(result).toEqual({
+      finalScore: 8,
+      totalPossible: 10,
+      assessmentId: "ex1",
+      studentId: "student-a",
+    });
     expect(state.submissions["sub-1"]?.status).toBe("released");
   });
 });

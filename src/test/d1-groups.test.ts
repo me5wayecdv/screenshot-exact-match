@@ -69,6 +69,7 @@ type State = {
   roles: Map<string, string>;
   assessments: Map<string, Assessment>;
   groupExams: Set<string>; // `${groupId}:${assessmentId}`
+  examSubmissions: Map<string, string>; // `${assessmentId}:${studentId}` -> latest non-draft status
   assignments: Set<string>; // `${assessmentId}:${studentId}`
   audit: Array<{ actor: string; action: string; entity: string | null; details: string }>;
 };
@@ -82,6 +83,7 @@ function baseState(): State {
     roles: new Map(),
     assessments: new Map(),
     groupExams: new Set(),
+    examSubmissions: new Map(),
     assignments: new Set(),
     audit: [],
   };
@@ -408,19 +410,23 @@ function fakeDb(s: State): D1Database {
               }) as unknown as T[],
           };
         case "groupExamsMember": {
+          // Bind order: the my_submission_status subquery carries the
+          // caller id first, then groupId, groupId, callerId.
           const isMember = [...s.members.values()].some(
-            (m) => m.groupId === params[0] && m.studentId === params[2] && m.status === "approved",
+            (m) => m.groupId === params[1] && m.studentId === params[3] && m.status === "approved",
           );
           if (!isMember) return { results: [] };
           return {
             results: [...s.groupExams]
-              .filter((k) => k.startsWith(`${params[0]}:`))
+              .filter((k) => k.startsWith(`${params[1]}:`))
               .map((k) => s.assessments.get(k.split(":")[1] as string)!)
               .filter((a) => a.status === "published")
               .map((a) => ({
                 assessment_id: a.id,
                 title: a.title,
                 published: 1,
+                my_submission_status:
+                  s.examSubmissions.get(`${a.id}:${params[3] as string}`) ?? null,
               })) as unknown as T[],
           };
         }
@@ -839,6 +845,18 @@ describe("group exams visibility", () => {
     const db = fakeDb(baseState());
     const exams = await listGroupExams(db, "s1", "g1");
     expect(exams.map((e) => e.assessmentId)).toEqual(["a3"]);
+  });
+
+  it("a member sees their latest submission status on a linked exam", async () => {
+    const s = baseState();
+    s.examSubmissions.set("a3:s1", "released");
+    const db = fakeDb(s);
+    const exams = await listGroupExams(db, "s1", "g1");
+    expect(exams).toHaveLength(1);
+    expect(exams[0]?.mySubmissionStatus).toBe("released");
+    // The owning teacher branch never carries a submission status.
+    const teacherExams = await listGroupExams(db, "t1", "g1");
+    expect(teacherExams.every((e) => e.mySubmissionStatus === null)).toBe(true);
   });
 
   it("a pending student sees no group exams", async () => {
