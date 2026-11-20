@@ -513,7 +513,7 @@ export async function joinGroup(
   studentId: string,
   role: string,
   code: string,
-): Promise<string> {
+): Promise<{ groupId: string; state: "requested" | "already_member" }> {
   if (normalizeGroupRole(role) !== "student") throw new GroupError("only_students");
   const profile = await db
     .prepare("SELECT full_name FROM profiles WHERE id = ?")
@@ -532,6 +532,16 @@ export async function joinGroup(
     .bind(group.teacher_id)
     .first<{ role: string }>();
   if (!teacherRole || !isTeacherRole(teacherRole.role)) throw new GroupError("invalid_code");
+  // Already an approved member: nothing to request, no new audit
+  // row, and the caller tells the student so instead of showing the
+  // waiting-for-approval message.
+  const existing = await db
+    .prepare("SELECT status FROM group_members WHERE group_id = ? AND student_id = ?")
+    .bind(group.id, studentId)
+    .first<{ status: string }>();
+  if (existing?.status === "approved") {
+    return { groupId: group.id, state: "already_member" };
+  }
   const now = new Date().toISOString();
   await db
     .prepare(
@@ -565,7 +575,7 @@ export async function joinGroup(
   await appendAuditLog(db, studentId, "group_join_requested", group.id, {
     target_label: group.name,
   });
-  return group.id;
+  return { groupId: group.id, state: "requested" };
 }
 
 async function assignOpenExamsToStudent(
@@ -869,10 +879,15 @@ export const joinGroupD1 = createServerFn({ method: "POST" })
     const input = requireObject(data);
     return { code: requireString(input["code"], 32) };
   })
-  .handler(async ({ context, data }): Promise<{ groupId: string }> => {
-    const { session, db } = context as Ctx;
-    return { groupId: await joinGroup(db, session.userId, session.role, data.code) };
-  });
+  .handler(
+    async ({
+      context,
+      data,
+    }): Promise<{ groupId: string; state: "requested" | "already_member" }> => {
+      const { session, db } = context as Ctx;
+      return joinGroup(db, session.userId, session.role, data.code);
+    },
+  );
 
 export const decideGroupMembershipD1 = createServerFn({ method: "POST" })
   .middleware([requireCloudflareAuth])

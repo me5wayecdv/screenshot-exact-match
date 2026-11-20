@@ -777,14 +777,17 @@ function StudentGroups() {
   async function join() {
     if (code.trim() === "") return;
     setBusy(true);
+    let res: { state?: string } | undefined;
     try {
-      await joinGroupD1({ data: { code: code.trim() } });
+      res = await joinGroupD1({ data: { code: code.trim() } });
     } catch (error) {
       setBusy(false);
       return void toast.error(translateError(error, lang));
     }
     setBusy(false);
-    toast.success(t("groupJoinSent"));
+    // An approved member hears so; only a student who actually needs
+    // approval gets the waiting-for-approval message.
+    toast.success(t(res?.state === "already_member" ? "groupAlreadyMember" : "groupJoinSent"));
     setCode("");
     refresh();
   }
