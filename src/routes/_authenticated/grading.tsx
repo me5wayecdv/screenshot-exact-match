@@ -212,6 +212,9 @@ function Grading() {
       !detail ||
       !selected ||
       selected.status === "released" ||
+      // Partially released submissions were auto-graded at submit
+      // time already; the server skips promotion for them too.
+      selected.status === "partially_released" ||
       autoDone.current.has(selected.id)
     ) {
       return;
@@ -280,18 +283,20 @@ function Grading() {
       const fb = feedbacks[a.id] ?? "";
       if (!force && value === a.final_score && fb === (a.feedback ?? "")) return [];
       return [
-        reviewAnswerD1({
-          data: {
-            answerId: a.id,
-            score: value,
-            feedback: fb,
-            decision: value === null ? "reject" : "approve",
-          },
-        }),
+        () =>
+          reviewAnswerD1({
+            data: {
+              answerId: a.id,
+              score: value,
+              feedback: fb,
+              decision: value === null ? "reject" : "approve",
+            },
+          }),
       ];
     });
     try {
-      await Promise.all(writes);
+      // Keep published totals deterministic when several answers change.
+      for (const write of writes) await write();
     } catch (err) {
       toast.error(translateError(err, lang));
       return false;
@@ -602,6 +607,17 @@ function Grading() {
                   {totalPossible}
                 </p>
               </Panel>
+              {selected.status === "partially_released" && (
+                <Panel className="border-info/40 bg-info/10 text-sm">
+                  <p className="font-semibold">
+                    {t("takeObjectiveScore")}:{" "}
+                    <bdi>
+                      {selected.final_score} / {selected.total_possible}
+                    </bdi>
+                  </p>
+                  <p className="mt-2 text-muted-foreground">{t("gradingPartialNote")}</p>
+                </Panel>
+              )}
               <IntegritySummary submissionId={selected.id} assessmentId={selected.assessment_id} />
               {detail.questions.map((q, i) => {
                 const a = answerByQuestion.get(q.id);

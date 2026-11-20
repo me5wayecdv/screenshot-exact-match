@@ -216,7 +216,7 @@ function makeFakeDb(state: FakeState): D1Database {
     if (s.startsWith("SELECT student_id FROM group_members")) {
       return [{ student_id: STUDENT }];
     }
-    if (s.startsWith("SELECT id, status, final_score FROM submissions")) {
+    if (s.startsWith("SELECT id, status, final_score, total_possible FROM submissions")) {
       return Object.values(state.submissions)
         .filter(
           (r) =>

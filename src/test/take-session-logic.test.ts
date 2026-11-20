@@ -322,7 +322,7 @@ function makeFakeDb(state: FakeState): D1Database {
     if (s.startsWith("SELECT id, prompt, type, options, marks, position FROM questions")) {
       return (state.questions[EXAM] ?? []).map((q) => ({ ...q }));
     }
-    if (s.startsWith("SELECT id, status, final_score FROM submissions")) {
+    if (s.startsWith("SELECT id, status, final_score, total_possible FROM submissions")) {
       // V3 score refresh: the student's submitted attempts.
       return Object.values(state.submissions)
         .filter(
@@ -335,6 +335,7 @@ function makeFakeDb(state: FakeState): D1Database {
           id: r["id"] as string,
           status: r["status"] as string,
           final_score: (r["final_score"] as number | null) ?? null,
+          total_possible: Number(r["total_possible"] ?? 0),
         }));
     }
     if (s.startsWith("SELECT student_id FROM assessment_assignments")) {
@@ -1159,6 +1160,38 @@ describe("loadTakeData (V3 cache)", () => {
 
     const other = await doData(store, cfg, db, OTHER);
     expect(other).toEqual({ allowed: false, reason: "WINDOW_CLOSED" });
+  });
+
+  it("serves partial publication from the cache, preserves the partial denominator, and later refreshes to the full total", async () => {
+    const state = fakeState();
+    state.submissions["sub-part"] = {
+      ...fakeSubmissionRow("sub-part", STUDENT, "awaiting_review"),
+      final_score: 5,
+      total_possible: 5,
+    };
+    const db = makeFakeDb(state);
+    const store = new MapStore();
+    const cfg = new MapConfigStore();
+    const first = await doData(store, cfg, db);
+    expect(first.allowed).toBe(true);
+    if (first.allowed)
+      expect(first.submissions[0]).toMatchObject({
+        status: "partially_released",
+        final_score: 5,
+        total_possible: 5,
+      });
+    expect(await store.getInProgressSubmission(STUDENT, EXAM)).toBeNull();
+    state.submissions["sub-part"]!["status"] = "released";
+    state.submissions["sub-part"]!["final_score"] = 13;
+    state.submissions["sub-part"]!["total_possible"] = 15;
+    cfg.scoreRefresh.set(STUDENT, Date.parse(NOW) - TAKE_SESSION_SCORE_REFRESH_TTL_MS - 1);
+    const full = await doData(store, cfg, db);
+    if (full.allowed)
+      expect(full.submissions[0]).toMatchObject({
+        status: "released",
+        final_score: 13,
+        total_possible: 15,
+      });
   });
 
   it("shows a released score only after the TTL-gated refresh", async () => {

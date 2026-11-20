@@ -671,18 +671,34 @@ function Take() {
                 {t(`sub_${latestSubmitted.status}` as never)}
               </Pill>
               {t("takeAttempt")}: {latestSubmitted.attempt_number} · {t("totalMarks")}: {total}
-              {latestSubmitted.status === "released" && latestSubmitted.final_score !== null && (
-                <>
-                  {" "}
-                  {t("finalScore")}: {Number(latestSubmitted.final_score)} /{" "}
-                  {Number(latestSubmitted.total_possible)}
-                </>
-              )}
+              {(latestSubmitted.status === "released" ||
+                latestSubmitted.status === "partially_released") &&
+                latestSubmitted.final_score !== null && (
+                  <>
+                    {" "}
+                    {t(
+                      latestSubmitted.status === "partially_released"
+                        ? "takeObjectiveScore"
+                        : "finalScore",
+                    )}
+                    :{" "}
+                    <bdi>
+                      {Number(latestSubmitted.final_score)} /{" "}
+                      {Number(latestSubmitted.total_possible)}
+                    </bdi>
+                  </>
+                )}
             </span>
           }
         />
-        {latestSubmitted.status !== "released" && (
-          <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">{t("takeLocked")}</p>
+        {latestSubmitted.status === "partially_released" ? (
+          // Mixed exam: the objective part is already published above;
+          // only the essay still waits for the teacher.
+          <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">{t("takePartialPending")}</p>
+        ) : (
+          latestSubmitted.status !== "released" && (
+            <p className="mb-6 rounded-md bg-info/15 p-3 text-sm">{t("takeLocked")}</p>
+          )
         )}
         <div className="space-y-6">
           {questions.map((q, i) => (

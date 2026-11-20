@@ -39,6 +39,7 @@ function AuditPage() {
     review_answer: t("auditActionReviewAnswer"),
     release: t("auditActionRelease"),
     auto_release: t("auditActionAutoRelease"),
+    auto_release_partial: t("auditActionAutoReleasePartial"),
     assessment_status: t("auditActionAssessmentStatus"),
     ai_suggestion: t("auditActionAiSuggestion"),
     handwritten_grade: t("auditActionHandwrittenGrade"),

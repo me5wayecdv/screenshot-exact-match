@@ -733,7 +733,7 @@ function StudentGroupCard({ group, labels }: { group: MyGroup; labels: Record<st
             // and the result view once the teacher releases it.
             const mine = e.mySubmissionStatus;
             const label = mine
-              ? mine === "released"
+              ? mine === "released" || mine === "partially_released"
                 ? t("groupExamResult")
                 : t("awaitingResult")
               : t("groupExamStart");

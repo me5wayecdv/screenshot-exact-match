@@ -28,6 +28,7 @@ export const statusTone: Record<string, Tone> = {
   submitted: "info",
   awaiting_review: "warning",
   approved: "primary",
+  partially_released: "info",
   released: "success",
   not_graded: "neutral",
   auto_graded: "primary",
