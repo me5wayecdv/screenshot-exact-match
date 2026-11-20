@@ -52,10 +52,10 @@ function AppShell() {
    * Simple navigation: everything a person does every day is visible, and
    * everything else hides behind one "More" entry. For school teachers,
    * الملف الشخصي is a top-level destination (Abdo's request, 2026-11-20):
-   * الطلاب، طلبات المراجعة، وسجل التصحيح left the menu — those pages stay
-   * reachable from inside التصحيح (tabs, review reply, سجل النشاط) — and
-   * only تحليلات الأداء remains under "More". Tutor/student/admin menus
-   * are unchanged.
+   * الطلاب، طلبات المراجعة، سجل التصحيح، وتحليلات الأداء left the menu —
+   * those pages stay reachable from inside التصحيح (tabs, review reply,
+   * سجل النشاط) — so school teachers have no "More" entry at all.
+   * Tutor/student/admin menus are unchanged.
    */
   const { primary, secondary } =
     me?.role === "school_teacher"
@@ -67,7 +67,7 @@ function AppShell() {
             { to: "/assistant", label: t("assistantTitle"), icon: MessageSquareText },
             { to: "/profile", label: t("profile"), icon: User },
           ],
-          secondary: [{ to: "/analytics", label: t("anTitle"), icon: TrendingUp }],
+          secondary: [],
         }
       : me?.role === "tutor"
         ? {
