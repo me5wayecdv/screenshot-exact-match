@@ -193,13 +193,22 @@ export function autoScoreFor(
   if (!key) return null;
   const marks = Number(question.marks);
   if (question.type === "mcq" || question.type === "true_false") {
-    const ans = (answerText ?? "").trim();
     const expected = (key.correct_answer ?? "").trim();
-    if (!ans || !expected) return 0;
+    // A missing teacher key is not a zero: no key, no auto-grade.
+    if (!expected) return null;
+    const ans = (answerText ?? "").trim();
+    // A keyed question left unanswered scores zero.
+    if (!ans) return 0;
     return ans === expected ? marks : 0;
   }
   if (question.type === "short_answer") {
     const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+    // No teacher key and no accepted alternative: no auto-grade.
+    if (
+      !normalize(key.correct_answer ?? "") &&
+      !key.accepted_alternatives.some((a) => normalize(a))
+    )
+      return null;
     const norm = normalize(answerText ?? "");
     if (!norm) return 0;
     if (norm === normalize(key.correct_answer ?? "")) return marks;
@@ -339,16 +348,61 @@ export async function setAutoScores(
 ): Promise<void> {
   const submission = await ownSubmission(db, teacherId, submissionId);
   if (submission.status === "released") return;
+  let promoted = false;
   for (const { answerId, score } of scores) {
     if (!Number.isFinite(score) || score < 0) continue;
     const answer = await db
-      .prepare("SELECT auto_score FROM answers WHERE id = ? AND submission_id = ?")
+      .prepare(
+        "SELECT auto_score, final_score, review_status FROM answers WHERE id = ? AND submission_id = ?",
+      )
       .bind(answerId, submissionId)
-      .first<{ auto_score: number | null }>();
-    if (!answer || (answer.auto_score !== null && Number(answer.auto_score) === score)) continue;
+      .first<{
+        auto_score: number | null;
+        final_score: number | null;
+        review_status: string;
+      }>();
+    if (!answer) continue;
+    // The auto-grade IS the grade for an objective answer the teacher
+    // has not scored yet: promote it to final_score (review_status
+    // 'auto_graded') so release needs no per-question retyping, exactly
+    // as the grading-page header announces. A teacher score always
+    // wins — promotion never touches a set final_score, and
+    // reviewAnswer stays the override path.
+    const promote =
+      answer.final_score === null &&
+      (answer.review_status === "not_graded" || answer.review_status === "auto_graded");
+    const autoStale = answer.auto_score === null || Number(answer.auto_score) !== score;
+    if (promote) {
+      promoted = true;
+      await db
+        .prepare(
+          "UPDATE answers SET auto_score = ?, final_score = ?, review_status = 'auto_graded' " +
+            "WHERE id = ? AND submission_id = ?",
+        )
+        .bind(score, score, answerId, submissionId)
+        .run();
+    } else if (autoStale) {
+      await db
+        .prepare("UPDATE answers SET auto_score = ? WHERE id = ? AND submission_id = ?")
+        .bind(score, answerId, submissionId)
+        .run();
+    }
+  }
+  if (promoted) {
+    // Recompute the submission status exactly like reviewAnswer:
+    // approved only when no valid answer still lacks a final score,
+    // so a fully objective exam is release-ready the moment the
+    // teacher opens it.
+    const pending = await db
+      .prepare(
+        "SELECT 1 AS one FROM answers an JOIN questions q ON q.id = an.question_id " +
+          "AND q.assessment_id = ? WHERE an.submission_id = ? AND an.final_score IS NULL LIMIT 1",
+      )
+      .bind(submission.assessment_id, submission.id)
+      .first<{ one: number }>();
     await db
-      .prepare("UPDATE answers SET auto_score = ? WHERE id = ? AND submission_id = ?")
-      .bind(score, answerId, submissionId)
+      .prepare("UPDATE submissions SET status = ? WHERE id = ?")
+      .bind(pending ? "awaiting_review" : "approved", submission.id)
       .run();
   }
 }
