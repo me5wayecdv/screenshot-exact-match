@@ -61,6 +61,17 @@ function useTakeData(id: string, studentId: string | undefined) {
   return useQuery({
     queryKey: ["take", id, studentId],
     enabled: !!studentId,
+    // While a submitted attempt still awaits release, re-read every
+    // 30s so the teacher's release appears promptly. The release
+    // path pokes the TakeSession DO (/score-refresh), so these reads
+    // stay cheap; polling stops once every submitted attempt is
+    // released.
+    refetchInterval: (query) =>
+      (query.state.data?.submissions ?? []).some(
+        (s) => s.status !== "in_progress" && s.status !== "released",
+      )
+        ? 30_000
+        : false,
     queryFn: async () => {
       // D1 (Phase 2) + GATE FIRST: the server calls canTakeAssessment
       // before loading any question or answer. A failed gate returns
