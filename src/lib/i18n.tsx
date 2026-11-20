@@ -455,6 +455,9 @@ const dict = {
     gradingScoreRange: "الدرجة يجب أن تكون بين صفر ودرجة السؤال.",
     gradingSelectSubmission: "اختر تسليماً للمراجعة.",
     gradingTeacherOnly: "هذه الصفحة للمعلمين فقط.",
+    gradingReviewOpenSubmission: "فتح التسليم",
+    gradingReviewReply: "الرد على الطلب",
+    gradingReviewBadge: "طلب مراجعة",
     // Handwritten paper grading
     hwTitle: "تصحيح ورقي بخط اليد",
     hwSubtitle:
@@ -1405,6 +1408,9 @@ const dict = {
     gradingScoreRange: "Score must be between zero and the question's marks.",
     gradingSelectSubmission: "Select a submission to review.",
     gradingTeacherOnly: "This page is for teachers only.",
+    gradingReviewOpenSubmission: "Open submission",
+    gradingReviewReply: "Reply to request",
+    gradingReviewBadge: "Review requested",
     // Handwritten paper grading
     hwTitle: "Handwritten paper grading",
     hwSubtitle:

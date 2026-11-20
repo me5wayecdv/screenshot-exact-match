@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { getReviewMapsD1, listReviewRequestsD1, type ReviewRow } from "@/server/d1-reviews";
 import { sendWhatsAppReportD1 } from "@/server/d1-report";
 import { WhatsAppSendButton } from "@/components/whatsapp-send-button";
 import { DataPager } from "@/components/data-pager";
@@ -130,10 +131,50 @@ function Grading() {
     releasedPage,
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Review requests attach to RELEASED submissions, so selection also
+  // looks in the released page — opening one is read-only (inputs and
+  // the save/release actions stay disabled for released submissions).
   const selected =
-    list?.submissions.find((s) => s.id === selectedId) ?? list?.submissions[0] ?? null;
+    list?.submissions.find((s) => s.id === selectedId) ??
+    list?.released.find((s) => s.id === selectedId) ??
+    list?.submissions[0] ??
+    null;
   const isReleased = selected?.status === "released";
   const { data: detail, isLoading: detailLoading } = useGradingDetail(selected);
+  // Grade-review requests (Phase 7 feature, surfaced inside التصحيح):
+  // open requests filed by students on their released submissions.
+  const reviewRequestsQuery = useQuery({
+    queryKey: ["grading-review-requests", gradingTeacherId],
+    enabled: !!gradingTeacherId,
+    // D1: teacher_id = caller, enforced server-side.
+    queryFn: async () => (await listReviewRequestsD1({ data: {} })) as ReviewRow[],
+  });
+  const openReviews = (reviewRequestsQuery.data ?? []).filter((r) => r.status === "open");
+  const reviewSubmissionIds = [...new Set(openReviews.map((r) => r.submission_id))];
+  const reviewStudentIds = [...new Set(openReviews.map((r) => r.student_id))];
+  const reviewQuestionIds = [
+    ...new Set(openReviews.map((r) => r.question_id).filter(Boolean)),
+  ] as string[];
+  const reviewMapsQuery = useQuery({
+    queryKey: [
+      "grading-review-maps",
+      reviewSubmissionIds.join(","),
+      reviewStudentIds.join(","),
+      reviewQuestionIds.join(","),
+    ],
+    enabled: openReviews.length > 0,
+    // D1: maps built only from submissions visible to the caller.
+    queryFn: async () =>
+      getReviewMapsD1({
+        data: {
+          submissionIds: reviewSubmissionIds,
+          studentIds: reviewStudentIds,
+          questionIds: reviewQuestionIds,
+        },
+      }),
+  });
+  const reviewMaps = reviewMapsQuery.data;
+  const reviewRequestSubmissions = new Set(openReviews.map((r) => r.submission_id));
   const [scores, setScores] = useState<Record<string, string>>({});
   const [feedbacks, setFeedbacks] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -327,6 +368,54 @@ function Grading() {
       />
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <Panel className="h-fit">
+          {openReviews.length > 0 && (
+            <div className="mb-6">
+              <h2 className="mb-3 font-semibold">{t("reviewsTeacherRequests")}</h2>
+              <ul className="space-y-3">
+                {openReviews.map((r) => {
+                  const assessmentTitle = reviewMaps
+                    ? (reviewMaps.assessmentTitles[
+                        reviewMaps.submissionToAssessment[r.submission_id] ?? ""
+                      ] ?? "—")
+                    : "—";
+                  const questionPrompt = r.question_id
+                    ? (reviewMaps?.questionPrompts[r.question_id] ?? null)
+                    : null;
+                  const openable =
+                    submissions.some((s) => s.id === r.submission_id) ||
+                    released.some((s) => s.id === r.submission_id);
+                  return (
+                    <li key={r.id} className="space-y-2 rounded-md border border-primary/40 p-3">
+                      <span className="block text-sm font-medium">{assessmentTitle}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {reviewMaps?.names[r.student_id] ?? "—"} · {formatDate(r.created_at, lang)}
+                      </span>
+                      {questionPrompt && (
+                        <span className="block text-xs text-muted-foreground">
+                          {t("reviewsQuestion")}: {(questionPrompt || "").slice(0, 80)}
+                        </span>
+                      )}
+                      <p className="whitespace-pre-wrap text-sm">{r.message}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {openable && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setSelectedId(r.submission_id)}
+                          >
+                            {t("gradingReviewOpenSubmission")}
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" asChild>
+                          <Link to="/reviews">{t("gradingReviewReply")}</Link>
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
           <h2 className="mb-3 font-semibold">{t("submissions")}</h2>
           {submissions.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("noSubmissions")}</p>
@@ -377,6 +466,11 @@ function Grading() {
                     <span className="block text-xs text-muted-foreground">
                       {list?.names.get(s.student_id) ?? "—"} · {formatDate(s.submitted_at, lang)}
                     </span>
+                    {reviewRequestSubmissions.has(s.id) && (
+                      <div className="mt-1">
+                        <Pill t="primary">{t("gradingReviewBadge")}</Pill>
+                      </div>
+                    )}
                     <div className="mt-2">
                       <WhatsAppSendButton submissionId={s.id} studentId={s.student_id} />
                     </div>
