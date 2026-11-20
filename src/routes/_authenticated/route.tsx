@@ -17,7 +17,6 @@ import {
   Shield,
   History,
   TrendingUp,
-  GraduationCap,
   MessageSquare,
   MessageSquareText,
   MoreHorizontal,
@@ -99,9 +98,7 @@ function AppShell() {
             }
           : {
               primary: [
-                { to: "/dashboard", label: t("myAssessments"), icon: Home },
                 { to: "/groups", label: t("groups"), icon: Users },
-                { to: "/tutor", label: t("tutorTitle"), icon: GraduationCap },
                 { to: "/reviews", label: t("reviewsTitle"), icon: MessageSquare },
               ],
               secondary: [{ to: "/profile", label: t("profile"), icon: User }],
