@@ -197,8 +197,11 @@ function Grading() {
   }, [detail, selectedSubmissionId]);
 
   // Auto-grade objective answers on first open of a submission: persist
-  // auto_score only where the stored value differs from the computed one,
-  // so this effect never loops. Teacher scores are never touched here.
+  // auto_score where the stored value differs, and let the server promote
+  // the auto-grade to final_score wherever the teacher has not scored yet
+  // (auto_score synced but final_score missing still sends, so the
+  // promotion cannot be skipped). A set teacher score is never resent,
+  // so this effect never loops and never overwrites the teacher.
   useEffect(() => {
     if (
       !detail ||
@@ -212,7 +215,8 @@ function Grading() {
       const q = detail.questions.find((qq) => qq.id === a.question_id);
       if (!q) return [];
       const computed = autoFor(q, a.response ?? "");
-      if (computed === null || Number(a.auto_score) === computed) return [];
+      if (computed === null) return [];
+      if (Number(a.auto_score) === computed && a.final_score !== null) return [];
       return [{ id: a.id, computed }];
     });
     void (async () => {
