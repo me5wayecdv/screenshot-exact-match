@@ -121,7 +121,7 @@ export function PaperReferencePanel({
             "Upload the teacher's model answer first, review the extracted answers and confirm. This is the AI grading reference, not a student submission. Then upload student papers below.",
           )}
         </p>
-        <Label htmlFor="hw-reference-existing">
+        <Label className="block" htmlFor="hw-reference-existing">
           {a("مرجع معتمد سابقا", "Previously confirmed reference")}
         </Label>
         <select
@@ -193,7 +193,7 @@ export function PaperReferencePanel({
               />
             )}
             <Button
-              className="h-auto min-h-10 whitespace-normal text-center"
+              className="h-auto min-h-10 max-w-full whitespace-normal text-center"
               type="button"
               variant="outline"
               disabled={busy}
@@ -210,7 +210,9 @@ export function PaperReferencePanel({
           <div className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="hw-reference-kind">{a("نوع النموذج", "Reference type")}</Label>
+                <Label className="block" htmlFor="hw-reference-kind">
+                  {a("نوع النموذج", "Reference type")}
+                </Label>
                 <select
                   id="hw-reference-kind"
                   className="h-10 w-full rounded-md border bg-background px-3 text-sm"
@@ -233,7 +235,7 @@ export function PaperReferencePanel({
                 </select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="hw-reference-file">
+                <Label className="block" htmlFor="hw-reference-file">
                   {a(
                     "صورة المرجع فقط، ليست ورقة طالب",
                     "Reference image only, not a student paper",
@@ -258,7 +260,9 @@ export function PaperReferencePanel({
                   alt={a("نموذج الإجابة قبل الاعتماد", "Model answer before confirmation")}
                   className="max-h-80 max-w-full rounded-lg border object-contain"
                 />
-                <Label htmlFor="hw-reference-title">{a("اسم المرجع", "Reference name")}</Label>
+                <Label className="block" htmlFor="hw-reference-title">
+                  {a("اسم المرجع", "Reference name")}
+                </Label>
                 <Input
                   id="hw-reference-title"
                   maxLength={200}
@@ -271,7 +275,7 @@ export function PaperReferencePanel({
                     ? a("جار المعالجة...", "Working...")
                     : a("قراءة إجابات النموذج بالذكاء الاصطناعي", "Read model answers with AI")}
                 </Button>
-                <Label htmlFor="hw-reference-text">
+                <Label className="block" htmlFor="hw-reference-text">
                   {a(
                     "راجع الإجابات وصححها قبل الاعتماد",
                     "Review and correct answers before confirming",
@@ -303,7 +307,7 @@ export function PaperReferencePanel({
                   )}
                 </p>
                 <Button
-                  className="h-auto min-h-10 whitespace-normal text-center"
+                  className="h-auto min-h-10 max-w-full whitespace-normal text-center"
                   type="button"
                   disabled={busy || !title.trim() || !text.trim()}
                   onClick={confirm}
