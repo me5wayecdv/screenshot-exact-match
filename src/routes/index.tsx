@@ -96,26 +96,26 @@ function Landing() {
     >
       {/* Header */}
       <header className="absolute inset-x-0 top-0 z-10">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-3.5 md:px-8">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-3.5 md:px-8">
           <Link to="/" aria-label="قيمني" className="rounded-sm" style={{ color: PINE }}>
-            <Brand onDark={DARKLOGO} />
+            <Brand onDark={DARKLOGO} className="[&>span]:hidden min-[360px]:[&>span]:inline" />
           </Link>
-          <div className="flex items-center gap-2.5">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
             <Link
               to="/auth"
-              className="hidden rounded-lg px-4 py-2 text-sm font-semibold sm:inline-flex"
-              style={{ color: PINE }}
+              search={{}}
+              className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-lg px-2 text-xs font-bold text-white transition-opacity hover:opacity-90 sm:px-4 sm:text-sm"
+              style={{ background: PINE }}
             >
               تسجيل الدخول
             </Link>
             <Link
               to="/auth"
               search={{ mode: "signup" }}
-              className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-              style={{ background: PINE }}
+              className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-lg border px-2 text-xs font-semibold transition-opacity hover:opacity-90 sm:px-4 sm:text-sm"
+              style={{ borderColor: LINE, color: INK }}
             >
               إنشاء حساب
-              <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
             </Link>
           </div>
         </div>
