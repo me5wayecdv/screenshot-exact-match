@@ -599,7 +599,9 @@ export async function saveHandwrittenGrade(
       throw new HandwrittenError("INVALID_INPUT", "Input exceeds the maximum allowed size.");
     }
     acceptedAlternatives = rawAlternatives as string[];
-    effectiveMaxMarks = input.maxMarks;
+    // Reference-only papers use a server-owned percentage scale. Never guess
+    // an exam total from an image, and never let a client alter the scale.
+    effectiveMaxMarks = reference ? 100 : input.maxMarks;
     adHoc = true;
   }
   // The signed preview travels only to its authenticated teacher. It
