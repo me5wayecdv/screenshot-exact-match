@@ -128,6 +128,11 @@ export function buildAiGradingPrompt(input: AiGradingPromptInput): {
       : []),
     `إجابة الطالب:\n${delimited("student_answer", truncate(input.studentAnswer))}`,
     `الدرجة القصوى: ${input.maxMarks}`,
+    ...(input.paperReference && input.maxMarks === 100
+      ? [
+          "النتيجة مطلوبة كنسبة من ١٠٠. قارن الإجابات بالنموذج المعتمد، واستخدم أوزان الأسئلة أو توزيع الدرجات المذكور إن وجد ثم حوّل الناتج إلى نسبة مئوية. لا تعتبر ١٠٠ مجموع درجات الامتحان الأصلي، ولا تخترع درجات أصلية غير مذكورة.",
+        ]
+      : []),
   ].join("\n\n");
 
   return { system, user };
