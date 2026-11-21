@@ -51,7 +51,10 @@ it("shows only the next useful step, with optional settings closed", async () =>
   fireEvent.change(screen.getByLabelText("استخدم نموذج حفظته قبل كده"), {
     target: { value: "ref-1" },
   });
-  expect(screen.getByRole("spinbutton", { name: "الورقة من كام درجة؟" })).toBeVisible();
+  expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+  expect(
+    screen.getByText("النتيجة هتظهر كنسبة من ١٠٠، من غير ما تحتاج تحدد مجموع الورقة."),
+  ).toBeVisible();
   expect(screen.getByLabelText("توزيع الدرجات (اختياري)").closest("details")).not.toHaveAttribute(
     "open",
   );
