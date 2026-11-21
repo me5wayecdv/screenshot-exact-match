@@ -133,6 +133,11 @@ describe("Confirmed private paper references", () => {
     expect(request.messages[1].content).toContain("<student_answer>\n1: B\n2: A");
     const saved = await saveHandwrittenGrade(db, teacher, { ...input, previewId: preview.id });
     expect(fetch).toHaveBeenCalledOnce();
+    expect(
+      sql.prepare("SELECT max_marks FROM handwritten_grades WHERE id=?").get(saved.id)?.[
+        "max_marks"
+      ],
+    ).toBe(10);
     const audit = sql.prepare("SELECT details FROM audit_log WHERE entity_id=?").get(saved.id);
     expect(JSON.parse(audit?.["details"] as string).reference_id).toBe(r.id);
     expect((await listHandwrittenHistory(db, teacher))[0]?.reference_title).toBe(r.title);
@@ -164,6 +169,32 @@ describe("Confirmed private paper references", () => {
     await expect(
       saveHandwrittenGrade(db, teacher, { ...input, previewId: p.id }),
     ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it("automatically uses a server-owned percentage for a reference without a linked question", async () => {
+    const { db, sql } = auditDb();
+    const r = await confirmPaperReference(db, teacher, bucket(), referenceInput);
+    const input = {
+      ...gradeInput,
+      questionId: null,
+      referenceId: r.id,
+      questionPrompt: "Grade all questions",
+      maxMarks: 7,
+    };
+    const preview = await saveHandwrittenGrade(db, teacher, input, { preview: true });
+    const request = JSON.parse(vi.mocked(fetch).mock.calls[0]?.[1]?.body as string);
+    expect(request.messages[1].content).toContain("الدرجة القصوى: 100");
+    expect(request.messages[1].content).toContain("النتيجة مطلوبة كنسبة من ١٠٠");
+    const saved = await saveHandwrittenGrade(db, teacher, {
+      ...input,
+      maxMarks: 999,
+      previewId: preview.id,
+    });
+    expect(
+      sql.prepare("SELECT max_marks FROM handwritten_grades WHERE id=?").get(saved.id)?.[
+        "max_marks"
+      ],
+    ).toBe(100);
     expect(fetch).toHaveBeenCalledOnce();
   });
   it("has a repeatable additive migration", () => {
