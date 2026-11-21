@@ -1,3 +1,4 @@
+import { confirmPaperReference, getPaperReference, listPaperReferences } from "./paper-reference";
 import {
   assertGradePreviewSigning,
   signGradePreview,
@@ -287,6 +288,7 @@ export type HwHistoryRow = {
   assessment_id: string | null;
   student_name: string;
   image_path: string | null;
+  reference_title?: string | null;
   extracted_text: string;
   corrected_text: string;
   ai_suggested_score: number | null;
@@ -307,7 +309,8 @@ export async function listHandwrittenHistory(
     .prepare(
       "SELECT id, question_id, assessment_id, student_name, image_path, " +
         "extracted_text, corrected_text, ai_suggested_score, ai_feedback, " +
-        "ai_model, final_score, max_marks, teacher_feedback, created_at " +
+        "ai_model, final_score, max_marks, teacher_feedback, created_at, " +
+        "(SELECT json_extract(a.details, '$.reference_title') FROM audit_log a WHERE a.entity_id = handwritten_grades.id AND a.actor_id = handwritten_grades.teacher_id AND a.action = 'handwritten_grade' LIMIT 1) AS reference_title " +
         "FROM handwritten_grades WHERE teacher_id = ? " +
         "ORDER BY created_at DESC LIMIT 50",
     )
@@ -356,6 +359,7 @@ export async function uploadHandwrittenPaper(
 export type SaveHandwrittenGradeInput = {
   /** Signed server-owned preview token. Client scores are never authoritative. */
   previewId?: string;
+  referenceId?: string;
   assessmentId: string | null;
   questionId: string | null;
   /** Enrolled-student account link, or null/omitted for a paper with no account. */
@@ -402,6 +406,7 @@ function parseSaveHandwrittenGradeInput(data: unknown): SaveHandwrittenGradeInpu
   return {
     ...compact({
       previewId: optionalString(input["previewId"], 500),
+      referenceId: optionalString(input["referenceId"], 100),
       studentId: optionalString(input["studentId"]),
       questionPrompt: optionalString(input["questionPrompt"], 10_000),
       rubric: optionalString(input["rubric"], 5000),
@@ -446,6 +451,20 @@ export async function saveHandwrittenGrade(
       throw e;
     }
   }
+  const reference = input.referenceId
+    ? await getPaperReference(db, caller, input.referenceId)
+    : null;
+  const referenceImage = input.imagePath
+    ? await db
+        .prepare("SELECT id FROM handwritten_references WHERE teacher_id = ? AND image_path = ?")
+        .bind(caller.id, input.imagePath)
+        .first()
+    : null;
+  if (referenceImage)
+    throw new HandwrittenError(
+      "INVALID_INPUT",
+      "The reference cannot be submitted as a student paper.",
+    );
   let effectiveAssessmentId = input.assessmentId ?? null;
   if (input.assessmentId) {
     const owner = await db
@@ -525,7 +544,8 @@ export async function saveHandwrittenGrade(
       .first<HwQuestionKeyRow>();
     if (
       !keyRow ||
-      (!keyRow.correct_answer?.trim() &&
+      (!reference &&
+        !keyRow.correct_answer?.trim() &&
         !keyRow.rubric?.trim() &&
         parseAlternatives(keyRow.accepted_alternatives).length === 0)
     ) {
@@ -586,6 +606,9 @@ export async function saveHandwrittenGrade(
   // binds the exact canonical grading criteria and answer, not client scores.
   const fingerprintData = JSON.stringify([
     caller.id,
+    reference
+      ? [reference.id, reference.kind, reference.image_path, reference.confirmed_text]
+      : null,
     effectiveAssessmentId,
     input.questionId,
     input.studentId ?? null,
@@ -625,6 +648,9 @@ export async function saveHandwrittenGrade(
         rubric,
         acceptedAlternatives,
         studentAnswer: input.correctedText.trim(),
+        ...(reference
+          ? { paperReference: { kind: reference.kind, answers: reference.confirmed_text } }
+          : {}),
         // The question's own marks are the ceiling — a tampered
         // client maxMarks can never raise it. (Ad-hoc: the validated
         // per-request maxMarks, already bounded 1..1000 above.)
@@ -741,6 +767,9 @@ export async function saveHandwrittenGrade(
       "handwritten_grade",
       id,
       JSON.stringify({
+        reference_id: reference?.id ?? null,
+        reference_title: reference?.title ?? null,
+        reference_kind: reference?.kind ?? null,
         final_score: verifiedScore,
         max_marks: effectiveMaxMarks,
         assessment_id: effectiveAssessmentId,
@@ -875,7 +904,15 @@ export async function deleteHandwrittenPaper(
   key: string,
 ): Promise<void> {
   requireTeacher(caller);
-  void db;
+  const reference = await db
+    .prepare("SELECT id FROM handwritten_references WHERE teacher_id = ? AND image_path = ?")
+    .bind(caller.id, key)
+    .first();
+  if (reference)
+    throw new HandwrittenError(
+      "INVALID_INPUT",
+      "Confirmed reference images cannot be deleted as student papers.",
+    );
   await r2Delete(bucket, caller.id, key);
 }
 
@@ -977,3 +1014,40 @@ export const getHwPaperD1 = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) =>
     getHandwrittenPaper(ctxDb(context), ctxCaller(context), await papersBucket(), data.gradeId),
   );
+
+export const listHwReferencesD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => data)
+  .handler(async ({ context }) => listPaperReferences(ctxDb(context), ctxCaller(context)));
+export const confirmHwReferenceD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => {
+    const input = requireObject(data);
+    const kind = requireString(input["kind"]);
+    if (kind !== "written" && kind !== "bubble") throw new HandwrittenError("INVALID_INPUT");
+    return {
+      title: requireString(input["title"], 200),
+      kind: kind as "written" | "bubble",
+      dataUrl: requireString(input["dataUrl"], 4_000_000),
+      confirmedText: requireString(input["confirmedText"], 8000),
+    };
+  })
+  .handler(async ({ data, context }) =>
+    confirmPaperReference(ctxDb(context), ctxCaller(context), await papersBucket(), data),
+  );
+
+export const getHwReferenceImageD1 = createServerFn({ method: "POST" })
+  .middleware([requireCloudflareAuth])
+  .validator((data: unknown) => ({
+    referenceId: requireString(requireObject(data)["referenceId"], 100),
+  }))
+  .handler(async ({ data, context }) => {
+    const caller = ctxCaller(context);
+    const reference = await getPaperReference(ctxDb(context), caller, data.referenceId);
+    const bytes = await r2Get(await papersBucket(), caller.id, reference.image_path);
+    if (!bytes) throw new HandwrittenError("NOT_FOUND");
+    let bin = "";
+    for (const byte of new Uint8Array(bytes)) bin += String.fromCharCode(byte);
+    const ext = reference.image_path.split(".").pop();
+    return `data:image/${ext === "png" ? "png" : ext === "webp" ? "webp" : "jpeg"};base64,${btoa(bin)}`;
+  });
