@@ -1,3 +1,5 @@
+import { PaperReferencePanel } from "@/components/PaperReferencePanel";
+import type { PaperReference } from "@/server/paper-reference";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -92,6 +94,7 @@ type HwRow = {
   assessment_id: string | null;
   student_name: string;
   image_path: string | null;
+  reference_title?: string | null;
   extracted_text: string;
   corrected_text: string;
   ai_suggested_score: number | null;
@@ -274,9 +277,9 @@ function Handwritten() {
   const [questionId, setQuestionId] = useState("");
   const [adHocPrompt, setAdHocPrompt] = useState("");
   const [adHocRubric, setAdHocRubric] = useState("");
-  const [adHocMarks, setAdHocMarks] = useState("10");
   const [studentName, setStudentName] = useState("");
   /** Enrolled-student account link ("" = paper name only, no account). */
+  const [reference, setReference] = useState<PaperReference | null>(null);
   const [studentId, setStudentId] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState("");
   const [imageName, setImageName] = useState("");
@@ -366,7 +369,7 @@ function Handwritten() {
   const alternatives = selectedQuestion
     ? ((selectedQuestion.question_keys?.accepted_alternatives as string[]) ?? [])
     : [];
-  const maxMarks = selectedQuestion ? Number(selectedQuestion.marks) : Number(adHocMarks);
+  const maxMarks = selectedQuestion ? Number(selectedQuestion.marks) : 100;
   const maxValid = Number.isFinite(maxMarks) && maxMarks > 0 && maxMarks <= 1000;
   /** Saving requires an AI suggestion: the AI sets the final grade. */
   const finalValid = suggestion !== null && maxValid;
@@ -505,7 +508,14 @@ function Handwritten() {
       let model = "";
       const texts: string[] = [];
       for (const imageDataUrl of quarters) {
-        const r = await ocrHandwrittenImage({ data: { imageDataUrl, assessmentId } });
+        const r = await ocrHandwrittenImage({
+          data: {
+            imageDataUrl,
+            assessmentId,
+            paperRole: "student",
+            paperKind: reference?.kind ?? "written",
+          },
+        });
         if (!r.ok) return null;
         if (!model) model = r.model;
         texts.push(r.text);
@@ -522,6 +532,7 @@ function Handwritten() {
       toast.error(t("hwOcrFailed"));
       return;
     }
+    setUploadingImage(true);
     try {
       const pages = await fileToPageFiles(file);
       if (pages.length === 0) {
@@ -553,17 +564,16 @@ function Handwritten() {
       setOcrError(null);
       // PLATFORM RULE: every uploaded photo is persisted server-side.
       // The paper is uploaded immediately on select, not only on save.
-      setUploadingImage(true);
       const path = await uploadPaper(blob);
-      setUploadingImage(false);
       if (!path) {
         toast.error(t("hwImageUploadFailed"));
         return;
       }
       setImagePath(path);
     } catch {
-      setUploadingImage(false);
       toast.error(t("hwOcrFailed"));
+    } finally {
+      setUploadingImage(false);
     }
   }
 
@@ -589,55 +599,60 @@ function Handwritten() {
       toast.error(t("hwMatchTooMany"));
       return;
     }
-    const picked = files.slice(0, room);
-    if (files.length > room) toast.error(t("hwMatchTooMany"));
-    for (const file of picked) {
-      if (file.size > 20 * 1024 * 1024) {
-        toast.error(t("hwNeedImage"));
-        continue;
-      }
-      let pageFiles: File[];
-      try {
-        pageFiles = await fileToPageFiles(file);
-      } catch {
-        pageFiles = [];
-      }
-      if (pageFiles.length === 0) {
-        toast.error(t("hwNeedImage"));
-        continue;
-      }
-      for (const pageFile of pageFiles.slice(0, room)) {
+    setMatchBusy(true);
+    try {
+      const picked = files.slice(0, room);
+      if (files.length > room) toast.error(t("hwMatchTooMany"));
+      for (const file of picked) {
+        if (file.size > 20 * 1024 * 1024) {
+          toast.error(t("hwNeedImage"));
+          continue;
+        }
+        let pageFiles: File[];
         try {
-          const { dataUrl, blob } = await compressImage(pageFile);
-          const id = `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-          setMatchItems((prev) => [
-            ...prev,
-            {
-              id,
-              dataUrl,
-              blob,
-              imagePath: "",
-              fileName: pageFile.name,
-              text: "",
-              questionId: null,
-              confidence: "none",
-              method: "none",
-              model: "",
-              studentName: "",
-              graded: false,
-            },
-          ]);
-          // PLATFORM RULE: the page is persisted server-side on select.
-          const path = await uploadPaper(blob);
-          if (!path) {
-            toast.error(t("hwImageUploadFailed"));
-            continue;
-          }
-          updateMatchItem(id, { imagePath: path });
+          pageFiles = await fileToPageFiles(file);
         } catch {
-          toast.error(t("hwOcrFailed"));
+          pageFiles = [];
+        }
+        if (pageFiles.length === 0) {
+          toast.error(t("hwNeedImage"));
+          continue;
+        }
+        for (const pageFile of pageFiles.slice(0, room)) {
+          try {
+            const { dataUrl, blob } = await compressImage(pageFile);
+            const id = `${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+            setMatchItems((prev) => [
+              ...prev,
+              {
+                id,
+                dataUrl,
+                blob,
+                imagePath: "",
+                fileName: pageFile.name,
+                text: "",
+                questionId: null,
+                confidence: "none",
+                method: "none",
+                model: "",
+                studentName: "",
+                graded: false,
+              },
+            ]);
+            // PLATFORM RULE: the page is persisted server-side on select.
+            const path = await uploadPaper(blob);
+            if (!path) {
+              toast.error(t("hwImageUploadFailed"));
+              continue;
+            }
+            updateMatchItem(id, { imagePath: path });
+          } catch {
+            toast.error(t("hwOcrFailed"));
+          }
         }
       }
+    } finally {
+      setMatchBusy(false);
     }
   }
 
@@ -751,12 +766,18 @@ function Handwritten() {
     setOcrError(null);
     try {
       const result = await ocrHandwrittenImage({
-        data: { imageDataUrl, assessmentId: assessmentId || undefined },
+        data: {
+          imageDataUrl,
+          assessmentId: assessmentId || undefined,
+          paperRole: "student",
+          paperKind: reference?.kind ?? "written",
+        },
       });
       const useless = result.ok && isUselessText(result.text);
       const shouldSplit =
-        useless ||
-        (!result.ok && (result.message.includes("408") || result.code === "VISION_TIMEOUT"));
+        reference?.kind !== "bubble" &&
+        (useless ||
+          (!result.ok && (result.message.includes("408") || result.code === "VISION_TIMEOUT")));
       if (result.ok && !useless) {
         setExtractedText(result.text);
         setCorrectedText(result.text);
@@ -809,6 +830,14 @@ function Handwritten() {
   }
 
   async function runSuggest() {
+    if (!reference) {
+      toast.error(
+        lang === "ar"
+          ? "اعتمد نموذج الإجابة المرجعي أولا"
+          : "Confirm a model answer reference first",
+      );
+      return;
+    }
     if (!questionPrompt.trim()) {
       toast.error(t("hwNeedText"));
       return;
@@ -825,6 +854,7 @@ function Handwritten() {
     try {
       const result = await previewHwGradeD1({
         data: {
+          referenceId: reference?.id,
           assessmentId: assessmentId || null,
           questionId: questionId || null,
           studentId: studentId || null,
@@ -851,6 +881,7 @@ function Handwritten() {
   }
 
   async function save() {
+    if (!reference) return;
     if (!me) return;
     if (!questionPrompt.trim() || !correctedText.trim()) {
       toast.error(t("hwNeedText"));
@@ -870,6 +901,7 @@ function Handwritten() {
       // criteria. It never trusts the client score or makes a second AI call.
       await saveHwGradeD1({
         data: {
+          referenceId: reference?.id,
           assessmentId: assessmentId || null,
           questionId: questionId || null,
           studentId: studentId || null,
@@ -970,401 +1002,509 @@ function Handwritten() {
 
   return (
     <>
-      <PageHeader title={t("hwTitle")} subtitle={t("hwSubtitle")} />
+      <PageHeader
+        title={lang === "ar" ? "تصحيح ورق الطلبة" : "Grade student papers"}
+        subtitle={
+          lang === "ar"
+            ? "ارفع نموذج الإجابة، راجعه، وبعدها ارفع ورق الطلبة."
+            : "Upload model answers, check them, then upload student papers."
+        }
+      />
 
       <div className="space-y-6">
-        <Panel className="space-y-4">
-          <h2 className="font-semibold">{t("hwQuestionContext")}</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="hw-assessment">{t("hwAssessment")}</Label>
-              <select
-                id="hw-assessment"
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                value={assessmentId}
-                onChange={(e) => {
-                  setAssessmentId(e.target.value);
-                  setQuestionId("");
-                  setSuggestion(null);
-                  setOcrError(null);
-                }}
-              >
-                <option value="">{t("hwAdHoc")}</option>
-                {(assessments ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {assessmentId && (
-              <div className="space-y-1.5">
-                <Label htmlFor="hw-question">{t("hwQuestion")}</Label>
-                <select
-                  id="hw-question"
-                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                  value={questionId}
-                  onChange={(e) => {
-                    setQuestionId(e.target.value);
-                    setSuggestion(null);
-                    setOcrError(null);
-                  }}
-                >
-                  <option value="">—</option>
-                  {(questions ?? []).map((q, i) => (
-                    <option key={q.id} value={q.id}>
-                      {i + 1}. {(q.prompt || "").slice(0, 60)} ({Number(q.marks)})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-
-          {selectedQuestion ? (
-            <div className="space-y-1 text-sm">
-              <p className="whitespace-pre-wrap">{selectedQuestion.prompt}</p>
-              <p className="text-muted-foreground">
-                {t("marks")}: {Number(selectedQuestion.marks)}
-                {rubric ? ` · ${t("hwRubric")}: ${rubric}` : ""}
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="hw-prompt">{t("hwQuestionPrompt")}</Label>
-                <Textarea
-                  id="hw-prompt"
-                  rows={3}
-                  value={adHocPrompt}
-                  maxLength={20000}
-                  onChange={(e) => setAdHocPrompt(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="hw-marks">{t("hwMaxMarks")}</Label>
-                <Input
-                  id="hw-marks"
-                  type="number"
-                  min={1}
-                  max={1000}
-                  step={0.5}
-                  dir="ltr"
-                  value={adHocMarks}
-                  onChange={(e) => setAdHocMarks(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1.5 md:col-span-3">
-                <Label htmlFor="hw-rubric">{t("hwRubric")}</Label>
-                <Textarea
-                  id="hw-rubric"
-                  rows={3}
-                  value={adHocRubric}
-                  maxLength={20000}
-                  onChange={(e) => setAdHocRubric(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-        </Panel>
-
-        {assessmentId && (
+        <PaperReferencePanel
+          locked={busyOcr || busySuggest || busySave || uploadingImage || matchBusy}
+          teacherId={me?.id ?? ""}
+          reference={reference}
+          compressImage={compressImage}
+          onChange={(next) => {
+            setReference(next);
+            if (next && !adHocPrompt.trim())
+              setAdHocPrompt(
+                lang === "ar"
+                  ? "صحح إجابات ورقة الطالب حسب أرقام الأسئلة في نموذج الإجابة المرجعي المعتمد."
+                  : "Grade the student paper against the confirmed model answer, matching question numbers.",
+              );
+            setSuggestion(null);
+            setImageDataUrl("");
+            setImagePath("");
+            setPaperBlob(null);
+            setExtractedText("");
+            setCorrectedText("");
+            setMatchItems([]);
+            setActiveMatchId(null);
+            setOcrError(null);
+          }}
+        />
+        {!reference && (
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            {lang === "ar"
+              ? "ابدأ بصورة نموذج الإجابة اللي فوق. بعد ما تراجعها وتأكدها، هنفتح لك رفع ورق الطلبة."
+              : "Upload and confirm a model answer first to unlock student paper uploads and grading."}
+          </p>
+        )}
+        <fieldset
+          hidden={!reference}
+          disabled={!reference || busyOcr || busySuggest || busySave || uploadingImage || matchBusy}
+          className="min-w-0 space-y-6 disabled:opacity-60"
+        >
+          <legend className="mb-4 font-semibold">
+            {lang === "ar" ? "٣. ارفع ورقة الطالب" : "3. Upload a student paper"}
+          </legend>
           <Panel className="space-y-4">
-            <h2 className="font-semibold">{t("hwMatchTitle")}</h2>
-            <p className="text-xs text-muted-foreground">{t("hwMatchHint")}</p>
-            <div className="space-y-1.5">
-              <Label>{t("hwMatchTitle")}</Label>
-              <Input
-                type="file"
-                accept="image/*,application/pdf,.docx"
-                multiple
-                onChange={(e) => {
-                  const fs = [...(e.target.files ?? [])];
-                  e.target.value = "";
-                  if (fs.length) void onMatchFiles(fs);
-                }}
-              />
-            </div>
-            {matchItems.length > 0 && (
-              <ul className="space-y-3">
-                {matchItems.map((item) => (
-                  <li key={item.id} className="space-y-2 rounded-md border p-3">
-                    <img
-                      src={item.dataUrl}
-                      alt={item.fileName}
-                      className="max-h-40 rounded-md border object-contain"
-                    />
-                    <p className="text-xs text-muted-foreground">{item.fileName}</p>
-                    {item.graded && (
-                      <p className="flex items-center gap-1.5 text-xs font-medium text-success">
-                        <Check className="size-3.5" aria-hidden /> {t("hwMatchGraded")}
-                      </p>
-                    )}
+            <p className="text-sm text-muted-foreground">
+              {selectedQuestion
+                ? lang === "ar"
+                  ? "هنستخدم درجة السؤال المسجلة تلقائيا."
+                  : "The saved question marks are used automatically."
+                : lang === "ar"
+                  ? "النتيجة هتظهر كنسبة من ١٠٠، من غير ما تحتاج تحدد مجموع الورقة."
+                  : "Results are shown as a percentage out of 100. No total marks needed."}
+            </p>
+            <details>
+              <summary className="cursor-pointer text-sm">
+                {lang === "ar"
+                  ? "اختياري: توزيع الدرجات أو اختيار امتحان"
+                  : "Optional: mark allocation or an existing exam"}
+              </summary>
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="hw-assessment">{t("hwAssessment")}</Label>
+                    <select
+                      id="hw-assessment"
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      value={assessmentId}
+                      onChange={(e) => {
+                        setAssessmentId(e.target.value);
+                        setQuestionId("");
+                        setSuggestion(null);
+                        setOcrError(null);
+                      }}
+                    >
+                      <option value="">{t("hwAdHoc")}</option>
+                      {(assessments ?? []).map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {assessmentId && (
                     <div className="space-y-1.5">
-                      <Label>{t("hwMatchStudentName")}</Label>
-                      <Input
-                        value={item.studentName}
-                        onChange={(e) => updateMatchItem(item.id, { studentName: e.target.value })}
-                        placeholder={t("hwMatchStudentName")}
-                      />
-                    </div>
-                    {item.text ? (
-                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                        {item.text.slice(0, 200)}
-                        {item.text.length > 200 ? "…" : ""}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">{t("hwMatchNoText")}</p>
-                    )}
-                    <div className="flex flex-wrap items-center gap-2">
+                      <Label htmlFor="hw-question">{t("hwQuestion")}</Label>
                       <select
-                        className="h-9 rounded-md border bg-background px-3 text-sm"
-                        value={item.questionId ?? ""}
+                        id="hw-question"
+                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        value={questionId}
                         onChange={(e) => {
-                          const v = e.target.value;
-                          updateMatchItem(
-                            item.id,
-                            v
-                              ? { questionId: v, method: "manual", confidence: "none" }
-                              : { questionId: null, method: "none", confidence: "none" },
-                          );
+                          setQuestionId(e.target.value);
+                          setSuggestion(null);
+                          setOcrError(null);
                         }}
                       >
-                        <option value="">{t("hwMatchNoMatch")}</option>
-                        {(questions ?? []).map((q, qi) => (
+                        <option value="">—</option>
+                        {(questions ?? []).map((q, i) => (
                           <option key={q.id} value={q.id}>
-                            {qi + 1}. {(q.prompt || "").slice(0, 60)}
+                            {i + 1}. {(q.prompt || "").slice(0, 60)} ({Number(q.marks)})
                           </option>
                         ))}
                       </select>
-                      <span className="text-xs text-muted-foreground">
-                        {item.method === "manual"
-                          ? t("hwMatchMethod_manual")
-                          : `${t(`hwMatchConf_${item.confidence}` as never)} · ${t(`hwMatchMethod_${item.method}` as never)}`}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!item.questionId || !item.imagePath}
-                        onClick={() => applyMatchItem(item)}
-                      >
-                        {t("hwMatchUse")}
-                      </Button>
-                      {!item.imagePath && (
+                    </div>
+                  )}
+                </div>
+
+                {selectedQuestion ? (
+                  <div className="space-y-1 text-sm">
+                    <p className="whitespace-pre-wrap">{selectedQuestion.prompt}</p>
+                    <p className="text-muted-foreground">
+                      {t("marks")}: {Number(selectedQuestion.marks)}
+                      {rubric ? ` · ${t("hwRubric")}: ${rubric}` : ""}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label htmlFor="hw-prompt">
+                        {lang === "ar"
+                          ? "تعليمات إضافية (اختياري)"
+                          : "Extra instructions (optional)"}
+                      </Label>
+                      <Textarea
+                        id="hw-prompt"
+                        rows={3}
+                        value={adHocPrompt}
+                        maxLength={20000}
+                        onChange={(e) => setAdHocPrompt(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-3">
+                      <Label htmlFor="hw-rubric">
+                        {lang === "ar" ? "توزيع الدرجات (اختياري)" : "Mark allocation (optional)"}
+                      </Label>
+                      <Textarea
+                        placeholder={
+                          lang === "ar"
+                            ? "مثال: كل سؤال بدرجتين، أو السؤال الأول ٤ درجات والثاني ٦."
+                            : "For example: 2 marks per question, or Q1: 4 marks, Q2: 6 marks."
+                        }
+                        id="hw-rubric"
+                        rows={3}
+                        value={adHocRubric}
+                        maxLength={20000}
+                        onChange={(e) => setAdHocRubric(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
+          </Panel>
+
+          {assessmentId && reference?.kind !== "bubble" && (
+            <Panel className="space-y-4">
+              <h2 className="font-semibold">{t("hwMatchTitle")}</h2>
+              <p className="text-xs text-muted-foreground">{t("hwMatchHint")}</p>
+              <div className="space-y-1.5">
+                <Label>{t("hwMatchTitle")}</Label>
+                <Input
+                  type="file"
+                  accept="image/*,application/pdf,.docx"
+                  multiple
+                  onChange={(e) => {
+                    const fs = [...(e.target.files ?? [])];
+                    e.target.value = "";
+                    if (fs.length) void onMatchFiles(fs);
+                  }}
+                />
+              </div>
+              {matchItems.length > 0 && (
+                <ul className="space-y-3">
+                  {matchItems.map((item) => (
+                    <li key={item.id} className="space-y-2 rounded-md border p-3">
+                      <img
+                        src={item.dataUrl}
+                        alt={item.fileName}
+                        className="max-h-40 rounded-md border object-contain"
+                      />
+                      <p className="text-xs text-muted-foreground">{item.fileName}</p>
+                      {item.graded && (
+                        <p className="flex items-center gap-1.5 text-xs font-medium text-success">
+                          <Check className="size-3.5" aria-hidden /> {t("hwMatchGraded")}
+                        </p>
+                      )}
+                      <div className="space-y-1.5">
+                        <Label>{t("hwMatchStudentName")}</Label>
+                        <Input
+                          value={item.studentName}
+                          onChange={(e) =>
+                            updateMatchItem(item.id, { studentName: e.target.value })
+                          }
+                          placeholder={t("hwMatchStudentName")}
+                        />
+                      </div>
+                      {item.text ? (
+                        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                          {item.text.slice(0, 200)}
+                          {item.text.length > 200 ? "…" : ""}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">{t("hwMatchNoText")}</p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          className="h-9 rounded-md border bg-background px-3 text-sm"
+                          value={item.questionId ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            updateMatchItem(
+                              item.id,
+                              v
+                                ? { questionId: v, method: "manual", confidence: "none" }
+                                : { questionId: null, method: "none", confidence: "none" },
+                            );
+                          }}
+                        >
+                          <option value="">{t("hwMatchNoMatch")}</option>
+                          {(questions ?? []).map((q, qi) => (
+                            <option key={q.id} value={q.id}>
+                              {qi + 1}. {(q.prompt || "").slice(0, 60)}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-muted-foreground">
+                          {item.method === "manual"
+                            ? t("hwMatchMethod_manual")
+                            : `${t(`hwMatchConf_${item.confidence}` as never)} · ${t(`hwMatchMethod_${item.method}` as never)}`}
+                        </span>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => void retryMatchUpload(item)}
+                          disabled={!item.questionId || !item.imagePath}
+                          onClick={() => applyMatchItem(item)}
                         >
-                          {t("hwRetryUpload")}
+                          {t("hwMatchUse")}
                         </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void removeMatchItem(item)}
-                      >
-                        {t("hwMatchRemove")}
-                      </Button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+                        {!item.imagePath && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void retryMatchUpload(item)}
+                          >
+                            {t("hwRetryUpload")}
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void removeMatchItem(item)}
+                        >
+                          {t("hwMatchRemove")}
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={runMatch}
+                  disabled={
+                    matchBusy ||
+                    pendingMatchItems(matchItems).length === 0 ||
+                    matchItems.some((it) => !it.imagePath)
+                  }
+                >
+                  {matchBusy ? t("hwMatchRunning") : t("hwMatchRun")}
+                </Button>
+              </div>
+            </Panel>
+          )}
+
+          <Panel className="space-y-4">
+            <h2 className="font-semibold">
+              {lang === "ar" ? "صورة ورقة الطالب" : "Student paper photo"}
+            </h2>
+            <details>
+              <summary className="cursor-pointer text-sm">
+                {lang === "ar"
+                  ? "الطالب عنده حساب؟ اختاره من هنا (اختياري)"
+                  : "Link to a student account (optional)"}
+              </summary>
+              <div className="mt-3 space-y-1.5">
+                <Label htmlFor="hw-student-account">{t("hwStudentAccount")}</Label>
+                <select
+                  id="hw-student-account"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={studentId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setStudentId(id);
+                    // Prefill the paper name from the account; the teacher
+                    // may still edit the name — the link is what matters.
+                    if (id) {
+                      const s = (approvedStudents ?? []).find((x) => x.id === id);
+                      if (s) setStudentName(s.full_name);
+                    }
+                  }}
+                >
+                  <option value="">{t("hwStudentAccountNone")}</option>
+                  {(approvedStudents ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">{t("hwStudentAccountHint")}</p>
+              </div>
+            </details>
+            <div className="space-y-1.5">
+              <Label htmlFor="hw-student">{t("hwStudentName")}</Label>
+              <Input
+                id="hw-student"
+                value={studentName}
+                maxLength={200}
+                onChange={(e) => setStudentName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="hw-file">{t("hwUpload")}</Label>
+              <Input
+                id="hw-file"
+                type="file"
+                accept="image/*,application/pdf,.docx"
+                onChange={(e) => void onFileChange(e.target.files?.[0])}
+              />
+              <p className="text-xs text-muted-foreground">
+                {lang === "ar"
+                  ? "ارفع صورة واضحة لصفحة واحدة. خلي أرقام الأسئلة زي النموذج، واتأكد إن الورقة كلها ظاهرة."
+                  : "Upload one page per student, matching the reference question numbering. Set total marks and mark allocation above, and review the extracted answers before grading. Images are stored privately."}
+              </p>
+            </div>
+            {imageDataUrl && (
+              <div className="space-y-2">
+                <img
+                  src={imageDataUrl}
+                  alt={imageName}
+                  className="max-h-80 rounded-md border object-contain"
+                />
+                <p className="text-xs text-muted-foreground">{imageName}</p>
+              </div>
             )}
+            {imageDataUrl && uploadingImage && (
+              <p className="text-xs text-muted-foreground">{t("hwUploading")}</p>
+            )}
+            {imageDataUrl && !uploadingImage && !imagePath && (
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs text-destructive">{t("hwImageNotSaved")}</p>
+                <Button size="sm" variant="outline" onClick={retryUpload} disabled={!paperBlob}>
+                  {t("hwRetryUpload")}
+                </Button>
+              </div>
+            )}
+            <p className="rounded-md bg-warning/20 p-3 text-sm">
+              {lang === "ar"
+                ? "بعد قراءة الصورة، راجع الإجابات قبل التصحيح. القراءة ممكن تغلط، خصوصا لو الصورة مش واضحة."
+                : "Check the answers after reading. Reading can be wrong, especially if the photo is unclear."}
+            </p>
+            {ocrError ? (
+              <p role="alert" className="rounded-md bg-destructive/15 p-3 text-sm">
+                {ocrError}
+              </p>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               <Button
-                onClick={runMatch}
-                disabled={
-                  matchBusy ||
-                  pendingMatchItems(matchItems).length === 0 ||
-                  matchItems.some((it) => !it.imagePath)
-                }
+                onClick={runOcr}
+                disabled={!imageDataUrl || busyOcr || visionConfigured === false}
               >
-                {matchBusy ? t("hwMatchRunning") : t("hwMatchRun")}
+                {busyOcr
+                  ? lang === "ar"
+                    ? "بنقرأ ورقة الطالب..."
+                    : "Reading student paper..."
+                  : lang === "ar"
+                    ? "اقرأ إجابات الطالب"
+                    : "Read student answers"}
               </Button>
+              {visionConfigured === false && (
+                <p className="text-xs text-muted-foreground">{t("hwOcrNotConfigured")}</p>
+              )}
             </div>
           </Panel>
-        )}
 
-        <Panel className="space-y-4">
-          <h2 className="font-semibold">{t("hwUpload")}</h2>
-          <div className="space-y-1.5">
-            <Label htmlFor="hw-student-account">{t("hwStudentAccount")}</Label>
-            <select
-              id="hw-student-account"
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={studentId}
-              onChange={(e) => {
-                const id = e.target.value;
-                setStudentId(id);
-                // Prefill the paper name from the account; the teacher
-                // may still edit the name — the link is what matters.
-                if (id) {
-                  const s = (approvedStudents ?? []).find((x) => x.id === id);
-                  if (s) setStudentName(s.full_name);
-                }
-              }}
-            >
-              <option value="">{t("hwStudentAccountNone")}</option>
-              {(approvedStudents ?? []).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.full_name}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">{t("hwStudentAccountHint")}</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="hw-student">{t("hwStudentName")}</Label>
-            <Input
-              id="hw-student"
-              value={studentName}
-              maxLength={200}
-              onChange={(e) => setStudentName(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="hw-file">{t("hwUpload")}</Label>
-            <Input
-              id="hw-file"
-              type="file"
-              accept="image/*,application/pdf,.docx"
-              onChange={(e) => void onFileChange(e.target.files?.[0])}
-            />
-            <p className="text-xs text-muted-foreground">{t("hwUploadHint")}</p>
-          </div>
-          {imageDataUrl && (
-            <div className="space-y-2">
-              <img
-                src={imageDataUrl}
-                alt={imageName}
-                className="max-h-80 rounded-md border object-contain"
-              />
-              <p className="text-xs text-muted-foreground">{imageName}</p>
-            </div>
-          )}
-          {imageDataUrl && uploadingImage && (
-            <p className="text-xs text-muted-foreground">{t("hwUploading")}</p>
-          )}
-          {imageDataUrl && !uploadingImage && !imagePath && (
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs text-destructive">{t("hwImageNotSaved")}</p>
-              <Button size="sm" variant="outline" onClick={retryUpload} disabled={!paperBlob}>
-                {t("hwRetryUpload")}
-              </Button>
-            </div>
-          )}
-          <p className="rounded-md bg-warning/20 p-3 text-sm">{t("hwOcrNote")}</p>
-          {ocrError ? (
-            <p role="alert" className="rounded-md bg-destructive/15 p-3 text-sm">
-              {ocrError}
-            </p>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={runOcr}
-              disabled={!imageDataUrl || busyOcr || visionConfigured === false}
-            >
-              {busyOcr ? t("hwExtracting") : t("hwExtract")}
-            </Button>
-            {visionConfigured === false && (
-              <p className="text-xs text-muted-foreground">{t("hwOcrNotConfigured")}</p>
-            )}
-          </div>
-        </Panel>
-
-        <Panel className="space-y-4">
-          <h2 className="font-semibold">{t("hwExtracted")}</h2>
-          <p className="text-xs text-muted-foreground">{t("hwManualText")}</p>
-          {countUncertainSpans(correctedText) > 0 && (
-            <div className="space-y-1">
+          {(imageDataUrl || correctedText) && (
+            <Panel className="space-y-4">
+              <h2 className="font-semibold">
+                {lang === "ar"
+                  ? "٤. راجع إجابات الطالب وصحّح الورقة"
+                  : "4. Check student answers and grade"}
+              </h2>
               <p className="text-xs text-muted-foreground">
-                {
-                  t("hwUncertainNote", {
-                    count: String(countUncertainSpans(correctedText)),
-                  }) as string
-                }
+                {lang === "ar"
+                  ? "دي الإجابات اللي قرأناها من ورقة الطالب. لو القراءة غلط عدّلها، لكن ما تصلحش إجابة الطالب نفسها."
+                  : "Check what was read from the paper. Fix reading errors, not the student's mistakes."}
               </p>
-              <p className="whitespace-pre-wrap rounded-md border p-3 text-sm" dir="auto">
-                {parseUncertainSpans(correctedText).map((s, i) =>
-                  s.uncertain ? (
-                    <mark key={i} className="bg-amber-200 px-0.5">
-                      {s.text}
-                    </mark>
-                  ) : (
-                    <span key={i}>{s.text}</span>
-                  ),
-                )}
-              </p>
-            </div>
+              {countUncertainSpans(correctedText) > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    {
+                      t("hwUncertainNote", {
+                        count: String(countUncertainSpans(correctedText)),
+                      }) as string
+                    }
+                  </p>
+                  <p className="whitespace-pre-wrap rounded-md border p-3 text-sm" dir="auto">
+                    {parseUncertainSpans(correctedText).map((s, i) =>
+                      s.uncertain ? (
+                        <mark key={i} className="bg-amber-200 px-0.5">
+                          {s.text}
+                        </mark>
+                      ) : (
+                        <span key={i}>{s.text}</span>
+                      ),
+                    )}
+                  </p>
+                </div>
+              )}
+              <Textarea
+                rows={8}
+                value={correctedText}
+                maxLength={20000}
+                onChange={(e) => {
+                  setCorrectedText(e.target.value);
+                  // Editing the text voids the suggestion: it was graded
+                  // against the old text, and must never be saved stale.
+                  setSuggestion(null);
+                }}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={runSuggest}
+                  disabled={
+                    busySuggest || !correctedText.trim() || !questionPrompt.trim() || !maxValid
+                  }
+                >
+                  {busySuggest
+                    ? lang === "ar"
+                      ? "بنصحح الورقة..."
+                      : "Grading..."
+                    : lang === "ar"
+                      ? "صحّح على نموذج الإجابة"
+                      : "Grade against model answers"}
+                </Button>
+              </div>
+              {suggestion && (
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm font-medium">
+                    {t("hwFinalScore")}: {suggestion.suggestedScore} / {maxMarks}
+                  </p>
+                  <p className="whitespace-pre-wrap text-sm text-muted-foreground" dir="auto">
+                    {suggestion.feedback || "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t("hwAiFinalNote")}</p>
+                </div>
+              )}
+            </Panel>
           )}
-          <Textarea
-            rows={8}
-            value={correctedText}
-            maxLength={20000}
-            onChange={(e) => {
-              setCorrectedText(e.target.value);
-              // Editing the text voids the suggestion: it was graded
-              // against the old text, and must never be saved stale.
-              setSuggestion(null);
-            }}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={runSuggest}
-              disabled={busySuggest || !correctedText.trim() || !questionPrompt.trim() || !maxValid}
-            >
-              {busySuggest ? t("hwSuggesting") : t("hwSuggest")}
-            </Button>
-          </div>
+
           {suggestion && (
-            <div className="space-y-2 rounded-md border p-3">
-              <p className="text-sm font-medium">
-                {t("hwFinalScore")}: {suggestion.suggestedScore} / {maxMarks}
-              </p>
-              <p className="whitespace-pre-wrap text-sm text-muted-foreground" dir="auto">
-                {suggestion.feedback || "—"}
-              </p>
+            <Panel className="space-y-4">
+              <h2 className="font-semibold">
+                {lang === "ar" ? "٥. احفظ النتيجة" : "5. Save the result"}
+              </h2>
+              {suggestion ? (
+                <p className="text-lg font-semibold" dir="ltr">
+                  {suggestion.suggestedScore} / {maxMarks}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("hwNeedSuggestion")}</p>
+              )}
               <p className="text-xs text-muted-foreground">{t("hwAiFinalNote")}</p>
-            </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="hw-feedback">{t("feedback")}</Label>
+                <Textarea
+                  id="hw-feedback"
+                  rows={3}
+                  value={teacherFeedback}
+                  maxLength={2000}
+                  onChange={(e) => setTeacherFeedback(e.target.value)}
+                />
+              </div>
+              <Button
+                onClick={save}
+                disabled={
+                  busySave ||
+                  !finalValid ||
+                  imageBlocked ||
+                  !correctedText.trim() ||
+                  !questionPrompt.trim()
+                }
+              >
+                {busySave ? t("hwSaving") : t("hwSaveGrade")}
+              </Button>
+            </Panel>
           )}
-        </Panel>
-
-        <Panel className="space-y-4">
-          <h2 className="font-semibold">{t("hwFinalScore")}</h2>
-          {suggestion ? (
-            <p className="text-lg font-semibold" dir="ltr">
-              {suggestion.suggestedScore} / {maxMarks}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t("hwNeedSuggestion")}</p>
-          )}
-          <p className="text-xs text-muted-foreground">{t("hwAiFinalNote")}</p>
-          <div className="space-y-1.5">
-            <Label htmlFor="hw-feedback">{t("feedback")}</Label>
-            <Textarea
-              id="hw-feedback"
-              rows={3}
-              value={teacherFeedback}
-              maxLength={2000}
-              onChange={(e) => setTeacherFeedback(e.target.value)}
-            />
-          </div>
-          <Button
-            onClick={save}
-            disabled={
-              busySave ||
-              !finalValid ||
-              imageBlocked ||
-              !correctedText.trim() ||
-              !questionPrompt.trim()
-            }
-          >
-            {busySave ? t("hwSaving") : t("hwSaveGrade")}
-          </Button>
-        </Panel>
-
+        </fieldset>
         <Panel className="space-y-3">
           <h2 className="font-semibold">{t("hwHistory")}</h2>
           {similarGroups.length > 0 && (
@@ -1404,6 +1544,12 @@ function Handwritten() {
                       {row.final_score} / {row.max_marks}
                     </span>
                   </div>
+                  {row.reference_title && (
+                    <p className="mt-1 text-xs text-primary">
+                      {lang === "ar" ? "المرجع: " : "Reference: "}
+                      {row.reference_title}
+                    </p>
+                  )}
                   <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
                     {(row.corrected_text || "").slice(0, 200)}
                     {(row.corrected_text || "").length > 200 ? "…" : ""}

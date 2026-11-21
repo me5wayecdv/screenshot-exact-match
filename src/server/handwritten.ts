@@ -1,3 +1,8 @@
+import {
+  paperReadingPrompt,
+  type PaperReadingRole,
+  type PaperReferenceKind,
+} from "./paper-reading-prompt";
 import { aiProviderFetch } from "@/server/ai-provider-fetch";
 
 /**
@@ -108,6 +113,8 @@ export function resolveGeminiConfig(): GeminiConfig | null {
 export type OcrRequest = {
   /** data:image/jpeg|png|webp;base64,... — client-compressed, one photo. */
   imageDataUrl: string;
+  paperRole?: PaperReadingRole;
+  paperKind?: PaperReferenceKind;
   /** Optional: when supplied, ownership is verified server-side. */
   assessmentId?: string;
 };
@@ -143,7 +150,18 @@ function validateRequest(data: unknown): OcrRequest | { error: string } {
   if (imageDataUrl.length > MAX_DATA_URL_CHARS) {
     return { error: "Image is too large. Compress it before uploading." };
   }
-  return { imageDataUrl, ...(assessmentId ? { assessmentId } : {}) };
+  const paperRole = d["paperRole"];
+  const paperKind = d["paperKind"];
+  if (paperRole !== undefined && paperRole !== "reference" && paperRole !== "student")
+    return { error: "Invalid paper role." };
+  if (paperKind !== undefined && paperKind !== "written" && paperKind !== "bubble")
+    return { error: "Invalid paper kind." };
+  return {
+    imageDataUrl,
+    ...(assessmentId ? { assessmentId } : {}),
+    ...(paperRole ? { paperRole } : {}),
+    ...(paperKind ? { paperKind } : {}),
+  };
 }
 
 /** Verify the caller is a teacher/admin and (when given) owns the assessment. */
@@ -487,10 +505,12 @@ export async function runGeminiQuery(
 export async function callVisionOcr(
   config: VisionConfig,
   imageDataUrl: string,
+  paper?: { role: PaperReadingRole; kind: PaperReferenceKind },
 ): Promise<
   | { ok: true; text: string; provider: string; model: string; usage: AiTokenUsage }
   | { ok: false; code: OcrErrorCode; message: string }
 > {
+  const customPrompt = paper ? paperReadingPrompt(paper.role, paper.kind) : null;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
@@ -506,10 +526,11 @@ export async function callVisionOcr(
         signal: controller.signal,
         imageDataUrl,
         prompt:
+          customPrompt ??
           "Transcribe all text visible in this image completely and literally, " +
-          "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
-          "Parts that are unreadable, write [unclear] in their place. " +
-          "Return only the transcription, nothing else.",
+            "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
+            "Parts that are unreadable, write [unclear] in their place. " +
+            "Return only the transcription, nothing else.",
         runGemini: runGeminiQuery,
       });
       if (attempt.outcome === "gemini") {
@@ -549,10 +570,11 @@ export async function callVisionOcr(
           headers,
           controller.signal,
           imageDataUrl,
-          "Transcribe all handwritten text visible in this image exactly, character for character. " +
-            "Do not correct spelling or grammar and do not add any words of your own. " +
-            "Keep line breaks. Parts that are completely unreadable, write [unclear] in their place. " +
-            "Return only the transcription, nothing else.",
+          customPrompt ??
+            "Transcribe all handwritten text visible in this image exactly, character for character. " +
+              "Do not correct spelling or grammar and do not add any words of your own. " +
+              "Keep line breaks. Parts that are completely unreadable, write [unclear] in their place. " +
+              "Return only the transcription, nothing else.",
         );
         if (!llava.ok) return llava;
         return {
@@ -571,10 +593,11 @@ export async function callVisionOcr(
           headers,
           controller.signal,
           imageDataUrl,
-          "Transcribe all text visible in this image completely and literally, " +
-            "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
-            "Parts that are unreadable, write [unclear] in their place. " +
-            "Return only the transcription, nothing else.",
+          customPrompt ??
+            "Transcribe all text visible in this image completely and literally, " +
+              "preserving headings, paragraphs and their order. Do not summarize, correct, or add anything. " +
+              "Parts that are unreadable, write [unclear] in their place. " +
+              "Return only the transcription, nothing else.",
         );
         if (!moon.ok) return moon;
         return {
@@ -591,10 +614,10 @@ export async function callVisionOcr(
         headers,
         body: JSON.stringify({
           messages: [
-            { role: "system", content: OCR_SYSTEM_PROMPT },
+            { role: "system", content: customPrompt ?? OCR_SYSTEM_PROMPT },
             {
               role: "user",
-              content: "استخرج النص المكتوب بخط اليد في هذه الصورة حرفياً.",
+              content: customPrompt ?? "استخرج النص المكتوب بخط اليد في هذه الصورة حرفياً.",
             },
           ],
           image: imageDataUrl,
@@ -700,11 +723,14 @@ export async function callVisionOcr(
         temperature: 0,
         max_tokens: 4000,
         messages: [
-          { role: "system", content: OCR_SYSTEM_PROMPT },
+          { role: "system", content: customPrompt ?? OCR_SYSTEM_PROMPT },
           {
             role: "user",
             content: [
-              { type: "text", text: "استخرج النص المكتوب بخط اليد في هذه الصورة حرفياً." },
+              {
+                type: "text",
+                text: customPrompt ?? "استخرج النص المكتوب بخط اليد في هذه الصورة حرفياً.",
+              },
               { type: "image_url", image_url: { url: imageDataUrl } },
             ],
           },
@@ -807,7 +833,13 @@ export const ocrHandwrittenImage = createServerFn({ method: "POST" })
         message: "AI usage limit reached. Try again later.",
       };
     }
-    const result = await callVisionOcr(config, request.imageDataUrl);
+    const result = await callVisionOcr(
+      config,
+      request.imageDataUrl,
+      request.paperRole
+        ? { role: request.paperRole, kind: request.paperKind ?? "written" }
+        : undefined,
+    );
     if (!result.ok) {
       // AI-F5: the OCR call failed, so the unit consumed above goes back.
       await refundAiQuota(db, auth.userId, 1, quotaConsumedAt, quotaRefundKey);
