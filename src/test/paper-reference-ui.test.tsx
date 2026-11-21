@@ -66,24 +66,28 @@ describe("Teacher confirms reference before student papers", () => {
     show();
     expect(screen.getByLabelText("Student paper")).toBeDisabled();
     await screen.findByRole("option", { name: /نموذج العلوم/ });
-    fireEvent.change(screen.getByLabelText("مرجع معتمد سابقا"), { target: { value: fixture.id } });
+    fireEvent.change(screen.getByLabelText("استخدم نموذج حفظته قبل كده"), {
+      target: { value: fixture.id },
+    });
     expect(screen.getByLabelText("Student paper")).toBeEnabled();
-    expect(screen.getByText("تم اعتماد المرجع: نموذج العلوم")).toBeInTheDocument();
+    expect(screen.getByText("نموذج الإجابة جاهز: نموذج العلوم")).toBeInTheDocument();
     expect(screen.getByText(/1: B\s+2: C/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "اختيار أو رفع مرجع آخر" }));
+    fireEvent.click(screen.getByRole("button", { name: "غيّر النموذج" }));
     expect(screen.getByLabelText("Student paper")).toBeDisabled();
   });
   it("keeps reading separate from confirmation and uses the reference/bubble roles", async () => {
     show();
-    fireEvent.change(screen.getByLabelText("نوع النموذج"), { target: { value: "bubble" } });
-    fireEvent.change(screen.getByLabelText("صورة المرجع فقط، ليست ورقة طالب"), {
+    fireEvent.change(screen.getByLabelText("شكل ورقة الإجابة"), { target: { value: "bubble" } });
+    fireEvent.change(screen.getByLabelText("صورة نموذج الإجابة الصح"), {
       target: { files: [new File(["synthetic"], "key.png", { type: "image/png" })] },
     });
     const read = await screen.findByRole("button", {
-      name: "قراءة إجابات النموذج بالذكاء الاصطناعي",
+      name: "التالي: اقرأ إجابات النموذج",
     });
-    const confirm = screen.getByRole("button", { name: "اعتماد الصورة والإجابات كمرجع للتصحيح" });
-    expect(confirm).toBeDisabled();
+    expect(screen.queryByLabelText("٢. راجع الإجابات")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "الإجابات صح، ابدأ تصحيح الطلبة" }),
+    ).not.toBeInTheDocument();
     fireEvent.click(read);
     await waitFor(() =>
       expect(ocrHandwrittenImage).toHaveBeenCalledWith({
@@ -94,10 +98,11 @@ describe("Teacher confirms reference before student papers", () => {
         },
       }),
     );
+    const confirm = await screen.findByRole("button", { name: "الإجابات صح، ابدأ تصحيح الطلبة" });
     await waitFor(() => expect(confirm).toBeEnabled());
     expect(confirmHwReferenceD1).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Student paper")).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("راجع الإجابات وصححها قبل الاعتماد"), {
+    fireEvent.change(screen.getByLabelText("٢. راجع الإجابات"), {
       target: { value: "1: A\n2: C" },
     });
     fireEvent.click(confirm);
@@ -115,8 +120,9 @@ describe("Teacher confirms reference before student papers", () => {
   });
   it("cannot replace the reference while a student grading operation is in flight", async () => {
     show(true);
-    expect(screen.getByLabelText("مرجع معتمد سابقا")).toBeDisabled();
-    expect(screen.getByLabelText("نوع النموذج")).toBeDisabled();
-    expect(screen.getByLabelText("صورة المرجع فقط، ليست ورقة طالب")).toBeDisabled();
+    await screen.findByRole("option", { name: /نموذج العلوم/ });
+    expect(screen.getByLabelText("استخدم نموذج حفظته قبل كده")).toBeDisabled();
+    expect(screen.getByLabelText("شكل ورقة الإجابة")).toBeDisabled();
+    expect(screen.getByLabelText("صورة نموذج الإجابة الصح")).toBeDisabled();
   });
 });
