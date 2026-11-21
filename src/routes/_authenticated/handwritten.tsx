@@ -277,7 +277,6 @@ function Handwritten() {
   const [questionId, setQuestionId] = useState("");
   const [adHocPrompt, setAdHocPrompt] = useState("");
   const [adHocRubric, setAdHocRubric] = useState("");
-  const [adHocMarks, setAdHocMarks] = useState("10");
   const [studentName, setStudentName] = useState("");
   /** Enrolled-student account link ("" = paper name only, no account). */
   const [reference, setReference] = useState<PaperReference | null>(null);
@@ -370,7 +369,7 @@ function Handwritten() {
   const alternatives = selectedQuestion
     ? ((selectedQuestion.question_keys?.accepted_alternatives as string[]) ?? [])
     : [];
-  const maxMarks = selectedQuestion ? Number(selectedQuestion.marks) : Number(adHocMarks);
+  const maxMarks = selectedQuestion ? Number(selectedQuestion.marks) : 100;
   const maxValid = Number.isFinite(maxMarks) && maxMarks > 0 && maxMarks <= 1000;
   /** Saving requires an AI suggestion: the AI sets the final grade. */
   const finalValid = suggestion !== null && maxValid;
@@ -1053,36 +1052,15 @@ function Handwritten() {
             {lang === "ar" ? "٣. ارفع ورقة الطالب" : "3. Upload a student paper"}
           </legend>
           <Panel className="space-y-4">
-            <h2 className="font-semibold">{lang === "ar" ? "ظبّط الدرجة" : "Set the marks"}</h2>
-            {!selectedQuestion ? (
-              <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="hw-marks">
-                    {lang === "ar" ? "الورقة من كام درجة؟" : "Total marks for this paper"}
-                  </Label>
-                  <Input
-                    id="hw-marks"
-                    type="number"
-                    min={1}
-                    max={1000}
-                    step={0.5}
-                    dir="ltr"
-                    value={adHocMarks}
-                    onChange={(e) => setAdHocMarks(e.target.value)}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {lang === "ar"
-                    ? "اكتب الدرجة الكلية للورقة، مش عدد الأسئلة."
-                    : "Enter the total score for the paper, not the number of questions."}
-                </p>
-              </>
-            ) : (
-              <p className="text-sm">
-                {lang === "ar" ? "درجة السؤال المختار: " : "Selected question marks: "}
-                {maxMarks}
-              </p>
-            )}
+            <p className="text-sm text-muted-foreground">
+              {selectedQuestion
+                ? lang === "ar"
+                  ? "هنستخدم درجة السؤال المسجلة تلقائيا."
+                  : "The saved question marks are used automatically."
+                : lang === "ar"
+                  ? "النتيجة هتظهر كنسبة من ١٠٠، من غير ما تحتاج تحدد مجموع الورقة."
+                  : "Results are shown as a percentage out of 100. No total marks needed."}
+            </p>
             <details>
               <summary className="cursor-pointer text-sm">
                 {lang === "ar"
