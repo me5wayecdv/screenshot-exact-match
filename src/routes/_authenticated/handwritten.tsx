@@ -1003,7 +1003,14 @@ function Handwritten() {
 
   return (
     <>
-      <PageHeader title={t("hwTitle")} subtitle={t("hwSubtitle")} />
+      <PageHeader
+        title={lang === "ar" ? "تصحيح ورق الطلبة" : "Grade student papers"}
+        subtitle={
+          lang === "ar"
+            ? "ارفع نموذج الإجابة، راجعه، وبعدها ارفع ورق الطلبة."
+            : "Upload model answers, check them, then upload student papers."
+        }
+      />
 
       <div className="space-y-6">
         <PaperReferencePanel
@@ -1033,89 +1040,26 @@ function Handwritten() {
         {!reference && (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             {lang === "ar"
-              ? "ارفع نموذج الإجابة واعتمده أولا لفتح رفع وتصحيح أوراق الطلبة."
+              ? "ابدأ بصورة نموذج الإجابة اللي فوق. بعد ما تراجعها وتأكدها، هنفتح لك رفع ورق الطلبة."
               : "Upload and confirm a model answer first to unlock student paper uploads and grading."}
           </p>
         )}
         <fieldset
+          hidden={!reference}
           disabled={!reference || busyOcr || busySuggest || busySave || uploadingImage || matchBusy}
           className="min-w-0 space-y-6 disabled:opacity-60"
         >
           <legend className="mb-4 font-semibold">
-            {lang === "ar"
-              ? "٢. أوراق الطلبة والتصحيح بالمرجع المعتمد"
-              : "2. Student papers and reference-based grading"}
+            {lang === "ar" ? "٣. ارفع ورقة الطالب" : "3. Upload a student paper"}
           </legend>
           <Panel className="space-y-4">
-            <h2 className="font-semibold">{t("hwQuestionContext")}</h2>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="hw-assessment">{t("hwAssessment")}</Label>
-                <select
-                  id="hw-assessment"
-                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                  value={assessmentId}
-                  onChange={(e) => {
-                    setAssessmentId(e.target.value);
-                    setQuestionId("");
-                    setSuggestion(null);
-                    setOcrError(null);
-                  }}
-                >
-                  <option value="">{t("hwAdHoc")}</option>
-                  {(assessments ?? []).map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.title}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {assessmentId && (
+            <h2 className="font-semibold">{lang === "ar" ? "ظبّط الدرجة" : "Set the marks"}</h2>
+            {!selectedQuestion ? (
+              <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="hw-question">{t("hwQuestion")}</Label>
-                  <select
-                    id="hw-question"
-                    className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-                    value={questionId}
-                    onChange={(e) => {
-                      setQuestionId(e.target.value);
-                      setSuggestion(null);
-                      setOcrError(null);
-                    }}
-                  >
-                    <option value="">—</option>
-                    {(questions ?? []).map((q, i) => (
-                      <option key={q.id} value={q.id}>
-                        {i + 1}. {(q.prompt || "").slice(0, 60)} ({Number(q.marks)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            {selectedQuestion ? (
-              <div className="space-y-1 text-sm">
-                <p className="whitespace-pre-wrap">{selectedQuestion.prompt}</p>
-                <p className="text-muted-foreground">
-                  {t("marks")}: {Number(selectedQuestion.marks)}
-                  {rubric ? ` · ${t("hwRubric")}: ${rubric}` : ""}
-                </p>
-              </div>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label htmlFor="hw-prompt">{t("hwQuestionPrompt")}</Label>
-                  <Textarea
-                    id="hw-prompt"
-                    rows={3}
-                    value={adHocPrompt}
-                    maxLength={20000}
-                    onChange={(e) => setAdHocPrompt(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="hw-marks">{t("hwMaxMarks")}</Label>
+                  <Label htmlFor="hw-marks">
+                    {lang === "ar" ? "الورقة من كام درجة؟" : "Total marks for this paper"}
+                  </Label>
                   <Input
                     id="hw-marks"
                     type="number"
@@ -1127,18 +1071,116 @@ function Handwritten() {
                     onChange={(e) => setAdHocMarks(e.target.value)}
                   />
                 </div>
-                <div className="space-y-1.5 md:col-span-3">
-                  <Label htmlFor="hw-rubric">{t("hwRubric")}</Label>
-                  <Textarea
-                    id="hw-rubric"
-                    rows={3}
-                    value={adHocRubric}
-                    maxLength={20000}
-                    onChange={(e) => setAdHocRubric(e.target.value)}
-                  />
-                </div>
-              </div>
+                <p className="text-xs text-muted-foreground">
+                  {lang === "ar"
+                    ? "اكتب الدرجة الكلية للورقة، مش عدد الأسئلة."
+                    : "Enter the total score for the paper, not the number of questions."}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm">
+                {lang === "ar" ? "درجة السؤال المختار: " : "Selected question marks: "}
+                {maxMarks}
+              </p>
             )}
+            <details>
+              <summary className="cursor-pointer text-sm">
+                {lang === "ar"
+                  ? "اختياري: توزيع الدرجات أو اختيار امتحان"
+                  : "Optional: mark allocation or an existing exam"}
+              </summary>
+              <div className="mt-4 space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="hw-assessment">{t("hwAssessment")}</Label>
+                    <select
+                      id="hw-assessment"
+                      className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                      value={assessmentId}
+                      onChange={(e) => {
+                        setAssessmentId(e.target.value);
+                        setQuestionId("");
+                        setSuggestion(null);
+                        setOcrError(null);
+                      }}
+                    >
+                      <option value="">{t("hwAdHoc")}</option>
+                      {(assessments ?? []).map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {assessmentId && (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="hw-question">{t("hwQuestion")}</Label>
+                      <select
+                        id="hw-question"
+                        className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                        value={questionId}
+                        onChange={(e) => {
+                          setQuestionId(e.target.value);
+                          setSuggestion(null);
+                          setOcrError(null);
+                        }}
+                      >
+                        <option value="">—</option>
+                        {(questions ?? []).map((q, i) => (
+                          <option key={q.id} value={q.id}>
+                            {i + 1}. {(q.prompt || "").slice(0, 60)} ({Number(q.marks)})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {selectedQuestion ? (
+                  <div className="space-y-1 text-sm">
+                    <p className="whitespace-pre-wrap">{selectedQuestion.prompt}</p>
+                    <p className="text-muted-foreground">
+                      {t("marks")}: {Number(selectedQuestion.marks)}
+                      {rubric ? ` · ${t("hwRubric")}: ${rubric}` : ""}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label htmlFor="hw-prompt">
+                        {lang === "ar"
+                          ? "تعليمات إضافية (اختياري)"
+                          : "Extra instructions (optional)"}
+                      </Label>
+                      <Textarea
+                        id="hw-prompt"
+                        rows={3}
+                        value={adHocPrompt}
+                        maxLength={20000}
+                        onChange={(e) => setAdHocPrompt(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-3">
+                      <Label htmlFor="hw-rubric">
+                        {lang === "ar" ? "توزيع الدرجات (اختياري)" : "Mark allocation (optional)"}
+                      </Label>
+                      <Textarea
+                        placeholder={
+                          lang === "ar"
+                            ? "مثال: كل سؤال بدرجتين، أو السؤال الأول ٤ درجات والثاني ٦."
+                            : "For example: 2 marks per question, or Q1: 4 marks, Q2: 6 marks."
+                        }
+                        id="hw-rubric"
+                        rows={3}
+                        value={adHocRubric}
+                        maxLength={20000}
+                        onChange={(e) => setAdHocRubric(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
           </Panel>
 
           {assessmentId && reference?.kind !== "bubble" && (
@@ -1262,33 +1304,42 @@ function Handwritten() {
           )}
 
           <Panel className="space-y-4">
-            <h2 className="font-semibold">{t("hwUpload")}</h2>
-            <div className="space-y-1.5">
-              <Label htmlFor="hw-student-account">{t("hwStudentAccount")}</Label>
-              <select
-                id="hw-student-account"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={studentId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  setStudentId(id);
-                  // Prefill the paper name from the account; the teacher
-                  // may still edit the name — the link is what matters.
-                  if (id) {
-                    const s = (approvedStudents ?? []).find((x) => x.id === id);
-                    if (s) setStudentName(s.full_name);
-                  }
-                }}
-              >
-                <option value="">{t("hwStudentAccountNone")}</option>
-                {(approvedStudents ?? []).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.full_name}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">{t("hwStudentAccountHint")}</p>
-            </div>
+            <h2 className="font-semibold">
+              {lang === "ar" ? "صورة ورقة الطالب" : "Student paper photo"}
+            </h2>
+            <details>
+              <summary className="cursor-pointer text-sm">
+                {lang === "ar"
+                  ? "الطالب عنده حساب؟ اختاره من هنا (اختياري)"
+                  : "Link to a student account (optional)"}
+              </summary>
+              <div className="mt-3 space-y-1.5">
+                <Label htmlFor="hw-student-account">{t("hwStudentAccount")}</Label>
+                <select
+                  id="hw-student-account"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={studentId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setStudentId(id);
+                    // Prefill the paper name from the account; the teacher
+                    // may still edit the name — the link is what matters.
+                    if (id) {
+                      const s = (approvedStudents ?? []).find((x) => x.id === id);
+                      if (s) setStudentName(s.full_name);
+                    }
+                  }}
+                >
+                  <option value="">{t("hwStudentAccountNone")}</option>
+                  {(approvedStudents ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.full_name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">{t("hwStudentAccountHint")}</p>
+              </div>
+            </details>
             <div className="space-y-1.5">
               <Label htmlFor="hw-student">{t("hwStudentName")}</Label>
               <Input
@@ -1308,7 +1359,7 @@ function Handwritten() {
               />
               <p className="text-xs text-muted-foreground">
                 {lang === "ar"
-                  ? "ارفع صفحة واحدة لكل طالب، بنفس ترتيب وترقيم أسئلة المرجع. حدد الدرجة الكلية ومعايير توزيعها أعلاه، وراجع الإجابات المستخرجة قبل اقتراح الدرجة. الصورة محفوظة بشكل خاص."
+                  ? "ارفع صورة واضحة لصفحة واحدة. خلي أرقام الأسئلة زي النموذج، واتأكد إن الورقة كلها ظاهرة."
                   : "Upload one page per student, matching the reference question numbering. Set total marks and mark allocation above, and review the extracted answers before grading. Images are stored privately."}
               </p>
             </div>
@@ -1333,7 +1384,11 @@ function Handwritten() {
                 </Button>
               </div>
             )}
-            <p className="rounded-md bg-warning/20 p-3 text-sm">{t("hwOcrNote")}</p>
+            <p className="rounded-md bg-warning/20 p-3 text-sm">
+              {lang === "ar"
+                ? "بعد قراءة الصورة، راجع الإجابات قبل التصحيح. القراءة ممكن تغلط، خصوصا لو الصورة مش واضحة."
+                : "Check the answers after reading. Reading can be wrong, especially if the photo is unclear."}
+            </p>
             {ocrError ? (
               <p role="alert" className="rounded-md bg-destructive/15 p-3 text-sm">
                 {ocrError}
@@ -1344,7 +1399,13 @@ function Handwritten() {
                 onClick={runOcr}
                 disabled={!imageDataUrl || busyOcr || visionConfigured === false}
               >
-                {busyOcr ? t("hwExtracting") : t("hwExtract")}
+                {busyOcr
+                  ? lang === "ar"
+                    ? "بنقرأ ورقة الطالب..."
+                    : "Reading student paper..."
+                  : lang === "ar"
+                    ? "اقرأ إجابات الطالب"
+                    : "Read student answers"}
               </Button>
               {visionConfigured === false && (
                 <p className="text-xs text-muted-foreground">{t("hwOcrNotConfigured")}</p>
@@ -1352,99 +1413,119 @@ function Handwritten() {
             </div>
           </Panel>
 
-          <Panel className="space-y-4">
-            <h2 className="font-semibold">{t("hwExtracted")}</h2>
-            <p className="text-xs text-muted-foreground">{t("hwManualText")}</p>
-            {countUncertainSpans(correctedText) > 0 && (
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">
-                  {
-                    t("hwUncertainNote", {
-                      count: String(countUncertainSpans(correctedText)),
-                    }) as string
+          {(imageDataUrl || correctedText) && (
+            <Panel className="space-y-4">
+              <h2 className="font-semibold">
+                {lang === "ar"
+                  ? "٤. راجع إجابات الطالب وصحّح الورقة"
+                  : "4. Check student answers and grade"}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {lang === "ar"
+                  ? "دي الإجابات اللي قرأناها من ورقة الطالب. لو القراءة غلط عدّلها، لكن ما تصلحش إجابة الطالب نفسها."
+                  : "Check what was read from the paper. Fix reading errors, not the student's mistakes."}
+              </p>
+              {countUncertainSpans(correctedText) > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    {
+                      t("hwUncertainNote", {
+                        count: String(countUncertainSpans(correctedText)),
+                      }) as string
+                    }
+                  </p>
+                  <p className="whitespace-pre-wrap rounded-md border p-3 text-sm" dir="auto">
+                    {parseUncertainSpans(correctedText).map((s, i) =>
+                      s.uncertain ? (
+                        <mark key={i} className="bg-amber-200 px-0.5">
+                          {s.text}
+                        </mark>
+                      ) : (
+                        <span key={i}>{s.text}</span>
+                      ),
+                    )}
+                  </p>
+                </div>
+              )}
+              <Textarea
+                rows={8}
+                value={correctedText}
+                maxLength={20000}
+                onChange={(e) => {
+                  setCorrectedText(e.target.value);
+                  // Editing the text voids the suggestion: it was graded
+                  // against the old text, and must never be saved stale.
+                  setSuggestion(null);
+                }}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={runSuggest}
+                  disabled={
+                    busySuggest || !correctedText.trim() || !questionPrompt.trim() || !maxValid
                   }
-                </p>
-                <p className="whitespace-pre-wrap rounded-md border p-3 text-sm" dir="auto">
-                  {parseUncertainSpans(correctedText).map((s, i) =>
-                    s.uncertain ? (
-                      <mark key={i} className="bg-amber-200 px-0.5">
-                        {s.text}
-                      </mark>
-                    ) : (
-                      <span key={i}>{s.text}</span>
-                    ),
-                  )}
-                </p>
+                >
+                  {busySuggest
+                    ? lang === "ar"
+                      ? "بنصحح الورقة..."
+                      : "Grading..."
+                    : lang === "ar"
+                      ? "صحّح على نموذج الإجابة"
+                      : "Grade against model answers"}
+                </Button>
               </div>
-            )}
-            <Textarea
-              rows={8}
-              value={correctedText}
-              maxLength={20000}
-              onChange={(e) => {
-                setCorrectedText(e.target.value);
-                // Editing the text voids the suggestion: it was graded
-                // against the old text, and must never be saved stale.
-                setSuggestion(null);
-              }}
-            />
-            <div className="flex flex-wrap gap-2">
+              {suggestion && (
+                <div className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm font-medium">
+                    {t("hwFinalScore")}: {suggestion.suggestedScore} / {maxMarks}
+                  </p>
+                  <p className="whitespace-pre-wrap text-sm text-muted-foreground" dir="auto">
+                    {suggestion.feedback || "—"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t("hwAiFinalNote")}</p>
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {suggestion && (
+            <Panel className="space-y-4">
+              <h2 className="font-semibold">
+                {lang === "ar" ? "٥. احفظ النتيجة" : "5. Save the result"}
+              </h2>
+              {suggestion ? (
+                <p className="text-lg font-semibold" dir="ltr">
+                  {suggestion.suggestedScore} / {maxMarks}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("hwNeedSuggestion")}</p>
+              )}
+              <p className="text-xs text-muted-foreground">{t("hwAiFinalNote")}</p>
+              <div className="space-y-1.5">
+                <Label htmlFor="hw-feedback">{t("feedback")}</Label>
+                <Textarea
+                  id="hw-feedback"
+                  rows={3}
+                  value={teacherFeedback}
+                  maxLength={2000}
+                  onChange={(e) => setTeacherFeedback(e.target.value)}
+                />
+              </div>
               <Button
-                variant="outline"
-                onClick={runSuggest}
+                onClick={save}
                 disabled={
-                  busySuggest || !correctedText.trim() || !questionPrompt.trim() || !maxValid
+                  busySave ||
+                  !finalValid ||
+                  imageBlocked ||
+                  !correctedText.trim() ||
+                  !questionPrompt.trim()
                 }
               >
-                {busySuggest ? t("hwSuggesting") : t("hwSuggest")}
+                {busySave ? t("hwSaving") : t("hwSaveGrade")}
               </Button>
-            </div>
-            {suggestion && (
-              <div className="space-y-2 rounded-md border p-3">
-                <p className="text-sm font-medium">
-                  {t("hwFinalScore")}: {suggestion.suggestedScore} / {maxMarks}
-                </p>
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground" dir="auto">
-                  {suggestion.feedback || "—"}
-                </p>
-                <p className="text-xs text-muted-foreground">{t("hwAiFinalNote")}</p>
-              </div>
-            )}
-          </Panel>
-
-          <Panel className="space-y-4">
-            <h2 className="font-semibold">{t("hwFinalScore")}</h2>
-            {suggestion ? (
-              <p className="text-lg font-semibold" dir="ltr">
-                {suggestion.suggestedScore} / {maxMarks}
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("hwNeedSuggestion")}</p>
-            )}
-            <p className="text-xs text-muted-foreground">{t("hwAiFinalNote")}</p>
-            <div className="space-y-1.5">
-              <Label htmlFor="hw-feedback">{t("feedback")}</Label>
-              <Textarea
-                id="hw-feedback"
-                rows={3}
-                value={teacherFeedback}
-                maxLength={2000}
-                onChange={(e) => setTeacherFeedback(e.target.value)}
-              />
-            </div>
-            <Button
-              onClick={save}
-              disabled={
-                busySave ||
-                !finalValid ||
-                imageBlocked ||
-                !correctedText.trim() ||
-                !questionPrompt.trim()
-              }
-            >
-              {busySave ? t("hwSaving") : t("hwSaveGrade")}
-            </Button>
-          </Panel>
+            </Panel>
+          )}
         </fieldset>
         <Panel className="space-y-3">
           <h2 className="font-semibold">{t("hwHistory")}</h2>
